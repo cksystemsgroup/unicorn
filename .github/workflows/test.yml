@@ -1,0 +1,59 @@
+name: Test
+
+on:
+  push:
+    paths-ignore:
+      - '**.md'
+      - 'docs'
+      - 'AUTHORS'
+      - 'LICENSE'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs'
+      - 'AUTHORS'
+      - 'LICENSE'
+  schedule:
+    # trigger daily at 12am
+    - cron: '0 0 * * *'
+
+env:
+  CARGO_TERM_COLOR: always
+
+# TODO: docker is not supported for Github MacOs virtual environments.
+# This is a problem, because "cross" needs docker to cross compile rust code
+
+#jobs:
+#  macos:
+#    name: build and test on macos
+#    runs-on: macos-latest
+#    steps:
+#      - uses: actions/checkout@v2
+#      - name: Install llvm
+#        run: |
+#          brew install llvm
+#          echo "::add-path::/usr/local/opt/llvm/bin"
+#      - name: Install rust cross compiler
+#        run: |
+#          cargo install cross
+#          rustup target add riscv64gc-unknown-linux-gnu
+#      - name: Build
+#        run: cargo build
+#      - name: Test
+#        run: cargo test
+
+jobs:
+  linux:
+    name: build and test on linux
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install rust cross compiler
+        run: |
+          cargo install cross
+          rustup target add riscv64gc-unknown-linux-gnu
+      - name: Build
+        run: cargo build --verbose
+      - name: Test
+        run: cargo test --verbose
+
