@@ -1,0 +1,13 @@
+[package]
+name = "symbolic"
+version = "0.1.0"
+authors = ["Christian Mösl <christian.moesl@live.at>"]
+edition = "2018"
+
+[[bin]]
+name = "division-by-zero-3-35"
+path = "division-by-zero-3-35.rs"
+
+
+
+[dependencies]
