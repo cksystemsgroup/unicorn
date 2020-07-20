@@ -9,7 +9,7 @@ pub fn compile_example(source_file: &Path) -> Result<PathBuf, &str> {
     match source_file.extension() {
         Some(extension) if extension == "c" => compile_c(source_file),
         Some(extension) if extension == "rs" => compile_rust(source_file),
-        Some(_) | None => Err("file is not a C or Rust source file"),
+        _ => Err("file is not a C or Rust source file"),
     }
 }
 
@@ -36,41 +36,39 @@ fn validate_example(source_file: &Path) -> Result<(), &str> {
 fn compile_c(source_file: &Path) -> Result<PathBuf, &str> {
     validate_example(source_file)?;
 
-    let mut object_file = PathBuf::new();
-    object_file.set_file_name(source_file.clone().file_stem().unwrap());
-    object_file.set_extension("o");
+    let directory = source_file.parent().unwrap();
+    let target = source_file.with_extension("o");
 
     Command::new("make")
-        .arg(object_file.to_str().unwrap())
-        .current_dir(Path::new("symbolic"))
+        .arg(target.file_name().unwrap())
+        .current_dir(directory)
         .output()
         .map_err(|_| "Rust compile command was not successfull")?;
 
-    Ok(Path::new("symbolic").join(object_file.as_path()))
+    Ok(target)
 }
 
 fn compile_rust(source_file: &Path) -> Result<PathBuf, &str> {
     validate_example(source_file)?;
 
-    let example_name = source_file.file_stem().unwrap().to_str().unwrap();
+    let directory = source_file.parent().unwrap();
+    let target = source_file.with_extension("");
 
     Command::new("cross")
         .arg("build")
         .arg("--target")
         .arg("riscv64gc-unknown-linux-gnu")
         .arg("--bin")
-        .arg(example_name)
-        .current_dir(Path::new("symbolic"))
+        .arg(target.file_name().unwrap())
+        .current_dir(directory)
         .output()
         .map_err(|_| "Rust compile command was not successfull")?;
 
-    let out = format!("{}/{}", RUST_TARGET_DIR, example_name);
-    let dst = format!("symbolic/{}.o", example_name);
+    let out = Path::new(RUST_TARGET_DIR).join(target.file_name().unwrap());
 
-    fs::copy(&out, &dst)
-        .map_err(|_| "unable to copy compilation result to destination")?;
+    fs::copy(&out, &target).map_err(|_| "unable to copy compilation result to destination")?;
 
-    Ok(Path::new(dst.as_str()).to_path_buf())
+    Ok(target)
 }
 
 fn clean(object_file: &Path) {

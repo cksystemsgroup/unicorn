@@ -4,11 +4,8 @@ version = "0.1.0"
 authors = ["Christian Mösl <christian.moesl@live.at>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 goblin = "0.2"
-riscv-decode = { git = "https://github.com/ChristianMoesl/riscv-decode" }
 byteorder = "1.3.4"
 
 [dev-dependencies]
