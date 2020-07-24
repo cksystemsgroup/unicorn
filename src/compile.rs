@@ -1,7 +1,7 @@
 use std::str;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 const RUST_TARGET_DIR: &str = "symbolic/target/riscv64gc-unknown-linux-gnu/debug";
 
@@ -105,6 +105,14 @@ mod tests {
         let source_path = Path::new("symbolic/division-by-zero-3-35.rs");
 
         let result = compile_example(source_path);
+
+        let status = Command::new("docker")
+            .arg("info")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .status();
+
+        assert!(status.is_ok() && status.unwrap().success(), "docker daemon is running");
 
         assert!(result.is_ok(), "can compile Rust source file");
 
