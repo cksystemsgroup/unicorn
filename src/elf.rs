@@ -1,15 +1,32 @@
-use core::ops::Range;
 use goblin::elf::{
     header::header64::Header, program_header::program_header64::ProgramHeader, program_header::*,
 };
 use std::path::Path;
 use std::fs;
+use byteorder::{ByteOrder, LittleEndian};
 
 /// Natie page size
 const PAGE_SIZE: usize = 4096;
 
 /// Segment is writable.
 const PF_W: u32 = 1 << 1;
+
+fn extract_string(string_data: &[u8], sh_name: usize) -> &str {
+    let mut len = 0;
+
+    loop {
+        let c = string_data[sh_name + len];
+
+        if c == 0 {
+            break;
+        }
+
+        len += 1;
+    }
+
+    return std::str::from_utf8(&string_data[sh_name..sh_name + len])
+        .expect("can not read string from elf binary");
+}
 
 /// Read raw bytes into a typed value.
 trait ReadRaw {
@@ -33,6 +50,7 @@ impl ReadRaw for [u8] {
 pub struct ElfMetadata {
     /// The entry virtual address.
     pub entry_address: u64,
+    pub code_length: u64,
 }
 
 pub unsafe fn load_file(object_file: &Path, memory_limit: usize) -> Option<(Vec<u8>, ElfMetadata)> {
@@ -52,7 +70,7 @@ pub unsafe fn load(image: &[u8], memory_limit: usize) -> Option<(Vec<u8>, ElfMet
     }
 
     let memory_in_bytes = memory_limit * 1024 * 1024;
-    let va_space = 0.. memory_in_bytes - 1;
+    // let va_space = 0.. memory_in_bytes - 1;
     let mut memory: Vec<u8> = vec![0; memory_in_bytes];
 
     let mut segments = &image[header.e_phoff as usize..];
@@ -90,8 +108,16 @@ pub unsafe fn load(image: &[u8], memory_limit: usize) -> Option<(Vec<u8>, ElfMet
             &image[(ph.p_offset as usize)..((ph.p_offset as usize) + (ph.p_filesz as usize))]
         );
     }
+
+    // TODO: this does only work for RISCU binaries
+    let code_length = match image.chunks(8).nth(15) {
+        Some(chunk) => LittleEndian::read_u64(chunk),
+        None => 0u64,
+    };
+
     Some((memory, ElfMetadata {
         entry_address: header.e_entry,
+        code_length,
     }))
 }
 

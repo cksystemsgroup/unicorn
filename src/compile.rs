@@ -1,7 +1,7 @@
 use std::str;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 const RUST_TARGET_DIR: &str = "symbolic/target/riscv64gc-unknown-linux-gnu/debug";
 
@@ -83,6 +83,7 @@ fn clean(object_file: &Path) {
 mod tests {
     use super::*;
     use serial_test::serial;
+    use std::process::Stdio;
 
     #[test]
     #[serial] // execute it in serial because we manipulate files
