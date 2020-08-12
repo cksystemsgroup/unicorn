@@ -135,7 +135,7 @@ mod tests {
     fn can_load_elf_binary() {
         let test_file = Path::new("division-by-zero-3-35.o");
 
-        let res = unsafe { load_file(test_file, 10) };
+        let _res = unsafe { load_file(test_file, 10) };
 
         // file is not generated in CI pipeline yet
         // assert!(res.is_some(), "can load ELF file");

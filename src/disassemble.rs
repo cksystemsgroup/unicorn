@@ -199,6 +199,6 @@ mod tests {
         // TODO: test more than just this result
         assert!(result.is_ok());
 
-        std::fs::remove_file(test_file);
+        let _ = std::fs::remove_file(test_file);
     }
 }
