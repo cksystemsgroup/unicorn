@@ -1,16 +1,19 @@
+use byteorder::{ByteOrder, LittleEndian};
 use goblin::elf::{
     header::header64::Header, program_header::program_header64::ProgramHeader, program_header::*,
 };
-use std::path::Path;
 use std::fs;
-use byteorder::{ByteOrder, LittleEndian};
+use std::path::Path;
 
-/// Natie page size
+/// Native page size
+#[allow(dead_code)]
 const PAGE_SIZE: usize = 4096;
 
 /// Segment is writable.
+#[allow(dead_code)]
 const PF_W: u32 = 1 << 1;
 
+#[allow(dead_code)]
 fn extract_string(string_data: &[u8], sh_name: usize) -> &str {
     let mut len = 0;
 
@@ -24,8 +27,8 @@ fn extract_string(string_data: &[u8], sh_name: usize) -> &str {
         len += 1;
     }
 
-    return std::str::from_utf8(&string_data[sh_name..sh_name + len])
-        .expect("can not read string from elf binary");
+    std::str::from_utf8(&string_data[sh_name..sh_name + len])
+        .expect("can not read string from elf binary")
 }
 
 /// Read raw bytes into a typed value.
@@ -54,7 +57,7 @@ pub struct ElfMetadata {
 }
 
 pub unsafe fn load_file(object_file: &Path, memory_limit: usize) -> Option<(Vec<u8>, ElfMetadata)> {
-    return match fs::read(object_file) {
+    match fs::read(object_file) {
         Ok(buffer) => load(buffer.as_slice(), memory_limit),
         _ => None,
     }
@@ -105,7 +108,7 @@ pub unsafe fn load(image: &[u8], memory_limit: usize) -> Option<(Vec<u8>, ElfMet
         // }
 
         memory[0..ph.p_filesz as usize].clone_from_slice(
-            &image[(ph.p_offset as usize)..((ph.p_offset as usize) + (ph.p_filesz as usize))]
+            &image[(ph.p_offset as usize)..((ph.p_offset as usize) + (ph.p_filesz as usize))],
         );
     }
 
@@ -115,12 +118,14 @@ pub unsafe fn load(image: &[u8], memory_limit: usize) -> Option<(Vec<u8>, ElfMet
         None => 0u64,
     };
 
-    Some((memory, ElfMetadata {
-        entry_address: header.e_entry,
-        code_length,
-    }))
+    Some((
+        memory,
+        ElfMetadata {
+            entry_address: header.e_entry,
+            code_length,
+        },
+    ))
 }
-
 
 #[cfg(test)]
 mod tests {

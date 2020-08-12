@@ -1,12 +1,12 @@
 use clap::{App, Arg};
-use std::path::Path;
-use std::process;
 use std::fmt::Display;
+use std::path::Path;
 
-mod elf;
-mod decode;
+mod cfg;
 mod compile;
+mod decode;
 mod disassemble;
+mod elf;
 
 use compile::compile_example;
 use disassemble::disassemble_riscu;
@@ -42,7 +42,7 @@ fn main() {
                 println!("{}", e);
                 std::process::exit(1);
             }
-            Ok(x) => x
+            Ok(x) => x,
         }
     }
 

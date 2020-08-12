@@ -1,7 +1,7 @@
-use std::str;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::str;
 
 const RUST_TARGET_DIR: &str = "symbolic/target/riscv64gc-unknown-linux-gnu/debug";
 
@@ -16,10 +16,12 @@ pub fn compile_example(source_file: &Path) -> Result<PathBuf, &str> {
 fn validate_example(source_file: &Path) -> Result<(), &str> {
     let path = Path::new(source_file);
 
-    let canonical_dir = path.canonicalize()
+    let canonical_dir = path
+        .canonicalize()
         .map_err(|_| "is not a valid file path")?;
 
-    let parent_dir = canonical_dir.parent()
+    let parent_dir = canonical_dir
+        .parent()
         .ok_or_else(|| "choose a source file from ./symbolic")?;
 
     let symbolic_dir = Path::new("symbolic").canonicalize().unwrap();
@@ -71,10 +73,15 @@ fn compile_rust(source_file: &Path) -> Result<PathBuf, &str> {
     Ok(target)
 }
 
+#[allow(dead_code)]
 fn clean(object_file: &Path) {
     let _ = fs::remove_file(object_file);
 
-    let rust_object = format!("{}/{}", RUST_TARGET_DIR, object_file.file_stem().unwrap().to_str().unwrap());
+    let rust_object = format!(
+        "{}/{}",
+        RUST_TARGET_DIR,
+        object_file.file_stem().unwrap().to_str().unwrap()
+    );
 
     let _ = fs::remove_file(rust_object);
 }
@@ -113,7 +120,10 @@ mod tests {
             .stderr(Stdio::piped())
             .status();
 
-        assert!(status.is_ok() && status.unwrap().success(), "docker daemon is running");
+        assert!(
+            status.is_ok() && status.unwrap().success(),
+            "docker daemon is running"
+        );
 
         assert!(result.is_ok(), "can compile Rust source file");
 
