@@ -7,6 +7,7 @@ use riscv_decode::Instruction;
 use std::path::Path;
 use std::vec::Vec;
 
+type Edge = (NodeIndex, NodeIndex, usize);
 type ControlFlowGraph = Graph<Instruction, usize>;
 
 struct CfgBuilder {
@@ -38,14 +39,24 @@ impl CfgBuilder {
         }
     }
 
-    fn is_control_flow_instruction(&mut self, idx: NodeIndex) -> bool {
+    fn is_not_trivial_control_flow_instruction(&mut self, idx: NodeIndex) -> bool {
         let instruction = self.graph[idx];
 
         match instruction {
             Instruction::Jal(_) => true,
             Instruction::Jalr(_) => true,
-            Instruction::Beq(_) => true,
             _ => false,
+        }
+    }
+
+    fn construct_beq_non_trivial_edges(&mut self, idx: NodeIndex) -> Option<Edge> {
+        let instruction = self.graph[idx];
+
+        match instruction {
+            Instruction::Beq(i) => {
+                Some((idx, NodeIndex::new((i.imm() / 4) as usize + idx.index()), 0))
+            }
+            _ => None,
         }
     }
 
@@ -53,9 +64,9 @@ impl CfgBuilder {
         let indices = self.graph.node_indices();
         let len = indices.len() - 1;
 
-        let edges: Vec<(NodeIndex, NodeIndex, usize)> = indices
+        let edges: Vec<Edge> = indices
             .take(len)
-            .filter(|i| !self.is_control_flow_instruction(*i))
+            .filter(|i| !self.is_not_trivial_control_flow_instruction(*i))
             .map(|idx| {
                 (
                     NodeIndex::new(idx.index()),
@@ -71,10 +82,15 @@ impl CfgBuilder {
     }
 
     fn compute_beq_edges(&mut self) {
-        // let indices = self.graph.node_indices();
-        // let len = indices.len() - 1;
+        let indices = self.graph.node_indices();
 
-        // let beqs = indices.filter(predicate: P)
+        let edges: Vec<Edge> = indices
+            .filter_map(|i| self.construct_beq_non_trivial_edges(i))
+            .collect();
+
+        edges.iter().for_each(|e| {
+            self.graph.add_edge(e.0, e.1, e.2);
+        });
     }
 
     fn build(binary: &[u8]) -> ControlFlowGraph {
