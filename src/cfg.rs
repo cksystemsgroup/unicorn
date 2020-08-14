@@ -9,8 +9,44 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::vec::Vec;
 
+/*
+    trivial edges (pc = pc + 4;)
+        any non control flow instruction
+        beq: false edge
+    pure edges
+        beq: true edge
+        jal: when link not used (=> rd is zero)
+    stateful edges
+        jal: when link is used (=> rd is ra)
+        jalr
+
+
+Assumptions:
+*/
+
+// TODO: labeled stateful edges
+// TODO: detect exit
+
 type Edge = (NodeIndex, NodeIndex, Option<NodeIndex>);
 type ControlFlowGraph = Graph<Instruction, Option<NodeIndex>>;
+
+fn sign_extend(n: u32, b: u32) -> u32 {
+    // assert: 0 <= n <= 2^b
+    // assert: 0 < b < CPUBITWIDTH
+    if n < 2_u32.pow(b - 1) {
+        n
+    } else {
+        n.wrapping_sub(2_u32.pow(b))
+    }
+}
+
+fn calculate_beq_destination(idx: NodeIndex, imm: u32) -> NodeIndex {
+    NodeIndex::new(sign_extend(imm / 4, 11).wrapping_add(idx.index() as u32) as usize)
+}
+
+fn calculate_jal_destination(idx: NodeIndex, imm: u32) -> NodeIndex {
+    NodeIndex::new(sign_extend(imm / 4, 19).wrapping_add(idx.index() as u32) as usize)
+}
 
 fn create_instruction_graph(binary: &[u8]) -> ControlFlowGraph {
     binary
@@ -27,14 +63,6 @@ fn create_instruction_graph(binary: &[u8]) -> ControlFlowGraph {
 fn construct_edge_if_trivial(graph: &ControlFlowGraph, idx: NodeIndex) -> Option<Edge> {
     match graph[idx] {
         Instruction::Jal(_) | Instruction::Jalr(_) => None,
-        Instruction::Beq(i) => {
-            // TODO: Handle negative immediate values
-            Some((
-                idx,
-                NodeIndex::new((i.imm() / 4) as usize + idx.index()),
-                None,
-            ))
-        }
         _ if idx.index() + 1 < graph.node_count() => {
             Some((idx, NodeIndex::new(idx.index() + 1), None))
         }
@@ -42,33 +70,37 @@ fn construct_edge_if_trivial(graph: &ControlFlowGraph, idx: NodeIndex) -> Option
     }
 }
 
-fn compute_trivial_edges(graph: &ControlFlowGraph) -> Vec<Edge> {
-    graph
-        .node_indices()
-        .filter_map(|idx| construct_edge_if_trivial(graph, idx))
-        .collect::<Vec<Edge>>()
-}
-
-fn sign_extend(n: u32, b: u32) -> u32 {
-    // assert: 0 <= n <= 2^b
-    // assert: 0 < b < CPUBITWIDTH
-    if n < 2_u32.pow(b - 1) {
-        n
-    } else {
-        n.wrapping_sub(2_u32.pow(b))
+fn construct_edge_if_pure(graph: &ControlFlowGraph, idx: NodeIndex) -> Option<Edge> {
+    match graph[idx] {
+        Instruction::Jal(i) if i.rd() == 0 => {
+            Some((idx, calculate_jal_destination(idx, i.imm()), None))
+        }
+        Instruction::Beq(i) => Some((idx, calculate_beq_destination(idx, i.imm()), None)),
+        _ => None,
     }
 }
 
-/// Compute all return locations from a function
+fn compute_edges<F>(graph: &ControlFlowGraph, f: F) -> Vec<Edge>
+where
+    F: Fn(&ControlFlowGraph, NodeIndex) -> Option<Edge>,
+{
+    graph
+        .node_indices()
+        .filter_map(|idx| f(graph, idx))
+        .collect::<Vec<Edge>>()
+}
+
+/// Compute all return locations in a given function starting at idx
 fn compute_return_edge_position(graph: &ControlFlowGraph, idx: NodeIndex) -> HashSet<NodeIndex> {
-    // println!("visit: {:?}", graph[idx]);
     match graph[idx] {
         Instruction::Jalr(_) => {
             let mut set = HashSet::new();
             set.insert(idx);
             set
         }
-        Instruction::Jal(_) => compute_return_edge_position(graph, NodeIndex::new(idx.index() + 1)),
+        Instruction::Jal(i) if i.rd() != 0 => {
+            compute_return_edge_position(graph, NodeIndex::new(idx.index() + 1))
+        }
         _ => graph
             .edges(idx)
             .flat_map(|e| compute_return_edge_position(graph, e.target()))
@@ -76,23 +108,17 @@ fn compute_return_edge_position(graph: &ControlFlowGraph, idx: NodeIndex) -> Has
     }
 }
 
-fn compute_only_for_jal(idx: NodeIndex, graph: &ControlFlowGraph) -> Option<Vec<Edge>> {
+fn construct_edge_if_stateful(idx: NodeIndex, graph: &ControlFlowGraph) -> Option<Vec<Edge>> {
     match graph[idx] {
-        Instruction::Jal(jtype) => {
-            let imm_signed = sign_extend(jtype.imm() / 4, 19);
-            let jump_dest = NodeIndex::new(imm_signed.wrapping_add(idx.index() as u32) as usize);
+        Instruction::Jal(jtype) if jtype.rd() != 0 => {
+            // jump and link => function call
+            let jump_dest = calculate_jal_destination(idx, jtype.imm());
             let return_dest = NodeIndex::new(idx.index() + 1);
 
-            let mut edges = if jtype.rd() == 0 {
-                // jump and drop link
-                Vec::<Edge>::new()
-            } else {
-                // jump and link => function call
-                compute_return_edge_position(graph, jump_dest)
-                    .iter()
-                    .map(|rp| (*rp, return_dest, Some(idx)))
-                    .collect::<Vec<Edge>>()
-            };
+            let mut edges = compute_return_edge_position(graph, jump_dest)
+                .iter()
+                .map(|rp| (*rp, return_dest, Some(idx)))
+                .collect::<Vec<Edge>>();
 
             let call_edge = (idx, jump_dest, Some(idx));
 
@@ -104,11 +130,10 @@ fn compute_only_for_jal(idx: NodeIndex, graph: &ControlFlowGraph) -> Option<Vec<
     }
 }
 
-fn compute_jal_edges(graph: &ControlFlowGraph) -> Vec<Edge> {
-    let indices = graph.node_indices();
-
-    indices
-        .filter_map(|idx| compute_only_for_jal(idx, graph))
+fn compute_stateful_edges(graph: &ControlFlowGraph) -> Vec<Edge> {
+    graph
+        .node_indices()
+        .filter_map(|idx| construct_edge_if_stateful(idx, graph))
         .flatten()
         .collect()
 }
@@ -122,10 +147,13 @@ fn build(binary: &[u8]) -> ControlFlowGraph {
         });
     }
 
-    let edges = compute_trivial_edges(&graph);
+    let edges = compute_edges(&graph, construct_edge_if_trivial);
     add_edges(&mut graph, edges);
 
-    let jump_edges = compute_jal_edges(&graph);
+    let pure_edges = compute_edges(&graph, construct_edge_if_pure);
+    add_edges(&mut graph, pure_edges);
+
+    let jump_edges = compute_stateful_edges(&graph);
     add_edges(&mut graph, jump_edges);
 
     graph
@@ -147,7 +175,7 @@ pub fn build_from_file(file: &Path) -> Result<ControlFlowGraph, &str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use petgraph::dot::{Config, Dot};
+    use petgraph::dot::Dot;
     use serial_test::serial;
     use std::env::current_dir;
     use std::fs::File;
@@ -178,7 +206,7 @@ mod tests {
 
         let graph = build_from_file(test_file).unwrap();
 
-        let dot_graph = Dot::with_config(&graph, &[Config::EdgeNoLabel]);
+        let dot_graph = Dot::with_config(&graph, &[]);
 
         let mut f = File::create("tmp-graph.dot").unwrap();
         f.write_fmt(format_args!("{:?}", dot_graph)).unwrap();
