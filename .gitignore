@@ -1,2 +1,4 @@
 **/target
 *.o
+tmp-graph.dot
+main.png

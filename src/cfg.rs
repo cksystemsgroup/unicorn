@@ -1,5 +1,6 @@
 use crate::elf::load_file;
 use byteorder::{ByteOrder, LittleEndian};
+use petgraph::graph::EdgeIndex;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 use petgraph::Graph;
@@ -23,9 +24,6 @@ use std::vec::Vec;
 
 Assumptions:
 */
-
-// TODO: labeled stateful edges
-// TODO: detect exit
 
 type Edge = (NodeIndex, NodeIndex, Option<NodeIndex>);
 type ControlFlowGraph = Graph<Instruction, Option<NodeIndex>>;
@@ -138,6 +136,32 @@ fn compute_stateful_edges(graph: &ControlFlowGraph) -> Vec<Edge> {
         .collect()
 }
 
+fn find_possible_exit_edge(graph: &ControlFlowGraph, idx: NodeIndex) -> Option<EdgeIndex> {
+    let prev_idx = NodeIndex::new(idx.index() - 1);
+    let next_idx = NodeIndex::new(idx.index() + 1);
+    match graph[prev_idx] {
+        Instruction::Addi(a) => {
+            let edge = graph.find_edge(idx, next_idx);
+            if a.imm() == 93 {
+                edge
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn fix_exit_ecall(graph: &mut ControlFlowGraph) {
+    graph.node_indices().for_each(|idx| {
+        if let Instruction::Ecall = graph[idx] {
+            if let Some(edge) = find_possible_exit_edge(graph, idx) {
+                graph.remove_edge(edge);
+            }
+        }
+    })
+}
+
 fn build(binary: &[u8]) -> ControlFlowGraph {
     let mut graph = create_instruction_graph(binary);
 
@@ -155,6 +179,8 @@ fn build(binary: &[u8]) -> ControlFlowGraph {
 
     let jump_edges = compute_stateful_edges(&graph);
     add_edges(&mut graph, jump_edges);
+
+    fix_exit_ecall(&mut graph);
 
     graph
 }

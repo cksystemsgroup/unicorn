@@ -6,5 +6,5 @@ echo '+cargo check'
 cargo check
 echo '+cargo clippy --all-targets --all-features -- -D warnings'
 cargo clippy --all-targets --all-features -- -D warnings
-echo '+cargo fmt --all-features -- --check'
-cargo fmt --all-features -- --check
+echo '+cargo fmt -- --check'
+cargo fmt -- --check
