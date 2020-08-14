@@ -1,204 +1,148 @@
 use crate::elf::load_file;
 use byteorder::{ByteOrder, LittleEndian};
 use petgraph::graph::NodeIndex;
+use petgraph::visit::EdgeRef;
 use petgraph::Graph;
 use riscv_decode::decode;
 use riscv_decode::Instruction;
+use std::collections::HashSet;
 use std::path::Path;
 use std::vec::Vec;
 
-type Edge = (NodeIndex, NodeIndex, usize);
-type ControlFlowGraph = Graph<Instruction, usize>;
+type Edge = (NodeIndex, NodeIndex, Option<NodeIndex>);
+type ControlFlowGraph = Graph<Instruction, Option<NodeIndex>>;
 
-struct CfgBuilder {
-    graph: ControlFlowGraph,
-    // idx: usize,
-    // prev_idx: usize,
-    // edges_todo: Vec::<(NodeIndex::<u32>, NodeIndex::<u32>, usize)>,
-    // is_finished: bool,
+fn create_instruction_graph(binary: &[u8]) -> ControlFlowGraph {
+    binary
+        .chunks_exact(4)
+        .map(LittleEndian::read_u32)
+        .map(decode)
+        .map(Result::unwrap)
+        .fold(ControlFlowGraph::new(), |mut g, i| {
+            g.add_node(i);
+            g
+        })
 }
 
-impl CfgBuilder {
-    fn new(binary: &[u8]) -> Self {
-        let g = binary
-            .chunks_exact(4)
-            .map(LittleEndian::read_u32)
-            .map(decode)
-            .map(Result::unwrap)
-            .fold(ControlFlowGraph::new(), |mut g, i| {
-                g.add_node(i);
-                g
-            });
-
-        CfgBuilder {
-            graph: g,
-            // idx: 0,
-            // prev_idx: 0,
-            // edges_todo: Vec::<(NodeIndex::<u32>, NodeIndex::<u32>, usize)>::new(),
-            // is_finished: false,
+fn construct_edge_if_trivial(graph: &ControlFlowGraph, idx: NodeIndex) -> Option<Edge> {
+    match graph[idx] {
+        Instruction::Jal(_) | Instruction::Jalr(_) => None,
+        Instruction::Beq(i) => {
+            // TODO: Handle negative immediate values
+            Some((
+                idx,
+                NodeIndex::new((i.imm() / 4) as usize + idx.index()),
+                None,
+            ))
         }
-    }
-
-    fn is_not_trivial_control_flow_instruction(&mut self, idx: NodeIndex) -> bool {
-        let instruction = self.graph[idx];
-
-        match instruction {
-            Instruction::Jal(_) => true,
-            Instruction::Jalr(_) => true,
-            _ => false,
+        _ if idx.index() + 1 < graph.node_count() => {
+            Some((idx, NodeIndex::new(idx.index() + 1), None))
         }
+        _ => None,
     }
+}
 
-    fn construct_beq_non_trivial_edges(&mut self, idx: NodeIndex) -> Option<Edge> {
-        let instruction = self.graph[idx];
+fn compute_trivial_edges(graph: &ControlFlowGraph) -> Vec<Edge> {
+    graph
+        .node_indices()
+        .filter_map(|idx| construct_edge_if_trivial(graph, idx))
+        .collect::<Vec<Edge>>()
+}
 
-        match instruction {
-            Instruction::Beq(i) => {
-                Some((idx, NodeIndex::new((i.imm() / 4) as usize + idx.index()), 0))
-            }
-            _ => None,
+fn sign_extend(n: u32, b: u32) -> u32 {
+    // assert: 0 <= n <= 2^b
+    // assert: 0 < b < CPUBITWIDTH
+    if n < 2_u32.pow(b - 1) {
+        n
+    } else {
+        n.wrapping_sub(2_u32.pow(b))
+    }
+}
+
+/// Compute all return locations from a function
+fn compute_return_edge_position(graph: &ControlFlowGraph, idx: NodeIndex) -> HashSet<NodeIndex> {
+    // println!("visit: {:?}", graph[idx]);
+    match graph[idx] {
+        Instruction::Jalr(_) => {
+            let mut set = HashSet::new();
+            set.insert(idx);
+            set
         }
+        Instruction::Jal(_) => compute_return_edge_position(graph, NodeIndex::new(idx.index() + 1)),
+        _ => graph
+            .edges(idx)
+            .flat_map(|e| compute_return_edge_position(graph, e.target()))
+            .collect(),
     }
+}
 
-    fn compute_trivial_edges(&mut self) {
-        let indices = self.graph.node_indices();
-        let len = indices.len() - 1;
+fn compute_only_for_jal(idx: NodeIndex, graph: &ControlFlowGraph) -> Option<Vec<Edge>> {
+    match graph[idx] {
+        Instruction::Jal(jtype) => {
+            let imm_signed = sign_extend(jtype.imm() / 4, 19);
+            let jump_dest = NodeIndex::new(imm_signed.wrapping_add(idx.index() as u32) as usize);
+            let return_dest = NodeIndex::new(idx.index() + 1);
 
-        let edges: Vec<Edge> = indices
-            .take(len)
-            .filter(|i| !self.is_not_trivial_control_flow_instruction(*i))
-            .map(|idx| {
-                (
-                    NodeIndex::new(idx.index()),
-                    NodeIndex::new(idx.index() + 1),
-                    0,
-                )
-            })
-            .collect();
+            let mut edges = if jtype.rd() == 0 {
+                // jump and drop link
+                Vec::<Edge>::new()
+            } else {
+                // jump and link => function call
+                compute_return_edge_position(graph, jump_dest)
+                    .iter()
+                    .map(|rp| (*rp, return_dest, Some(idx)))
+                    .collect::<Vec<Edge>>()
+            };
 
+            let call_edge = (idx, jump_dest, Some(idx));
+
+            edges.push(call_edge);
+
+            Some(edges)
+        }
+        _ => None,
+    }
+}
+
+fn compute_jal_edges(graph: &ControlFlowGraph) -> Vec<Edge> {
+    let indices = graph.node_indices();
+
+    indices
+        .filter_map(|idx| compute_only_for_jal(idx, graph))
+        .flatten()
+        .collect()
+}
+
+fn build(binary: &[u8]) -> ControlFlowGraph {
+    let mut graph = create_instruction_graph(binary);
+
+    fn add_edges(graph: &mut ControlFlowGraph, edges: Vec<Edge>) {
         edges.iter().for_each(|e| {
-            self.graph.add_edge(e.0, e.1, e.2);
+            graph.add_edge(e.0, e.1, e.2);
         });
     }
 
-    fn compute_beq_edges(&mut self) {
-        let indices = self.graph.node_indices();
+    let edges = compute_trivial_edges(&graph);
+    add_edges(&mut graph, edges);
 
-        let edges: Vec<Edge> = indices
-            .filter_map(|i| self.construct_beq_non_trivial_edges(i))
-            .collect();
+    let jump_edges = compute_jal_edges(&graph);
+    add_edges(&mut graph, jump_edges);
 
-        edges.iter().for_each(|e| {
-            self.graph.add_edge(e.0, e.1, e.2);
-        });
-    }
-
-    fn build(binary: &[u8]) -> ControlFlowGraph {
-        let mut builder = CfgBuilder::new(binary);
-
-        builder.compute_trivial_edges();
-        builder.compute_beq_edges();
-
-        // TODO: refactor that
-        // remove first edge from node 1 to node 1
-
-        builder.graph
-    }
-
-    // TODO: only tested with Selfie RISC-U file and relies on that ELF format
-    #[allow(dead_code)]
-    pub fn build_from_file(file: &Path) -> Result<ControlFlowGraph, &str> {
-        match unsafe { load_file(file, 1024) } {
-            Some((memory_vec, meta_data)) => {
-                let memory = memory_vec.as_slice();
-
-                Ok(CfgBuilder::build(
-                    memory.split_at(meta_data.code_length as usize).0,
-                ))
-            }
-            None => todo!("error handling"),
-        }
-    }
-
-    // fn step(&mut self, size: usize) {
-    //     self.prev_idx = self.idx;
-    //     self.idx += size;
-    // }
-
-    // fn append_trivial(&mut self, i: Instruction) {
-    //     let n = self.graph.add_node(i);
-    //     self.step(1);
-    // }
+    graph
 }
 
-// impl RiscU for CfgBuilder {
-//     fn lui(&mut self, i: UType) {
-//         self.append_trivial(Instruction::Lui(i));
-//     }
-//     fn addi(&mut self, i: IType) {
-//         self.append_trivial(Instruction::Addi(i));
-//     }
-//     fn add(&mut self, i: RType) {
-//         self.append_trivial(Instruction::Add(i));
-//     }
-//     fn sub(&mut self, i: RType) {
-//         self.append_trivial(Instruction::Sub(i));
-//     }
-//     fn mul(&mut self, i: RType) {
-//         self.append_trivial(Instruction::Mul(i));
-//     }
-//     fn divu(&mut self, i: RType) {
-//         self.append_trivial(Instruction::Divu(i));
-//     }
-//     fn remu(&mut self, i: RType) {
-//         self.append_trivial(Instruction::Remu(i));
-//     }
-//     fn sltu(&mut self, i: RType) {
-//         self.append_trivial(Instruction::Sltu(i));
-//     }
-//     fn ld(&mut self, i: IType) {
-//         self.append_trivial(Instruction::Ld(i));
-//     }
-//     fn sd(&mut self, i: SType) {
-//         self.append_trivial(Instruction::Sd(i));
-//     }
-//     fn jal(&mut self, i: JType) {
-//         // JAL with ra -> function call
-//         // JAL with zero -> just jump
-//         let n = self.graph.add_node(Instruction::Jal(i));
-//         self.graph.add_edge(NodeIndex::new(self.prev_idx), n, 0);
+// TODO: only tested with Selfie RISC-U file and relies on that ELF format
+#[allow(dead_code)]
+pub fn build_from_file(file: &Path) -> Result<ControlFlowGraph, &str> {
+    match unsafe { load_file(file, 1024) } {
+        Some((memory_vec, meta_data)) => {
+            let memory = memory_vec.as_slice();
 
-//         if i.rd() == 0 {
-//           // jump without saving the link address
-//           let destination = self.idx + i.imm() as usize / 4;
-//           let e = (NodeIndex::new(n.index()), NodeIndex::new(destination), self.idx);
-//           self.edges_todo.push(e);
-//         } else {
-//           // jump to a function
-
-//         }
-//     }
-//     fn jalr(&mut self, i: IType) {
-//         self.append_trivial(Instruction::Jalr(i));
-//     }
-//     fn beq(&mut self, i: BType) {
-//         let n = self.graph.add_node(Instruction::Beq(i));
-//         self.graph.add_edge(NodeIndex::new(self.prev_idx), n, 0);
-
-//         // idx * 4 -> PC <=> PC / 4 -> idx
-//         if (self.idx as u32 + i.imm()) / 4 < self.idx as u32 {
-//             // while loop
-//             self.graph
-//                 .add_edge(n, NodeIndex::new((i.imm() / 4) as usize), 0);
-//             self.step(1);
-//         } else {
-//             self.step(1);
-//         }
-//     }
-//     fn ecall(&mut self) {
-//         self.append_trivial(Instruction::Ecall);
-//     }
-// }
+            Ok(build(memory.split_at(meta_data.code_length as usize).0))
+        }
+        None => todo!("error handling"),
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -232,21 +176,19 @@ mod tests {
 
         let test_file = Path::new("symbolic/division-by-zero-3-35.riscu.o");
 
-        let graph = CfgBuilder::build_from_file(test_file).unwrap();
+        let graph = build_from_file(test_file).unwrap();
 
         let dot_graph = Dot::with_config(&graph, &[Config::EdgeNoLabel]);
 
         let mut f = File::create("tmp-graph.dot").unwrap();
         f.write_fmt(format_args!("{:?}", dot_graph)).unwrap();
 
-        // let _ = Command::new("dot")
-        //     .arg("-Tpng")
-        //     .arg("tmp-graph.dot")
-        //     .arg("-o")
-        //     .arg("main.png")
-        //     .output();
-
-        // println!("{:?}", ));
+        let _ = Command::new("dot")
+            .arg("-Tpng")
+            .arg("tmp-graph.dot")
+            .arg("-o")
+            .arg("main.png")
+            .output();
 
         // TODO: test more than just this result
         // assert!(result.is_ok());
