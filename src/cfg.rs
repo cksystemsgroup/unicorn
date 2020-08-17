@@ -1,13 +1,16 @@
 use crate::elf::load_file;
 use byteorder::{ByteOrder, LittleEndian};
-use petgraph::graph::EdgeIndex;
-use petgraph::graph::NodeIndex;
+use petgraph::dot::Dot;
+use petgraph::graph::{EdgeIndex, NodeIndex};
 use petgraph::visit::EdgeRef;
 use petgraph::Graph;
 use riscv_decode::decode;
 use riscv_decode::Instruction;
 use std::collections::HashSet;
+use std::fs::File;
+use std::io::prelude::*;
 use std::path::Path;
+use std::process::Command;
 use std::vec::Vec;
 
 /*
@@ -186,27 +189,44 @@ fn build(binary: &[u8]) -> ControlFlowGraph {
 }
 
 // TODO: only tested with Selfie RISC-U file and relies on that ELF format
-#[allow(dead_code)]
 pub fn build_from_file(file: &Path) -> Result<ControlFlowGraph, &str> {
-    match unsafe { load_file(file, 1024) } {
+    match load_file(file, 1024) {
         Some((memory_vec, meta_data)) => {
             let memory = memory_vec.as_slice();
 
             Ok(build(memory.split_at(meta_data.code_length as usize).0))
         }
-        None => todo!("error handling"),
+        None => Err("can not load RISC-U ELF file"),
     }
+}
+
+pub fn write_to_file(graph: &ControlFlowGraph, file: &Path) -> Result<(), std::io::Error> {
+    let dot_graph = Dot::with_config(graph, &[]);
+
+    let mut file = File::create(file)?;
+
+    file.write_fmt(format_args!("{:?}", dot_graph))?;
+
+    Ok(())
+}
+
+pub fn convert_dot_to_png(source: &Path, output: &Path) -> Result<(), &'static str> {
+    Command::new("dot")
+        .arg("-Tpng")
+        .arg(source.to_path_buf())
+        .arg("-o")
+        .arg(output.to_path_buf())
+        .output()
+        .map_err(|_| "Can not convert CFG to png file (is graphviz installed?)")?;
+
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use petgraph::dot::Dot;
     use serial_test::serial;
     use std::env::current_dir;
-    use std::fs::File;
-    use std::io::prelude::*;
-    use std::process::Command;
     use std::string::String;
 
     // TODO: write a unit test without dependency on selfie and external files

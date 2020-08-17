@@ -56,9 +56,9 @@ pub struct ElfMetadata {
     pub code_length: u64,
 }
 
-pub unsafe fn load_file(object_file: &Path, memory_limit: usize) -> Option<(Vec<u8>, ElfMetadata)> {
+pub fn load_file(object_file: &Path, memory_limit: usize) -> Option<(Vec<u8>, ElfMetadata)> {
     match fs::read(object_file) {
-        Ok(buffer) => load(buffer.as_slice(), memory_limit),
+        Ok(buffer) => unsafe { load(buffer.as_slice(), memory_limit) },
         _ => None,
     }
 }
@@ -135,7 +135,7 @@ mod tests {
     fn can_load_elf_binary() {
         let test_file = Path::new("division-by-zero-3-35.o");
 
-        let _res = unsafe { load_file(test_file, 10) };
+        let _res = load_file(test_file, 10);
 
         // file is not generated in CI pipeline yet
         // assert!(res.is_some(), "can load ELF file");

@@ -45,7 +45,7 @@ fn compile_c(source_file: &Path) -> Result<PathBuf, &str> {
         .arg(target.file_name().unwrap())
         .current_dir(directory)
         .output()
-        .map_err(|_| "Rust compile command was not successfull")?;
+        .map_err(|_| "C compile command was not successfull")?;
 
     Ok(target)
 }

@@ -1,4 +1,6 @@
+.idea/*
+.vscode/*
 **/target
 *.o
-tmp-graph.dot
-main.png
+**/*.dot
+**/*.png
