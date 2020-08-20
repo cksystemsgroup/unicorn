@@ -29,7 +29,7 @@ $ apt install docker
 ```
 6. Make sure you have a recent version of clang/llvm (>= v9) installed:
 ```
-$ apt intall llvm
+$ apt install llvm
 ```
 
 ### Mac

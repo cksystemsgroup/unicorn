@@ -1,3 +1,5 @@
+//! # Handle ternary bit vectors
+
 use crate::bitvec::BitVector;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

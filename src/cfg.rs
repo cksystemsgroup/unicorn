@@ -1,3 +1,18 @@
+//! # Handle control flow graphs
+//!
+//! This module defines and handles control flow graphs.
+//!
+//! There are three different kind of edges:
+//! - trivial edges (`pc = pc + 4;`)
+//!   - any non control flow instruction
+//!   - `beq`: false edge
+//! - pure edges
+//!   - `beq`: true edge
+//!   - `jal`: when link not used (=> `rd` is zero)
+//! - stateful edges
+//!   - `jal`: when link is used (=> `rd` is `ra`)
+//!   - `jalr`
+
 use crate::elf::load_file;
 use byteorder::{ByteOrder, LittleEndian};
 use petgraph::dot::Dot;
@@ -13,24 +28,10 @@ use std::path::Path;
 use std::process::Command;
 use std::vec::Vec;
 
-/*
-    trivial edges (pc = pc + 4;)
-        any non control flow instruction
-        beq: false edge
-    pure edges
-        beq: true edge
-        jal: when link not used (=> rd is zero)
-    stateful edges
-        jal: when link is used (=> rd is ra)
-        jalr
-
-
-Assumptions:
-*/
-
 type Edge = (NodeIndex, NodeIndex, Option<NodeIndex>);
 type ControlFlowGraph = Graph<Instruction, Option<NodeIndex>>;
 
+/// Extend sign
 fn sign_extend(n: u32, b: u32) -> u32 {
     // assert: 0 <= n <= 2^b
     // assert: 0 < b < CPUBITWIDTH
@@ -41,14 +42,17 @@ fn sign_extend(n: u32, b: u32) -> u32 {
     }
 }
 
+/// Get NodeIndex of `beq` destination.
 fn calculate_beq_destination(idx: NodeIndex, imm: u32) -> NodeIndex {
     NodeIndex::new(sign_extend(imm / 4, 11).wrapping_add(idx.index() as u32) as usize)
 }
 
+/// Get NodeIndex of `jal` destination.
 fn calculate_jal_destination(idx: NodeIndex, imm: u32) -> NodeIndex {
     NodeIndex::new(sign_extend(imm / 4, 19).wrapping_add(idx.index() as u32) as usize)
 }
 
+/// Create a ControlFlowGraph from an `u8` slice without fixing edges
 fn create_instruction_graph(binary: &[u8]) -> ControlFlowGraph {
     binary
         .chunks_exact(4)
@@ -61,6 +65,7 @@ fn create_instruction_graph(binary: &[u8]) -> ControlFlowGraph {
         })
 }
 
+/// Compute trivial edges
 fn construct_edge_if_trivial(graph: &ControlFlowGraph, idx: NodeIndex) -> Option<Edge> {
     match graph[idx] {
         Instruction::Jal(_) | Instruction::Jalr(_) => None,
@@ -71,6 +76,7 @@ fn construct_edge_if_trivial(graph: &ControlFlowGraph, idx: NodeIndex) -> Option
     }
 }
 
+/// Compute pure edges
 fn construct_edge_if_pure(graph: &ControlFlowGraph, idx: NodeIndex) -> Option<Edge> {
     match graph[idx] {
         Instruction::Jal(i) if i.rd() == 0 => {
@@ -81,6 +87,7 @@ fn construct_edge_if_pure(graph: &ControlFlowGraph, idx: NodeIndex) -> Option<Ed
     }
 }
 
+/// Compute all edges in `graph`
 fn compute_edges<F>(graph: &ControlFlowGraph, f: F) -> Vec<Edge>
 where
     F: Fn(&ControlFlowGraph, NodeIndex) -> Option<Edge>,
@@ -91,7 +98,7 @@ where
         .collect::<Vec<Edge>>()
 }
 
-/// Compute all return locations in a given function starting at idx
+/// Compute all return locations in a given function starting at idx.
 fn compute_return_edge_position(graph: &ControlFlowGraph, idx: NodeIndex) -> HashSet<NodeIndex> {
     match graph[idx] {
         Instruction::Jalr(_) => {
@@ -109,6 +116,7 @@ fn compute_return_edge_position(graph: &ControlFlowGraph, idx: NodeIndex) -> Has
     }
 }
 
+/// Fix stateful edges and return a vector containing them
 fn construct_edge_if_stateful(idx: NodeIndex, graph: &ControlFlowGraph) -> Option<Vec<Edge>> {
     match graph[idx] {
         Instruction::Jal(jtype) if jtype.rd() != 0 => {
@@ -131,6 +139,7 @@ fn construct_edge_if_stateful(idx: NodeIndex, graph: &ControlFlowGraph) -> Optio
     }
 }
 
+/// Calculate stateful edges and return a vector containing them
 fn compute_stateful_edges(graph: &ControlFlowGraph) -> Vec<Edge> {
     graph
         .node_indices()
@@ -139,6 +148,7 @@ fn compute_stateful_edges(graph: &ControlFlowGraph) -> Vec<Edge> {
         .collect()
 }
 
+/// Get exit edge if possible
 fn find_possible_exit_edge(graph: &ControlFlowGraph, idx: NodeIndex) -> Option<EdgeIndex> {
     let prev_idx = NodeIndex::new(idx.index() - 1);
     let next_idx = NodeIndex::new(idx.index() + 1);
@@ -155,6 +165,7 @@ fn find_possible_exit_edge(graph: &ControlFlowGraph, idx: NodeIndex) -> Option<E
     }
 }
 
+/// Fix the exit ecall edge
 fn fix_exit_ecall(graph: &mut ControlFlowGraph) {
     graph.node_indices().for_each(|idx| {
         if let Instruction::Ecall = graph[idx] {
@@ -165,6 +176,7 @@ fn fix_exit_ecall(graph: &mut ControlFlowGraph) {
     })
 }
 
+/// Create a ControlFlowGraph from `u8` slice.
 fn build(binary: &[u8]) -> ControlFlowGraph {
     let mut graph = create_instruction_graph(binary);
 
@@ -188,6 +200,7 @@ fn build(binary: &[u8]) -> ControlFlowGraph {
     graph
 }
 
+/// Create a ControlFlowGraph from Path `file`.
 // TODO: only tested with Selfie RISC-U file and relies on that ELF format
 pub fn build_from_file(file: &Path) -> Result<ControlFlowGraph, &str> {
     match load_file(file, 1024) {
@@ -196,10 +209,11 @@ pub fn build_from_file(file: &Path) -> Result<ControlFlowGraph, &str> {
 
             Ok(build(memory.split_at(meta_data.code_length as usize).0))
         }
-        None => Err("can not load RISC-U ELF file"),
+        None => Err("Cannot load RISC-U ELF file"),
     }
 }
 
+/// Write ControlFlowGraph `graph` to dot file at `file` Path.
 pub fn write_to_file(graph: &ControlFlowGraph, file: &Path) -> Result<(), std::io::Error> {
     let dot_graph = Dot::with_config(graph, &[]);
 
@@ -210,6 +224,7 @@ pub fn write_to_file(graph: &ControlFlowGraph, file: &Path) -> Result<(), std::i
     Ok(())
 }
 
+/// Convert a dot file into a png file (depends on graphviz)
 pub fn convert_dot_to_png(source: &Path, output: &Path) -> Result<(), &'static str> {
     Command::new("dot")
         .arg("-Tpng")
@@ -217,7 +232,7 @@ pub fn convert_dot_to_png(source: &Path, output: &Path) -> Result<(), &'static s
         .arg("-o")
         .arg(output.to_path_buf())
         .output()
-        .map_err(|_| "Can not convert CFG to png file (is graphviz installed?)")?;
+        .map_err(|_| "Cannot convert CFG to png file (is graphviz installed?)")?;
 
     Ok(())
 }

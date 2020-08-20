@@ -1,3 +1,5 @@
+//! # Parse elf files
+
 use byteorder::{ByteOrder, LittleEndian};
 use goblin::elf::{
     header::header64::Header, program_header::program_header64::ProgramHeader, program_header::*,

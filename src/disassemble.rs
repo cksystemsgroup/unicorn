@@ -1,3 +1,5 @@
+//! # Disassemble risc-v instructions
+
 use crate::elf::load_file;
 use byteorder::{ByteOrder, LittleEndian};
 use riscv_decode::types::*;

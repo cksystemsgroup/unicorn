@@ -1,3 +1,5 @@
+//! # Decode risc-v instructions
+
 use riscv_decode::types::*;
 use riscv_decode::{decode, Instruction};
 
