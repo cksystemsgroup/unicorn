@@ -278,8 +278,7 @@ checksum = "41cc0f7e4d5d4544e8861606a285bb08d3e70712ccc7d2b84d7c0ccfaf4b05ce"
 [[package]]
 name = "riscv-decode"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "920466101a1ec4ffac2ab9b72fa780eff62defa0ae9c4f77a07fa41dfd5450e6"
+source = "git+https://github.com/cksystemsgroup/riscv-decode#a0a6e21c831a6da3e078513d4a17a1f324dc7d4f"
 
 [[package]]
 name = "scopeguard"

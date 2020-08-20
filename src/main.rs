@@ -2,11 +2,14 @@ use clap::{App, Arg};
 use std::fmt::Display;
 use std::path::Path;
 
+mod bitvec;
 mod cfg;
 mod compile;
 mod decode;
 mod disassemble;
 mod elf;
+mod engine;
+mod ternary;
 
 use compile::compile_example;
 use disassemble::disassemble_riscu;
