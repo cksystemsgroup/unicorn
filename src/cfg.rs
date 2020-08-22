@@ -29,10 +29,10 @@ use std::process::Command;
 use std::vec::Vec;
 
 type Edge = (NodeIndex, NodeIndex, Option<NodeIndex>);
-type ControlFlowGraph = Graph<Instruction, Option<NodeIndex>>;
+pub type ControlFlowGraph = Graph<Instruction, Option<NodeIndex>>;
 
 /// Extend sign
-fn sign_extend(n: u32, b: u32) -> u32 {
+pub fn sign_extend(n: u32, b: u32) -> u32 {
     // assert: 0 <= n <= 2^b
     // assert: 0 < b < CPUBITWIDTH
     if n < 2_u32.pow(b - 1) {

@@ -3,12 +3,14 @@ use std::fmt::Display;
 use std::path::Path;
 
 mod bitvec;
+mod candidate_path;
 mod cfg;
 mod compile;
 mod decode;
 mod disassemble;
 mod elf;
 mod engine;
+mod formula_graph;
 mod ternary;
 
 use compile::compile_example;
