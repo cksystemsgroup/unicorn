@@ -42,17 +42,17 @@ pub fn sign_extend(n: u32, b: u32) -> u32 {
     }
 }
 
-/// Get NodeIndex of `beq` destination.
+/// Get `NodeIndex` of `beq` destination.
 fn calculate_beq_destination(idx: NodeIndex, imm: u32) -> NodeIndex {
     NodeIndex::new(sign_extend(imm / 4, 11).wrapping_add(idx.index() as u32) as usize)
 }
 
-/// Get NodeIndex of `jal` destination.
+/// Get `NodeIndex` of `jal` destination.
 fn calculate_jal_destination(idx: NodeIndex, imm: u32) -> NodeIndex {
     NodeIndex::new(sign_extend(imm / 4, 19).wrapping_add(idx.index() as u32) as usize)
 }
 
-/// Create a ControlFlowGraph from an `u8` slice without fixing edges
+/// Create a `ControlFlowGraph` from an `u8` slice without fixing edges
 fn create_instruction_graph(binary: &[u8]) -> ControlFlowGraph {
     binary
         .chunks_exact(4)

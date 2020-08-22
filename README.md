@@ -23,10 +23,7 @@ $ cargo install cross
 
 ## Docker and llvm
 ### Debian based
-5. Install docker (needed by cross)
-```
-$ apt install docker
-```
+5. Install docker (needed by cross) with [this installation guide](https://docs.docker.com/engine/install/debian/)
 6. Make sure you have a recent version of clang/llvm (>= v9) installed:
 ```
 $ apt install llvm
