@@ -56,17 +56,10 @@ impl<'a> CandidatePath<'a> {
 #[allow(dead_code)]
 fn is_exit_point(graph: &ControlFlowGraph, idx: NodeIndex) -> Option<NodeIndex> {
     match graph[idx] {
-        // naive approach of finding division instructions with a divisor of 0
-        // TODO: search for read syscalls, trace those inputs and find divu instructions which deal with read syscall data
-        // -> waiting for better control-flow graph instruction annotations
-        Instruction::Divu(a) => {
-            if a.rs2() == 0 {
-                Some(idx)
-            } else {
-                None
-            }
-        }
+        // get division exit points
+        Instruction::Divu(_rtype) => Some(idx),
         _ => match graph[NodeIndex::new(idx.index() - 1)] {
+            // get exit syscall exit points
             Instruction::Addi(a) => {
                 if a.imm() == 93 {
                     Some(idx)
