@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 // use crate::cfg::ControlFlowGraph;
-use petgraph::graph::NodeIndex; //EdgeIndex, NodeIndex};
-                                // use petgraph::visit::{GraphBase, IntoEdgeReferences, Data};
+// use petgraph::graph::NodeIndex; //EdgeIndex, NodeIndex};
+// use petgraph::visit::{GraphBase, IntoEdgeReferences, Data};
 use petgraph::Graph;
 // use riscv_decode::types::*;
 use riscv_decode::Instruction;
@@ -16,6 +16,17 @@ static mut ALIAS_SEED: u64 = 1;
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct InstructionType {
+    // These instructions are part of the formula graph
+    // IE = input edge
+    // OE = output edge
+    // Lui(utype) -> 0 IE / 1 OE
+    // Addi(itype) -> 1 IE / 1 OE
+    // Add(rtype) -> 2 IE / 1 OE
+    // Sub(rtype) -> 2 IE / 1 OE
+    // Mul(rtype) -> 2 IE / 1 OE
+    // Divu(rtype) -> 2 IE / 1 OE
+    // Remu(rtype) -> 2 IE / 1 OE
+    // Sltu(rtype) -> 2 IE / 1 OE
     instruction: Instruction,
 }
 
@@ -27,16 +38,19 @@ impl InstructionType {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct ConstType {
+    // can have multiple output edges, but no input edge
     value: u64,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct InputType {
+    // can have multiple output edges, but no input edge
     name: String,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct OutputType {
+    // has 1 input edge only and 0 output edges
     name: String,
 }
 
@@ -48,11 +62,11 @@ pub enum Node {
     Output(OutputType),
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum ValueType {
-    Concrete(u64),
-    Symbolic(NodeIndex),
-}
+// #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+// pub enum ValueType {
+//     Concrete(u64),
+//     Symbolic(NodeIndex),
+// }
 
 // impl petgraph::visit::IntoEdgeReferences for Node {
 //     type EdgeRef = ();
