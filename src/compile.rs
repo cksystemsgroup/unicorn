@@ -1,5 +1,6 @@
 //! # Compile source code with extern commands
 
+use std::env::current_dir;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -7,9 +8,16 @@ use std::str;
 
 const RUST_TARGET_DIR: &str = "symbolic/target/riscv64gc-unknown-linux-gnu/debug";
 
-pub fn compile_example(source_file: &Path) -> Result<PathBuf, &str> {
+pub fn compile_example<'a>(
+    source_file: &'a Path,
+    compiler: Option<&'a str>,
+) -> Result<PathBuf, &'a str> {
     match source_file.extension() {
-        Some(extension) if extension == "c" => compile_c(source_file),
+        Some(extension) if extension == "c" => match compiler {
+            Some("selfie") => compile_c_with_selfie(source_file),
+            Some("clang") | None => compile_c(source_file),
+            _ => Err("compiler is not supported"),
+        },
         Some(extension) if extension == "rs" => compile_rust(source_file),
         _ => Err("file is not a C or Rust source file"),
     }
@@ -48,6 +56,39 @@ fn compile_c(source_file: &Path) -> Result<PathBuf, &str> {
         .current_dir(directory)
         .output()
         .map_err(|_| "C compile command was not successfull")?;
+
+    Ok(target)
+}
+
+#[allow(dead_code)]
+fn compile_c_with_selfie(source_file: &Path) -> Result<PathBuf, &str> {
+    validate_example(source_file)?;
+
+    let directory = source_file.parent().unwrap();
+    let target = source_file.with_extension("o");
+
+    Command::new("docker")
+        .arg("run")
+        .arg("-v")
+        .arg(format!(
+            "{}:/opt/monster",
+            current_dir().unwrap().to_str().unwrap()
+        ))
+        .arg("cksystemsteaching/selfie")
+        .arg("/opt/selfie/selfie")
+        .arg("-c")
+        .arg(format!(
+            "/opt/monster/{}",
+            source_file.file_name().unwrap().to_str().unwrap()
+        ))
+        .arg("-o")
+        .arg(format!(
+            "/opt/monster/{}",
+            target.file_name().unwrap().to_str().unwrap()
+        ))
+        .current_dir(directory)
+        .output()
+        .map_err(|_| "Selfie C* compile command was not successfull")?;
 
     Ok(target)
 }
@@ -98,7 +139,7 @@ mod tests {
     #[serial] // execute it in serial because we manipulate files
     fn compile_c_source_file() {
         let source_path = Path::new("symbolic/division-by-zero-3-35.c");
-        let result = compile_example(source_path);
+        let result = compile_example(source_path, None);
 
         assert!(result.is_ok(), "can compile C source file");
 
@@ -114,7 +155,7 @@ mod tests {
     fn compile_rust_source_file() {
         let source_path = Path::new("symbolic/division-by-zero-3-35.rs");
 
-        let result = compile_example(source_path);
+        let result = compile_example(source_path, None);
 
         let status = Command::new("docker")
             .arg("info")

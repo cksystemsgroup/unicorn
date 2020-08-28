@@ -1,22 +1,27 @@
-// use crate::cfg::ControlFlowGraph;
-// use crate::cfg::ControlFlowGraph;
-use petgraph::graph::NodeIndex; //EdgeIndex, NodeIndex};
-                                // use petgraph::visit::{Data, GraphBase, IntoEdgeReferences};
+use crate::elf::ElfMetadata;
+use byteorder::{ByteOrder, LittleEndian};
+use core::fmt;
+use petgraph::graph::NodeIndex;
 use petgraph::Graph;
 use riscv_decode::types::*;
 use riscv_decode::Instruction;
 
-pub type Formula = Graph<Node, ()>;
+pub type Formula = Graph<Node, ArgumentSide>;
 
 static REG_SP: usize = 2;
 static REG_A0: usize = 10;
 static REG_A1: usize = 11;
 static REG_A2: usize = 12;
 static REG_A7: usize = 17;
-// static mut ALIAS_SEED: u64 = 1;
+
+#[derive(Clone, Debug, Copy, Eq, Hash, PartialEq)]
+pub enum ArgumentSide {
+    Lhs,
+    Rhs,
+}
 
 #[allow(dead_code)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub struct InstructionType {
     // These instructions are part of the formula graph
     // IE = input edge
@@ -38,7 +43,13 @@ impl InstructionType {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+impl fmt::Debug for InstructionType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self.instruction)
+    }
+}
+
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub struct ConstType {
     // can have multiple output edges, but no input edge
     value: u64,
@@ -50,7 +61,13 @@ impl ConstType {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+impl fmt::Debug for ConstType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.value)
+    }
+}
+
+#[derive(Clone, Eq, Hash, PartialEq)]
 pub struct InputType {
     // can have multiple output edges, but no input edge
     name: String,
@@ -62,7 +79,13 @@ impl InputType {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+impl fmt::Debug for InputType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
+#[derive(Clone, Eq, Hash, PartialEq)]
 pub struct OutputType {
     // has 1 input edge only and 0 output edges
     name: String,
@@ -71,6 +94,12 @@ pub struct OutputType {
 impl OutputType {
     fn new(name: String) -> Self {
         Self { name }
+    }
+}
+
+impl fmt::Debug for OutputType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name)
     }
 }
 
@@ -90,32 +119,6 @@ pub enum ValueType {
     Uninitialized,
 }
 
-// impl petgraph::visit::IntoEdgeReferences for Node {
-//     type EdgeRef = ();
-//     type EdgeReferences = ();
-//
-//     fn edge_references(self) -> Self::EdgeReferences {
-//         unimplemented!()
-//     }
-// }
-
-// impl Node {
-//     fn new(instruction: Instruction) -> Self {
-//         Self {
-//             alias: Self::fresh_alias(),
-//             instruction,
-//         }
-//     }
-//
-//     fn fresh_alias() -> u64 {
-//         unsafe {
-//             let alias = ALIAS_SEED;
-//             ALIAS_SEED += 1;
-//             alias
-//         }
-//     }
-// }
-
 struct State {
     program_break: u64,
     regs: [ValueType; 32],
@@ -124,14 +127,31 @@ struct State {
 
 impl State {
     // creates a machine state with a specifc memory size
-    fn new(memory_size: usize) -> Self {
+    fn new(memory_size: usize, data_segment: &[u8], elf_metadata: ElfMetadata) -> Self {
         let mut regs = [ValueType::Concrete(0); 32];
-        let memory = vec![ValueType::Uninitialized; memory_size / 8];
+        let mut memory = vec![ValueType::Uninitialized; memory_size / 8];
 
         regs[REG_SP] = ValueType::Concrete(memory_size as u64 - 8);
+        regs[0] = ValueType::Concrete(0);
+
+        let start = (elf_metadata.entry_address / 8) as usize;
+        let end = start + data_segment.len() / 8;
+        let range = start..end;
+
+        println!(
+            "data_segment.len(): {}   entry_address:  {}",
+            data_segment.len(),
+            elf_metadata.entry_address
+        );
+
+        data_segment
+            .chunks(8)
+            .map(LittleEndian::read_u64)
+            .zip(range)
+            .for_each(|(x, i)| memory[i] = ValueType::Concrete(x));
 
         Self {
-            program_break: 0,
+            program_break: elf_metadata.entry_address + (data_segment.len() as u64),
             regs,
             memory,
         }
@@ -144,8 +164,8 @@ fn create_const_node(g: &mut Formula, value: u64) -> NodeIndex {
 }
 
 fn symbolic_op(g: &mut Formula, lhs: NodeIndex, rhs: NodeIndex, result: NodeIndex) -> ValueType {
-    g.add_edge(lhs, result, ());
-    g.add_edge(rhs, result, ());
+    g.add_edge(lhs, result, ArgumentSide::Lhs);
+    g.add_edge(rhs, result, ArgumentSide::Rhs);
 
     ValueType::Symbolic(result)
 }
@@ -159,9 +179,16 @@ fn execute_lui(utype: UType, state: &mut State) -> Option<NodeIndex> {
         return None;
     }
 
-    let immediate = sign_extend_utype(utype.imm());
+    let immediate = utype.imm() as u64; //sign_extend_utype(utype.imm());
 
-    let result = ValueType::Concrete(immediate << 12);
+    let result = ValueType::Concrete(immediate);
+
+    println!(
+        "{}  imm: {:?} -> rd: {:?}",
+        instruction_to_str(Instruction::Lui(utype)),
+        immediate as i64,
+        result,
+    );
 
     state.regs[utype.rd() as usize] = result;
 
@@ -193,9 +220,37 @@ where
         op,
     );
 
+    println!(
+        "{}  rs1: {:?} imm: {:?} -> rd: {:?}",
+        instruction_to_str(instruction),
+        rs1_value,
+        immediate as i64,
+        result,
+    );
+
     state.regs[itype.rd() as usize] = result;
 
     None
+}
+
+fn instruction_to_str(i: Instruction) -> &'static str {
+    match i {
+        Instruction::Lui(_) => "lui",
+        Instruction::Jal(_) => "jal",
+        Instruction::Jalr(_) => "jalr",
+        Instruction::Beq(_) => "beq",
+        Instruction::Ld(_) => "ld",
+        Instruction::Sd(_) => "sd",
+        Instruction::Addi(_) => "addi",
+        Instruction::Add(_) => "add",
+        Instruction::Sub(_) => "sub",
+        Instruction::Sltu(_) => "sltu",
+        Instruction::Mul(_) => "mul",
+        Instruction::Divu(_) => "divu",
+        Instruction::Remu(_) => "remu",
+        Instruction::Ecall => "ecall",
+        _ => "unknown",
+    }
 }
 
 fn execute_rtype<Op>(
@@ -217,6 +272,14 @@ where
 
     let result = execute_binary_op(instruction, rs1_value, rs2_value, graph, op);
 
+    println!(
+        "{}  rs1: {:?} rs2: {:?} -> rd: {:?}",
+        instruction_to_str(instruction),
+        rs1_value,
+        rs2_value,
+        result,
+    );
+
     state.regs[rtype.rd() as usize] = result;
 
     None
@@ -232,22 +295,27 @@ fn execute_binary_op<Op>(
 where
     Op: FnOnce(u64, u64) -> u64,
 {
-    let node = Node::Instruction(InstructionType::new(instruction));
+    fn create_result_node(instruction: Instruction, graph: &mut Formula) -> NodeIndex {
+        let node = Node::Instruction(InstructionType::new(instruction));
 
-    let node_index = graph.add_node(node);
+        graph.add_node(node)
+    }
 
     match (lhs, rhs) {
         (ValueType::Concrete(v1), ValueType::Concrete(v2)) => ValueType::Concrete(op(v1, v2)),
         (ValueType::Symbolic(v1), ValueType::Concrete(v2)) => {
             let node = create_const_node(graph, v2);
-            symbolic_op(graph, v1, node, node_index)
+            let res = create_result_node(instruction, graph);
+            symbolic_op(graph, v1, node, res)
         }
         (ValueType::Concrete(v1), ValueType::Symbolic(v2)) => {
             let node = create_const_node(graph, v1);
-            symbolic_op(graph, node, v2, node_index)
+            let res = create_result_node(instruction, graph);
+            symbolic_op(graph, node, v2, res)
         }
         (ValueType::Symbolic(v1), ValueType::Symbolic(v2)) => {
-            symbolic_op(graph, v1, v2, node_index)
+            let res = create_result_node(instruction, graph);
+            symbolic_op(graph, v1, v2, res)
         }
         _ => panic!("access to unitialized memory"),
     }
@@ -269,7 +337,11 @@ fn eval(instruction: Instruction, graph: &mut Formula, state: &mut State) -> Opt
                 ValueType::Concrete(syscall_id) if syscall_id == (Syscall::Brk as u64) => {
                     if let ValueType::Concrete(new_program_break) = state.regs[REG_A0] {
                         // TODO: handle cases where program break can not be modified
-                        state.program_break = new_program_break;
+                        if new_program_break < state.program_break {
+                            state.regs[REG_A0] = ValueType::Concrete(state.program_break);
+                        } else {
+                            state.program_break = new_program_break;
+                        }
                         println!("new program break: {}", new_program_break);
                     } else {
                         unimplemented!("can not handle symbolic or uninitialized program break")
@@ -280,13 +352,16 @@ fn eval(instruction: Instruction, graph: &mut Formula, state: &mut State) -> Opt
                     // TODO: ignore FD??
                     if let ValueType::Concrete(buffer) = state.regs[REG_A1] {
                         if let ValueType::Concrete(size) = state.regs[REG_A2] {
-                            assert!(
-                                size % 8 == 0,
-                                "can only handle read syscalls with word width"
-                            );
-                            let words_read = size / 8;
+                            // assert!(
+                            //     size % 8 == 0,
+                            //     "can only handle read syscalls with word width"
+                            // );
+                            // TODO: round up to word width.. not the best idea, right???
+                            let to_add = 8 - (size % 8);
+                            let words_read = (size + to_add) / 8;
+
                             for i in 0..words_read {
-                                let name = format!("{} {}", buffer, i * 8);
+                                let name = format!("read({}, {}, {})", 0, buffer, size);
                                 let node = Node::Input(InputType::new(name));
                                 let node_idx = graph.add_node(node);
                                 state.memory[((buffer / 8) + i) as usize] =
@@ -302,12 +377,25 @@ fn eval(instruction: Instruction, graph: &mut Formula, state: &mut State) -> Opt
                     }
                     None
                 }
-                ValueType::Concrete(_) => unimplemented!("this syscall is not implemented yet"),
+                ValueType::Concrete(syscall_id) if syscall_id == (Syscall::Exit as u64) => {
+                    if let ValueType::Symbolic(exit_code) = state.regs[REG_A0] {
+                        let root = Node::Output(OutputType::new(String::from("exit_code")));
+                        let root_idx = graph.add_node(root);
+                        graph.add_edge(exit_code, root_idx, ArgumentSide::Lhs);
+
+                        Some(root_idx)
+                    } else {
+                        unimplemented!("exit only implemented for symbolic exit codes")
+                    }
+                }
+                ValueType::Concrete(x) => {
+                    unimplemented!("this syscall ({}) is not implemented yet", x)
+                }
                 ValueType::Uninitialized => unimplemented!("ecall with uninitialized syscall id"),
                 ValueType::Symbolic(n) => {
                     let root = Node::Output(OutputType::new(String::from("exit_code")));
                     let root_idx = graph.add_node(root);
-                    graph.add_edge(n, root_idx, ());
+                    graph.add_edge(n, root_idx, ArgumentSide::Lhs);
 
                     Some(root_idx)
                 }
@@ -350,6 +438,14 @@ fn eval(instruction: Instruction, graph: &mut Formula, state: &mut State) -> Opt
 
                     let value = state.memory[(address / 8) as usize];
 
+                    println!(
+                        "{} rs1: {:?} imm: {} -> rd: {:?}",
+                        instruction_to_str(instruction),
+                        state.regs[itype.rs1() as usize],
+                        immediate as i64,
+                        value,
+                    );
+
                     state.regs[itype.rd() as usize] = value;
                 } else {
                     unimplemented!("can not handle symbolic addresses in LD")
@@ -362,13 +458,17 @@ fn eval(instruction: Instruction, graph: &mut Formula, state: &mut State) -> Opt
             if let ValueType::Concrete(base_address) = state.regs[stype.rs1() as usize] {
                 let immediate = sign_extend_itype_stype(stype.imm());
 
-                println!("imm: {}", immediate);
-                println!("rs1: {}", base_address);
-
                 let address = base_address.wrapping_add(immediate);
-                println!("address: {}", address);
 
                 let value = state.regs[stype.rs2() as usize];
+
+                println!(
+                    "{}  immediate: {:?} rs2: {:?} rs1: {:?} -> ",
+                    instruction_to_str(instruction),
+                    immediate as i64,
+                    state.regs[stype.rs1() as usize],
+                    value,
+                );
 
                 state.memory[(address / 8) as usize] = value;
             } else {
@@ -377,6 +477,19 @@ fn eval(instruction: Instruction, graph: &mut Formula, state: &mut State) -> Opt
 
             None
         }
+        Instruction::Jal(jtype) => {
+            if jtype.rd() != 0 {
+                state.regs[jtype.rd() as usize] = ValueType::Concrete(0);
+            }
+            None
+        }
+        Instruction::Jalr(itype) => {
+            if itype.rd() != 0 {
+                state.regs[itype.rd() as usize] = ValueType::Concrete(0);
+            }
+            None
+        }
+        Instruction::Beq(_btype) => None,
         _ => unimplemented!("can not handle this instruction"),
     }
 }
@@ -391,6 +504,7 @@ pub fn sign_extend(n: u64, b: u32) -> u64 {
     }
 }
 
+#[allow(dead_code)]
 fn sign_extend_utype(imm: u32) -> u64 {
     sign_extend(imm as u64, 20)
 }
@@ -423,12 +537,16 @@ impl<Iter, T, R> ForEachUntilSome<Iter, T, R> for Iter {
 }
 
 #[allow(dead_code)]
-fn build_formula_for_exit_code(path: &[Instruction]) -> Option<(Formula, NodeIndex)> {
+fn build_formula_for_exit_code(
+    path: &[Instruction],
+    data_segment: &[u8],
+    elf_metadata: ElfMetadata,
+) -> Option<(Formula, NodeIndex)> {
     if let Some(Instruction::Ecall) = path.first() {
         None
     } else {
         let mut formula = Formula::new();
-        let mut state = State::new(10000);
+        let mut state = State::new(1000000, data_segment, elf_metadata);
 
         if let Some(root_idx) = path
             .iter()
@@ -442,63 +560,86 @@ fn build_formula_for_exit_code(path: &[Instruction]) -> Option<(Formula, NodeInd
 }
 
 // TODO: need to load data segment  => then write test
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use crate::candidate_path::{extract_candidate_path, extract_trivial_candidate_path};
-//     use crate::cfg;
-//     use petgraph::dot::Dot;
-//     use serial_test::serial;
-//     use std::env::current_dir;
-//     use std::fs::File;
-//     use std::io::prelude::*;
-//     use std::path::Path;
-//     use std::process::Command;
-//
-//     // TODO: write a unit test without dependency on selfie and external files
-//     #[test]
-//     #[serial]
-//     fn can_build_formula() {
-//         let cd = String::from(current_dir().unwrap().to_str().unwrap());
-//
-//         // generate RISC-U binary with Selfie
-//         let _ = Command::new("docker")
-//             .arg("run")
-//             .arg("-v")
-//             .arg(cd + ":/opt/monster")
-//             .arg("cksystemsteaching/selfie")
-//             .arg("/opt/selfie/selfie")
-//             .arg("-c")
-//             .arg("/opt/monster/symbolic/division-by-zero-3-35.c")
-//             .arg("-o")
-//             .arg("/opt/monster/symbolic/division-by-zero-3-35.riscu.o")
-//             .output();
-//
-//         let test_file = Path::new("symbolic/division-by-zero-3-35.riscu.o");
-//
-//         let graph = cfg::build_from_file(test_file).unwrap();
-//
-//         let path = extract_candidate_path(&graph);
-//
-//         println!("{:?}", path);
-//
-//         let (formula, _root) = build_formula_for_exit_code(&path).unwrap();
-//
-//         let dot_graph = Dot::with_config(&formula, &[]);
-//
-//         let mut f = File::create("tmp-graph.dot").unwrap();
-//         f.write_fmt(format_args!("{:?}", dot_graph)).unwrap();
-//
-//         // let _ = Command::new("dot")
-//         //     .arg("-Tpng")
-//         //     .arg("tmp-graph.dot")
-//         //     .arg("-o")
-//         //     .arg("main.png")
-//         //     .output();
-//
-//         // TODO: test more than just this result
-//         // assert!(result.is_ok());
-//
-//         let _ = std::fs::remove_file(test_file);
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cfg;
+    use crate::cfg::ControlFlowGraph;
+    use petgraph::dot::Dot;
+    use petgraph::visit::EdgeRef;
+    use serial_test::serial;
+    use std::env::current_dir;
+    use std::fs::File;
+    use std::io::prelude::*;
+    use std::path::Path;
+    use std::process::Command;
+
+    pub fn extract_candidate_path(graph: &ControlFlowGraph) -> Vec<Instruction> {
+        fn next(graph: &ControlFlowGraph, idx: NodeIndex) -> Option<NodeIndex> {
+            let edges = graph.edges(idx);
+            if let Some(edge) = edges.last() {
+                Some(edge.target())
+            } else {
+                None
+            }
+        }
+        let mut path = vec![];
+        let mut idx = graph.node_indices().next().unwrap();
+        path.push(idx);
+        while let Some(n) = next(graph, idx) {
+            path.push(n);
+            idx = n;
+        }
+        path.iter().map(|idx| graph[*idx]).collect()
+    }
+
+    // TODO: write a unit test without dependency on selfie and external files
+    #[test]
+    #[serial]
+    fn can_build_formula() {
+        let cd = String::from(current_dir().unwrap().to_str().unwrap());
+
+        // generate RISC-U binary with Selfie
+        let _ = Command::new("docker")
+            .arg("run")
+            .arg("-v")
+            .arg(cd + ":/opt/monster")
+            .arg("cksystemsteaching/selfie")
+            .arg("/opt/selfie/selfie")
+            .arg("-c")
+            .arg("/opt/monster/symbolic/symbolic-exit.c")
+            .arg("-o")
+            .arg("/opt/monster/symbolic/symbolic-exit.riscu.o")
+            .output();
+
+        let test_file = Path::new("symbolic/symbolic-exit.riscu.o");
+
+        let (graph, data_segment, elf_metadata) = cfg::build_from_file(test_file).unwrap();
+
+        println!("{:?}", data_segment);
+
+        let path = extract_candidate_path(&graph);
+
+        println!("{:?}", path);
+
+        let (formula, _root) =
+            build_formula_for_exit_code(&path, data_segment.as_slice(), elf_metadata).unwrap();
+
+        let dot_graph = Dot::with_config(&formula, &[]);
+
+        let mut f = File::create("tmp-graph.dot").unwrap();
+        f.write_fmt(format_args!("{:?}", dot_graph)).unwrap();
+
+        let _ = Command::new("dot")
+            .arg("-Tpng")
+            .arg("tmp-graph.dot")
+            .arg("-o")
+            .arg("main.png")
+            .output();
+
+        // TODO: test more than just this result
+        // assert!(result.is_ok());
+
+        let _ = std::fs::remove_file(test_file);
+    }
+}

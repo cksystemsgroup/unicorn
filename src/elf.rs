@@ -58,14 +58,17 @@ pub struct ElfMetadata {
     pub code_length: u64,
 }
 
-pub fn load_file(object_file: &Path, memory_limit: usize) -> Option<(Vec<u8>, ElfMetadata)> {
+pub fn load_file(
+    object_file: &Path,
+    memory_limit: usize,
+) -> Option<(Vec<u8>, Vec<u8>, ElfMetadata)> {
     match fs::read(object_file) {
         Ok(buffer) => unsafe { load(buffer.as_slice(), memory_limit) },
         _ => None,
     }
 }
 
-pub unsafe fn load(image: &[u8], memory_limit: usize) -> Option<(Vec<u8>, ElfMetadata)> {
+pub unsafe fn load(image: &[u8], memory_limit: usize) -> Option<(Vec<u8>, Vec<u8>, ElfMetadata)> {
     let header: Header = match image.read_raw() {
         Some(x) => x,
         None => return None,
@@ -108,10 +111,15 @@ pub unsafe fn load(image: &[u8], memory_limit: usize) -> Option<(Vec<u8>, ElfMet
         // if va_end > va_space.end {
         //     return None;
         // }
+        let slice =
+            &image[(ph.p_offset as usize)..((ph.p_offset as usize) + (ph.p_filesz as usize))];
 
-        memory[0..ph.p_filesz as usize].clone_from_slice(
-            &image[(ph.p_offset as usize)..((ph.p_offset as usize) + (ph.p_filesz as usize))],
-        );
+        memory = Vec::from(slice);
+
+        println!("{:?}", ph);
+        // memory[0..ph.p_filesz as usize].clone_from_slice(
+        //     ,
+        // );
     }
 
     // TODO: this does only work for RISCU binaries
@@ -120,8 +128,17 @@ pub unsafe fn load(image: &[u8], memory_limit: usize) -> Option<(Vec<u8>, ElfMet
         None => 0u64,
     };
 
+    println!("memory.len(): {}", memory.len());
+    println!("code_length: {}", code_length);
+
+    let data_segment = memory.split_off(code_length as usize);
+
+    println!("code_segment.len(): {}", memory.len());
+    println!("data_segment.len(): {}", data_segment.len());
+
     Some((
         memory,
+        data_segment,
         ElfMetadata {
             entry_address: header.e_entry,
             code_length,

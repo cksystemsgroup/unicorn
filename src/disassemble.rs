@@ -156,10 +156,8 @@ pub fn disassemble(binary: &[u8]) {
 // TODO: only tested with Selfie RISC-U file and relies on that ELF format
 pub fn disassemble_riscu(file: &Path) -> Result<(), &str> {
     match load_file(file, 1024) {
-        Some((memory_vec, meta_data)) => {
-            let memory = memory_vec.as_slice();
-
-            disassemble(memory.split_at(meta_data.code_length as usize).0);
+        Some((code, _data, _meta_data)) => {
+            disassemble(code.as_slice());
 
             Ok(())
         }

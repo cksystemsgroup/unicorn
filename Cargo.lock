@@ -278,7 +278,7 @@ checksum = "41cc0f7e4d5d4544e8861606a285bb08d3e70712ccc7d2b84d7c0ccfaf4b05ce"
 [[package]]
 name = "riscv-decode"
 version = "0.2.0"
-source = "git+https://github.com/cksystemsgroup/riscv-decode#a7120f161ee3bb5820dd1812da2d1d513352a49a"
+source = "git+https://github.com/cksystemsgroup/riscv-decode#3439f507fb0fa3eb76f7370553ba079f9a888988"
 
 [[package]]
 name = "scopeguard"

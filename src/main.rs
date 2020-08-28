@@ -1,4 +1,4 @@
-use clap::{App, Arg};
+use clap::{crate_authors, crate_description, crate_name, crate_version, App, Arg};
 use std::fmt::Display;
 use std::path::Path;
 
@@ -17,18 +17,10 @@ use compile::compile_example;
 use disassemble::disassemble_riscu;
 
 fn main() {
-    let args = App::new(env!("CARGO_PKG_NAME"))
-        .version(env!("CARGO_PKG_VERSION"))
-        .author(env!("CARGO_PKG_AUTHORS").replace(":", ", ").as_str())
-        .about(env!("CARGO_PKG_DESCRIPTION"))
-        .arg(
-            Arg::with_name("compile")
-                .short('c')
-                .long("compile")
-                .value_name("FILE")
-                .about("compile a source file")
-                .takes_value(true),
-        )
+    let matches = App::new(crate_name!())
+        .version(crate_version!())
+        .author(crate_authors!().replace(":", ", ").as_str())
+        .about(crate_description!())
         .arg(
             Arg::with_name("disassemble")
                 .short('d')
@@ -36,6 +28,25 @@ fn main() {
                 .value_name("FILE")
                 .about("disassemble a RISC-U ELF binary")
                 .takes_value(true),
+        )
+        .subcommand(
+            App::new("compile")
+                .about("compile source files to RISC-V Elf binaries")
+                .arg(
+                    Arg::with_name("input-file")
+                        .about("Source file to be compiled")
+                        .takes_value(true)
+                        .value_name("FILE")
+                        .required(true),
+                )
+                .arg(
+                    Arg::with_name("compiler")
+                        .about("Compiler to be used")
+                        .takes_value(true)
+                        .value_name("Command")
+                        .possible_values(&["clang", "selfie"])
+                        .default_value("selfie"),
+                ),
         )
         .subcommand(
             App::new("cfg")
@@ -82,18 +93,28 @@ fn main() {
         }
     }
 
-    if let Some(source) = args.value_of("compile") {
-        handle_error(|| compile_example(Path::new(source)));
-    } else if let Some(object) = args.value_of("disassemble") {
+    if let Some(object) = matches.value_of("disassemble") {
         handle_error(|| disassemble_riscu(Path::new(object)));
     }
 
-    if let Some(ref args) = args.subcommand_matches("cfg") {
+    if let Some(ref args) = matches.subcommand_matches("compile") {
+        handle_error(|| -> Result<(), String> {
+            let compiler = args.value_of("compiler").unwrap();
+
+            let input = Path::new(args.value_of("input-file").unwrap());
+
+            compile_example(input, Some(compiler))?;
+
+            Ok(())
+        })
+    }
+
+    if let Some(ref args) = matches.subcommand_matches("cfg") {
         handle_error(|| -> Result<(), String> {
             let input = Path::new(args.value_of("input-file").unwrap());
             let output = Path::new(args.value_of("output-file").unwrap());
 
-            let graph = cfg::build_from_file(Path::new(input))?;
+            let (graph, _, _) = cfg::build_from_file(Path::new(input))?;
 
             if let Some(_format @ "png") = args.value_of("format") {
                 let tmp = Path::new(".tmp-cfg.dot");

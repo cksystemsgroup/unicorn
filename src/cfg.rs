@@ -13,7 +13,7 @@
 //!   - `jal`: when link is used (=> `rd` is `ra`)
 //!   - `jalr`
 
-use crate::elf::load_file;
+use crate::elf::{load_file, ElfMetadata};
 use byteorder::{ByteOrder, LittleEndian};
 use petgraph::dot::Dot;
 use petgraph::graph::{EdgeIndex, NodeIndex};
@@ -200,15 +200,13 @@ fn build(binary: &[u8]) -> ControlFlowGraph {
     graph
 }
 
+pub type DataSegment = Vec<u8>;
+
 /// Create a ControlFlowGraph from Path `file`.
 // TODO: only tested with Selfie RISC-U file and relies on that ELF format
-pub fn build_from_file(file: &Path) -> Result<ControlFlowGraph, &str> {
+pub fn build_from_file(file: &Path) -> Result<(ControlFlowGraph, DataSegment, ElfMetadata), &str> {
     match load_file(file, 1024) {
-        Some((memory_vec, meta_data)) => {
-            let memory = memory_vec.as_slice();
-
-            Ok(build(memory.split_at(meta_data.code_length as usize).0))
-        }
+        Some((code, data, meta_data)) => Ok((build(code.as_slice()), data, meta_data)),
         None => Err("Cannot load RISC-U ELF file"),
     }
 }
@@ -265,7 +263,7 @@ mod tests {
 
         let test_file = Path::new("symbolic/division-by-zero-3-35.riscu.o");
 
-        let graph = build_from_file(test_file).unwrap();
+        let (graph, _, _) = build_from_file(test_file).unwrap();
 
         let dot_graph = Dot::with_config(&graph, &[]);
 
