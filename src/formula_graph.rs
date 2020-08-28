@@ -1,4 +1,5 @@
 use crate::elf::ElfMetadata;
+use crate::iterator::ForEachUntilSome;
 use byteorder::{ByteOrder, LittleEndian};
 use core::fmt;
 use petgraph::graph::NodeIndex;
@@ -14,223 +15,13 @@ static REG_A1: usize = 11;
 static REG_A2: usize = 12;
 static REG_A7: usize = 17;
 
-#[derive(Clone, Debug, Copy, Eq, Hash, PartialEq)]
-pub enum ArgumentSide {
-    Lhs,
-    Rhs,
-}
-
 #[allow(dead_code)]
-#[derive(Clone, Copy, Eq, Hash, PartialEq)]
-pub struct InstructionType {
-    // These instructions are part of the formula graph
-    // IE = input edge
-    // OE = output edge
-    // Lui(utype) -> 0 IE / 1 OE
-    // Addi(itype) -> 1 IE / 1 OE
-    // Add(rtype) -> 2 IE / 1 OE
-    // Sub(rtype) -> 2 IE / 1 OE
-    // Mul(rtype) -> 2 IE / 1 OE
-    // Divu(rtype) -> 2 IE / 1 OE
-    // Remu(rtype) -> 2 IE / 1 OE
-    // Sltu(rtype) -> 2 IE / 1 OE
-    instruction: Instruction,
-}
-
-impl InstructionType {
-    fn new(instruction: Instruction) -> Self {
-        Self { instruction }
-    }
-}
-
-impl fmt::Debug for InstructionType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.instruction)
-    }
-}
-
-#[derive(Clone, Copy, Eq, Hash, PartialEq)]
-pub struct ConstType {
-    // can have multiple output edges, but no input edge
-    value: u64,
-}
-
-impl ConstType {
-    fn new(value: u64) -> Self {
-        Self { value }
-    }
-}
-
-impl fmt::Debug for ConstType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.value)
-    }
-}
-
-#[derive(Clone, Eq, Hash, PartialEq)]
-pub struct InputType {
-    // can have multiple output edges, but no input edge
-    name: String,
-}
-
-impl InputType {
-    fn new(name: String) -> Self {
-        Self { name }
-    }
-}
-
-impl fmt::Debug for InputType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name)
-    }
-}
-
-#[derive(Clone, Eq, Hash, PartialEq)]
-pub struct OutputType {
-    // has 1 input edge only and 0 output edges
-    name: String,
-}
-
-impl OutputType {
-    fn new(name: String) -> Self {
-        Self { name }
-    }
-}
-
-impl fmt::Debug for OutputType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name)
-    }
-}
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-#[allow(dead_code)]
-pub enum Node {
-    Instruction(InstructionType),
-    Constant(ConstType),
-    Input(InputType),
-    Output(OutputType),
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum ValueType {
-    Concrete(u64),
-    Symbolic(NodeIndex),
-    Uninitialized,
-}
-
-struct State {
-    program_break: u64,
-    regs: [ValueType; 32],
-    memory: Vec<ValueType>,
-}
-
-impl State {
-    // creates a machine state with a specifc memory size
-    fn new(memory_size: usize, data_segment: &[u8], elf_metadata: ElfMetadata) -> Self {
-        let mut regs = [ValueType::Concrete(0); 32];
-        let mut memory = vec![ValueType::Uninitialized; memory_size / 8];
-
-        regs[REG_SP] = ValueType::Concrete(memory_size as u64 - 8);
-        regs[0] = ValueType::Concrete(0);
-
-        let start = (elf_metadata.entry_address / 8) as usize;
-        let end = start + data_segment.len() / 8;
-        let range = start..end;
-
-        println!(
-            "data_segment.len(): {}   entry_address:  {}",
-            data_segment.len(),
-            elf_metadata.entry_address
-        );
-
-        data_segment
-            .chunks(8)
-            .map(LittleEndian::read_u64)
-            .zip(range)
-            .for_each(|(x, i)| memory[i] = ValueType::Concrete(x));
-
-        Self {
-            program_break: elf_metadata.entry_address + (data_segment.len() as u64),
-            regs,
-            memory,
-        }
-    }
-}
-
-fn create_const_node(g: &mut Formula, value: u64) -> NodeIndex {
-    let constant = Node::Constant(ConstType::new(value));
-    g.add_node(constant)
-}
-
-fn symbolic_op(g: &mut Formula, lhs: NodeIndex, rhs: NodeIndex, result: NodeIndex) -> ValueType {
-    g.add_edge(lhs, result, ArgumentSide::Lhs);
-    g.add_edge(rhs, result, ArgumentSide::Rhs);
-
-    ValueType::Symbolic(result)
-}
-
-// fn find_node_by_alias(graph: &mut Formula, alias: u64) -> Option<NodeIndex> {
-//     graph.node_indices().find(|idx| graph[*idx].alias == alias)
-// }
-
-fn execute_lui(utype: UType, state: &mut State) -> Option<NodeIndex> {
-    if utype.rd() == 0 {
-        return None;
-    }
-
-    let immediate = utype.imm() as u64; //sign_extend_utype(utype.imm());
-
-    let result = ValueType::Concrete(immediate);
-
-    println!(
-        "{}  imm: {:?} -> rd: {:?}",
-        instruction_to_str(Instruction::Lui(utype)),
-        immediate as i64,
-        result,
-    );
-
-    state.regs[utype.rd() as usize] = result;
-
-    None
-}
-
-fn execute_itype<Op>(
-    instruction: Instruction,
-    itype: IType,
-    graph: &mut Formula,
-    state: &mut State,
-    op: Op,
-) -> Option<NodeIndex>
-where
-    Op: FnOnce(u64, u64) -> u64,
-{
-    if itype.rd() == 0 {
-        return None;
-    }
-
-    let rs1_value = state.regs[itype.rs1() as usize];
-    let immediate = sign_extend_itype_stype(itype.imm());
-
-    let result = execute_binary_op(
-        instruction,
-        rs1_value,
-        ValueType::Concrete(immediate),
-        graph,
-        op,
-    );
-
-    println!(
-        "{}  rs1: {:?} imm: {:?} -> rd: {:?}",
-        instruction_to_str(instruction),
-        rs1_value,
-        immediate as i64,
-        result,
-    );
-
-    state.regs[itype.rd() as usize] = result;
-
-    None
+pub enum SyscallId {
+    Exit = 93,
+    Read = 63,
+    Write = 64,
+    Openat = 56,
+    Brk = 214,
 }
 
 fn instruction_to_str(i: Instruction) -> &'static str {
@@ -253,244 +44,460 @@ fn instruction_to_str(i: Instruction) -> &'static str {
     }
 }
 
-fn execute_rtype<Op>(
-    instruction: Instruction,
-    rtype: RType,
-    graph: &mut Formula,
-    state: &mut State,
-    op: Op,
-) -> Option<NodeIndex>
-where
-    Op: FnOnce(u64, u64) -> u64,
-{
-    if rtype.rd() == 0 {
-        return None;
-    }
-
-    let rs1_value = state.regs[rtype.rs1() as usize];
-    let rs2_value = state.regs[rtype.rs2() as usize];
-
-    let result = execute_binary_op(instruction, rs1_value, rs2_value, graph, op);
-
-    println!(
-        "{}  rs1: {:?} rs2: {:?} -> rd: {:?}",
-        instruction_to_str(instruction),
-        rs1_value,
-        rs2_value,
-        result,
-    );
-
-    state.regs[rtype.rd() as usize] = result;
-
-    None
-}
-
-fn execute_binary_op<Op>(
-    instruction: Instruction,
-    lhs: ValueType,
-    rhs: ValueType,
-    graph: &mut Formula,
-    op: Op,
-) -> ValueType
-where
-    Op: FnOnce(u64, u64) -> u64,
-{
-    fn create_result_node(instruction: Instruction, graph: &mut Formula) -> NodeIndex {
-        let node = Node::Instruction(InstructionType::new(instruction));
-
-        graph.add_node(node)
-    }
-
-    match (lhs, rhs) {
-        (ValueType::Concrete(v1), ValueType::Concrete(v2)) => ValueType::Concrete(op(v1, v2)),
-        (ValueType::Symbolic(v1), ValueType::Concrete(v2)) => {
-            let node = create_const_node(graph, v2);
-            let res = create_result_node(instruction, graph);
-            symbolic_op(graph, v1, node, res)
-        }
-        (ValueType::Concrete(v1), ValueType::Symbolic(v2)) => {
-            let node = create_const_node(graph, v1);
-            let res = create_result_node(instruction, graph);
-            symbolic_op(graph, node, v2, res)
-        }
-        (ValueType::Symbolic(v1), ValueType::Symbolic(v2)) => {
-            let res = create_result_node(instruction, graph);
-            symbolic_op(graph, v1, v2, res)
-        }
-        _ => panic!("access to unitialized memory"),
-    }
+#[derive(Clone, Debug, Copy, Eq, Hash, PartialEq)]
+pub enum ArgumentSide {
+    Lhs,
+    Rhs,
 }
 
 #[allow(dead_code)]
-pub enum Syscall {
-    Exit = 93,
-    Read = 63,
-    Write = 64,
-    Openat = 56,
-    Brk = 214,
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+pub struct Instr {
+    // These instructions are part of the formula graph
+    // IE = input edge
+    // OE = output edge
+    // Lui(utype) -> 0 IE / 1 OE
+    // Addi(itype) -> 1 IE / 1 OE
+    // Add(rtype) -> 2 IE / 1 OE
+    // Sub(rtype) -> 2 IE / 1 OE
+    // Mul(rtype) -> 2 IE / 1 OE
+    // Divu(rtype) -> 2 IE / 1 OE
+    // Remu(rtype) -> 2 IE / 1 OE
+    // Sltu(rtype) -> 2 IE / 1 OE
+    instruction: Instruction,
 }
 
-fn eval(instruction: Instruction, graph: &mut Formula, state: &mut State) -> Option<NodeIndex> {
-    match instruction {
-        Instruction::Ecall => {
-            match state.regs[REG_A7] {
-                ValueType::Concrete(syscall_id) if syscall_id == (Syscall::Brk as u64) => {
-                    if let ValueType::Concrete(new_program_break) = state.regs[REG_A0] {
-                        // TODO: handle cases where program break can not be modified
-                        if new_program_break < state.program_break {
-                            state.regs[REG_A0] = ValueType::Concrete(state.program_break);
-                        } else {
-                            state.program_break = new_program_break;
-                        }
-                        println!("new program break: {}", new_program_break);
-                    } else {
-                        unimplemented!("can not handle symbolic or uninitialized program break")
-                    }
-                    None
-                }
-                ValueType::Concrete(syscall_id) if syscall_id == (Syscall::Read as u64) => {
-                    // TODO: ignore FD??
-                    if let ValueType::Concrete(buffer) = state.regs[REG_A1] {
-                        if let ValueType::Concrete(size) = state.regs[REG_A2] {
-                            // assert!(
-                            //     size % 8 == 0,
-                            //     "can only handle read syscalls with word width"
-                            // );
-                            // TODO: round up to word width.. not the best idea, right???
-                            let to_add = 8 - (size % 8);
-                            let words_read = (size + to_add) / 8;
+impl Instr {
+    fn new(instruction: Instruction) -> Self {
+        Self { instruction }
+    }
+}
 
-                            for i in 0..words_read {
-                                let name = format!("read({}, {}, {})", 0, buffer, size);
-                                let node = Node::Input(InputType::new(name));
-                                let node_idx = graph.add_node(node);
-                                state.memory[((buffer / 8) + i) as usize] =
-                                    ValueType::Symbolic(node_idx);
-                            }
-                        } else {
-                            unimplemented!(
-                                "can not handle symbolic or uinitialized size in read syscall"
-                            )
-                        }
-                    } else {
-                        unimplemented!("can not handle symbolic or uninitialized buffer address in read syscall")
-                    }
-                    None
-                }
-                ValueType::Concrete(syscall_id) if syscall_id == (Syscall::Exit as u64) => {
-                    if let ValueType::Symbolic(exit_code) = state.regs[REG_A0] {
-                        let root = Node::Output(OutputType::new(String::from("exit_code")));
-                        let root_idx = graph.add_node(root);
-                        graph.add_edge(exit_code, root_idx, ArgumentSide::Lhs);
+impl fmt::Debug for Instr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self.instruction)
+    }
+}
 
-                        Some(root_idx)
-                    } else {
-                        unimplemented!("exit only implemented for symbolic exit codes")
-                    }
-                }
-                ValueType::Concrete(x) => {
-                    unimplemented!("this syscall ({}) is not implemented yet", x)
-                }
-                ValueType::Uninitialized => unimplemented!("ecall with uninitialized syscall id"),
-                ValueType::Symbolic(n) => {
-                    let root = Node::Output(OutputType::new(String::from("exit_code")));
-                    let root_idx = graph.add_node(root);
-                    graph.add_edge(n, root_idx, ArgumentSide::Lhs);
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+pub struct Const {
+    // can have multiple output edges, but no input edge
+    value: u64,
+}
 
-                    Some(root_idx)
-                }
+impl Const {
+    fn new(value: u64) -> Self {
+        Self { value }
+    }
+}
+
+impl fmt::Debug for Const {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.value)
+    }
+}
+
+#[derive(Clone, Eq, Hash, PartialEq)]
+pub struct Input {
+    // can have multiple output edges, but no input edge
+    name: String,
+}
+
+impl Input {
+    fn new(name: String) -> Self {
+        Self { name }
+    }
+}
+
+impl fmt::Debug for Input {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
+#[derive(Clone, Eq, Hash, PartialEq)]
+pub struct Output {
+    // has 1 input edge only and 0 output edges
+    name: String,
+}
+
+impl Output {
+    fn new(name: String) -> Self {
+        Self { name }
+    }
+}
+
+impl fmt::Debug for Output {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum Node {
+    Instruction(Instr),
+    Constant(Const),
+    Input(Input),
+    Output(Output),
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum Value {
+    Concrete(u64),
+    Symbolic(NodeIndex),
+    Uninitialized,
+}
+
+struct DataFlowGraphBuilder<'a> {
+    graph: Formula,
+    path: &'a [Instruction],
+    program_break: u64,
+    regs: [Value; 32],
+    memory: Vec<Value>,
+}
+
+impl<'a> DataFlowGraphBuilder<'a> {
+    // creates a machine state with a specifc memory size
+    fn new(
+        memory_size: usize,
+        path: &'a [Instruction],
+        data_segment: &[u8],
+        elf_metadata: ElfMetadata,
+    ) -> Self {
+        let mut regs = [Value::Concrete(0); 32];
+        let mut memory = vec![Value::Uninitialized; memory_size / 8];
+
+        regs[REG_SP] = Value::Concrete(memory_size as u64 - 8);
+
+        println!(
+            "data_segment.len(): {}   entry_address:  {}",
+            data_segment.len(),
+            elf_metadata.entry_address
+        );
+
+        let start = (elf_metadata.entry_address / 8) as usize;
+        let end = start + data_segment.len() / 8;
+
+        data_segment
+            .chunks(8)
+            .map(LittleEndian::read_u64)
+            .zip(start..end)
+            .for_each(|(x, i)| memory[i] = Value::Concrete(x));
+
+        Self {
+            graph: Formula::new(),
+            program_break: elf_metadata.entry_address + (data_segment.len() as u64),
+            path,
+            regs,
+            memory,
+        }
+    }
+
+    fn create_const_node(&mut self, value: u64) -> NodeIndex {
+        let constant = Node::Constant(Const::new(value));
+
+        self.graph.add_node(constant)
+    }
+
+    fn symbolic_op(&mut self, lhs: NodeIndex, rhs: NodeIndex, result: NodeIndex) -> Value {
+        self.graph.add_edge(lhs, result, ArgumentSide::Lhs);
+        self.graph.add_edge(rhs, result, ArgumentSide::Rhs);
+
+        Value::Symbolic(result)
+    }
+
+    fn execute_lui(&mut self, utype: UType) -> Option<NodeIndex> {
+        if utype.rd() == 0 {
+            return None;
+        }
+
+        let immediate = utype.imm() as u64; //sign_extend_utype(utype.imm());
+
+        let result = Value::Concrete(immediate);
+
+        println!(
+            "{}  imm: {:?} -> rd: {:?}",
+            instruction_to_str(Instruction::Lui(utype)),
+            immediate as i64,
+            result,
+        );
+
+        self.regs[utype.rd() as usize] = result;
+
+        None
+    }
+
+    fn execute_itype<Op>(
+        &mut self,
+        instruction: Instruction,
+        itype: IType,
+        op: Op,
+    ) -> Option<NodeIndex>
+    where
+        Op: FnOnce(u64, u64) -> u64,
+    {
+        if itype.rd() == 0 {
+            return None;
+        }
+
+        let rs1_value = self.regs[itype.rs1() as usize];
+        let immediate = sign_extend_itype_stype(itype.imm());
+
+        let result = self.execute_binary_op(instruction, rs1_value, Value::Concrete(immediate), op);
+
+        println!(
+            "{}  rs1: {:?} imm: {:?} -> rd: {:?}",
+            instruction_to_str(instruction),
+            rs1_value,
+            immediate as i64,
+            result,
+        );
+
+        self.regs[itype.rd() as usize] = result;
+
+        None
+    }
+
+    fn execute_rtype<Op>(
+        &mut self,
+        instruction: Instruction,
+        rtype: RType,
+        op: Op,
+    ) -> Option<NodeIndex>
+    where
+        Op: FnOnce(u64, u64) -> u64,
+    {
+        if rtype.rd() == 0 {
+            return None;
+        }
+
+        let rs1_value = self.regs[rtype.rs1() as usize];
+        let rs2_value = self.regs[rtype.rs2() as usize];
+
+        let result = self.execute_binary_op(instruction, rs1_value, rs2_value, op);
+
+        println!(
+            "{}  rs1: {:?} rs2: {:?} -> rd: {:?}",
+            instruction_to_str(instruction),
+            rs1_value,
+            rs2_value,
+            result,
+        );
+
+        self.regs[rtype.rd() as usize] = result;
+
+        None
+    }
+
+    fn create_result_node(&mut self, instruction: Instruction) -> NodeIndex {
+        let node = Node::Instruction(Instr::new(instruction));
+
+        self.graph.add_node(node)
+    }
+
+    fn execute_binary_op<Op>(
+        &mut self,
+        instruction: Instruction,
+        lhs: Value,
+        rhs: Value,
+        op: Op,
+    ) -> Value
+    where
+        Op: FnOnce(u64, u64) -> u64,
+    {
+        match (lhs, rhs) {
+            (Value::Concrete(v1), Value::Concrete(v2)) => Value::Concrete(op(v1, v2)),
+            (Value::Symbolic(v1), Value::Concrete(v2)) => {
+                let node = self.create_const_node(v2);
+                let res = self.create_result_node(instruction);
+                self.symbolic_op(v1, node, res)
             }
-        }
-        Instruction::Lui(utype) => execute_lui(utype, state),
-        Instruction::Addi(itype) => {
-            execute_itype(instruction, itype, graph, state, u64::wrapping_add)
-        }
-        Instruction::Add(rtype) => {
-            execute_rtype(instruction, rtype, graph, state, u64::wrapping_add)
-        }
-        Instruction::Sub(rtype) => {
-            execute_rtype(instruction, rtype, graph, state, u64::wrapping_sub)
-        }
-        Instruction::Mul(rtype) => {
-            execute_rtype(instruction, rtype, graph, state, u64::wrapping_mul)
-        }
-        Instruction::Divu(rtype) => {
-            execute_rtype(instruction, rtype, graph, state, u64::wrapping_div)
-        }
-        Instruction::Remu(rtype) => {
-            execute_rtype(instruction, rtype, graph, state, u64::wrapping_rem)
-        }
-        Instruction::Sltu(rtype) => {
-            execute_rtype(
-                instruction,
-                rtype,
-                graph,
-                state,
-                |l, r| if l < r { 1 } else { 0 },
-            )
-        }
-        Instruction::Ld(itype) => {
-            if itype.rd() != 0 {
-                if let ValueType::Concrete(base_address) = state.regs[itype.rs1() as usize] {
-                    let immediate = sign_extend_itype_stype(itype.imm());
-
-                    let address = base_address.wrapping_add(immediate);
-
-                    let value = state.memory[(address / 8) as usize];
-
-                    println!(
-                        "{} rs1: {:?} imm: {} -> rd: {:?}",
-                        instruction_to_str(instruction),
-                        state.regs[itype.rs1() as usize],
-                        immediate as i64,
-                        value,
-                    );
-
-                    state.regs[itype.rd() as usize] = value;
-                } else {
-                    unimplemented!("can not handle symbolic addresses in LD")
-                }
+            (Value::Concrete(v1), Value::Symbolic(v2)) => {
+                let node = self.create_const_node(v1);
+                let res = self.create_result_node(instruction);
+                self.symbolic_op(node, v2, res)
             }
+            (Value::Symbolic(v1), Value::Symbolic(v2)) => {
+                let res = self.create_result_node(instruction);
+                self.symbolic_op(v1, v2, res)
+            }
+            // TODO: generate exit node here
+            _ => panic!("access to unitialized memory"),
+        }
+    }
 
+    pub fn generate_graph(&mut self) -> Option<(Formula, NodeIndex)> {
+        if let Some(root_idx) = self
+            .path
+            .iter()
+            .for_each_until_some(|instr| self.execute(*instr))
+        {
+            Some((self.graph.clone(), root_idx))
+        } else {
             None
         }
-        Instruction::Sd(stype) => {
-            if let ValueType::Concrete(base_address) = state.regs[stype.rs1() as usize] {
-                let immediate = sign_extend_itype_stype(stype.imm());
+    }
+
+    fn execute_brk(&mut self) -> Option<NodeIndex> {
+        if let Value::Concrete(new_program_break) = self.regs[REG_A0] {
+            // TODO: handle cases where program break can not be modified
+            if new_program_break < self.program_break {
+                self.regs[REG_A0] = Value::Concrete(self.program_break);
+            } else {
+                self.program_break = new_program_break;
+            }
+            println!("new program break: {}", new_program_break);
+        } else {
+            unimplemented!("can not handle symbolic or uninitialized program break")
+        }
+        None
+    }
+
+    fn execute_read(&mut self) -> Option<NodeIndex> {
+        // TODO: ignore FD??
+        if let Value::Concrete(buffer) = self.regs[REG_A1] {
+            if let Value::Concrete(size) = self.regs[REG_A2] {
+                // assert!(
+                //     size % 8 == 0,
+                //     "can only handle read syscalls with word width"
+                // );
+                // TODO: round up to word width.. not the best idea, right???
+                let to_add = 8 - (size % 8);
+                let words_read = (size + to_add) / 8;
+
+                for i in 0..words_read {
+                    let name = format!("read({}, {}, {})", 0, buffer, size);
+                    let node = Node::Input(Input::new(name));
+                    let node_idx = self.graph.add_node(node);
+                    self.memory[((buffer / 8) + i) as usize] = Value::Symbolic(node_idx);
+                }
+            } else {
+                unimplemented!("can not handle symbolic or uinitialized size in read syscall")
+            }
+        } else {
+            unimplemented!(
+                "can not handle symbolic or uninitialized buffer address in read syscall"
+            )
+        }
+        None
+    }
+
+    fn execute_exit(&mut self) -> Option<NodeIndex> {
+        if let Value::Symbolic(exit_code) = self.regs[REG_A0] {
+            let root = Node::Output(Output::new(String::from("exit_code")));
+            let root_idx = self.graph.add_node(root);
+            self.graph.add_edge(exit_code, root_idx, ArgumentSide::Lhs);
+
+            Some(root_idx)
+        } else {
+            unimplemented!("exit only implemented for symbolic exit codes")
+        }
+    }
+
+    fn execute_ecall(&mut self) -> Option<NodeIndex> {
+        match self.regs[REG_A7] {
+            Value::Concrete(syscall_id) if syscall_id == (SyscallId::Brk as u64) => {
+                self.execute_brk()
+            }
+            Value::Concrete(syscall_id) if syscall_id == (SyscallId::Read as u64) => {
+                self.execute_read()
+            }
+            Value::Concrete(syscall_id) if syscall_id == (SyscallId::Exit as u64) => {
+                self.execute_exit()
+            }
+            Value::Concrete(x) => unimplemented!("this syscall ({}) is not implemented yet", x),
+            Value::Uninitialized => unimplemented!("ecall with uninitialized syscall id"),
+            Value::Symbolic(n) => {
+                let root = Node::Output(Output::new(String::from("exit_code")));
+                let root_idx = self.graph.add_node(root);
+                self.graph.add_edge(n, root_idx, ArgumentSide::Lhs);
+
+                Some(root_idx)
+            }
+        }
+    }
+
+    fn execute_load(&mut self, instruction: Instruction, itype: IType) -> Option<NodeIndex> {
+        if itype.rd() != 0 {
+            if let Value::Concrete(base_address) = self.regs[itype.rs1() as usize] {
+                let immediate = sign_extend_itype_stype(itype.imm());
 
                 let address = base_address.wrapping_add(immediate);
 
-                let value = state.regs[stype.rs2() as usize];
+                let value = self.memory[(address / 8) as usize];
 
                 println!(
-                    "{}  immediate: {:?} rs2: {:?} rs1: {:?} -> ",
+                    "{} rs1: {:?} imm: {} -> rd: {:?}",
                     instruction_to_str(instruction),
+                    self.regs[itype.rs1() as usize],
                     immediate as i64,
-                    state.regs[stype.rs1() as usize],
                     value,
                 );
 
-                state.memory[(address / 8) as usize] = value;
+                self.regs[itype.rd() as usize] = value;
             } else {
-                unimplemented!("can not handle symbolic addresses in SD")
+                unimplemented!("can not handle symbolic addresses in LD")
             }
+        }
 
-            None
+        None
+    }
+
+    fn execute_store(&mut self, instruction: Instruction, stype: SType) -> Option<NodeIndex> {
+        if let Value::Concrete(base_address) = self.regs[stype.rs1() as usize] {
+            let immediate = sign_extend_itype_stype(stype.imm());
+
+            let address = base_address.wrapping_add(immediate);
+
+            let value = self.regs[stype.rs2() as usize];
+
+            println!(
+                "{}  immediate: {:?} rs2: {:?} rs1: {:?} -> ",
+                instruction_to_str(instruction),
+                immediate as i64,
+                self.regs[stype.rs1() as usize],
+                value,
+            );
+
+            self.memory[(address / 8) as usize] = value;
+        } else {
+            unimplemented!("can not handle symbolic addresses in SD")
         }
-        Instruction::Jal(jtype) => {
-            if jtype.rd() != 0 {
-                state.regs[jtype.rd() as usize] = ValueType::Concrete(0);
+
+        None
+    }
+
+    fn execute(&mut self, instruction: Instruction) -> Option<NodeIndex> {
+        match instruction {
+            Instruction::Ecall => self.execute_ecall(),
+            Instruction::Lui(utype) => self.execute_lui(utype),
+            Instruction::Addi(itype) => self.execute_itype(instruction, itype, u64::wrapping_add),
+            Instruction::Add(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_add),
+            Instruction::Sub(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_sub),
+            Instruction::Mul(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_mul),
+            // TODO: Implement exit for DIVU
+            Instruction::Divu(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_div),
+            Instruction::Remu(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_rem),
+            Instruction::Sltu(rtype) => {
+                self.execute_rtype(instruction, rtype, |l, r| if l < r { 1 } else { 0 })
             }
-            None
-        }
-        Instruction::Jalr(itype) => {
-            if itype.rd() != 0 {
-                state.regs[itype.rd() as usize] = ValueType::Concrete(0);
+            Instruction::Ld(itype) => self.execute_load(instruction, itype),
+            Instruction::Sd(stype) => self.execute_store(instruction, stype),
+            Instruction::Jal(jtype) => {
+                if jtype.rd() != 0 {
+                    self.regs[jtype.rd() as usize] = Value::Concrete(0);
+                }
+                None
             }
-            None
+            Instruction::Jalr(itype) => {
+                if itype.rd() != 0 {
+                    self.regs[itype.rd() as usize] = Value::Concrete(0);
+                }
+                None
+            }
+            Instruction::Beq(_btype) => None,
+            _ => unimplemented!("can not handle this instruction"),
         }
-        Instruction::Beq(_btype) => None,
-        _ => unimplemented!("can not handle this instruction"),
     }
 }
 
@@ -513,50 +520,13 @@ fn sign_extend_itype_stype(imm: u32) -> u64 {
     sign_extend(imm as u64, 12)
 }
 
-trait ForEachUntilSome<Iter, T, R> {
-    fn for_each_until_some<F>(&mut self, f: F) -> Option<R>
-    where
-        Iter: Iterator<Item = T>,
-        F: FnMut(T) -> Option<R>;
-}
-
-impl<Iter, T, R> ForEachUntilSome<Iter, T, R> for Iter {
-    fn for_each_until_some<F>(&mut self, mut f: F) -> Option<R>
-    where
-        Iter: Iterator<Item = T>,
-        F: FnMut(T) -> Option<R>,
-    {
-        for element in self {
-            if let Some(result) = f(element) {
-                return Some(result);
-            }
-        }
-
-        None
-    }
-}
-
 #[allow(dead_code)]
 fn build_formula_for_exit_code(
     path: &[Instruction],
     data_segment: &[u8],
     elf_metadata: ElfMetadata,
 ) -> Option<(Formula, NodeIndex)> {
-    if let Some(Instruction::Ecall) = path.first() {
-        None
-    } else {
-        let mut formula = Formula::new();
-        let mut state = State::new(1000000, data_segment, elf_metadata);
-
-        if let Some(root_idx) = path
-            .iter()
-            .for_each_until_some(|instr| eval(*instr, &mut formula, &mut state))
-        {
-            Some((formula, root_idx))
-        } else {
-            None
-        }
-    }
+    DataFlowGraphBuilder::new(1000000, path, data_segment, elf_metadata).generate_graph()
 }
 
 // TODO: need to load data segment  => then write test
