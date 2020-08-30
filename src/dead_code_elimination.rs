@@ -10,13 +10,21 @@ struct NodeDuo {
     pub alive_index: NodeIndex,
 }
 
-fn node_added(added_nodes: Vec, node_index: NodeIndex) -> bool {
-    for current_node in added_nodes {
-        if current_node.dead_index == node_index {
-            true
+fn node_added(added_nodes: Vec, node_index: NodeIndex) -> Result<NodeDuo, Error> {
+    for x in 0..added_nodes.len() {
+        if added_nodes[x].dead_index == node_index {
+            added_nodes.remove(x)
         }
     }
-    false
+    //TODO: Error handling
+}
+
+fn more_than_one_outgoing_edge(graph: &ControlFlowGraph, node: NodeIndex) -> bool {
+    if graph.edges_directed(node, Outgoing).next() != None {
+        true
+    } else {
+        false
+    }
 }
 
 pub fn eliminate_dead_code(graph_dead: &ControlFlowGraph, root: NodeIndex) -> ControlFlowGraph {
@@ -28,12 +36,31 @@ pub fn eliminate_dead_code(graph_dead: &ControlFlowGraph, root: NodeIndex) -> Co
     node_stack.push(NodeDuo::new(dead_index = root,
                                  alive_index = graph_alive.add_node(graph_dead.node_weight(root))));
 
+    //as long as stack isn't empty
     while let Some(current_node) = node_stack.pop() {
         for neighbor in graph_dead.neighbors_directed(current_node.dead_index, Incoming) {
             //if one of the neighbors has not been added yet we add it to our ControlFlowGraph
-            if !node_added(added_nodes, neighbor) {
-                
+            let new_node_index = node_added(added_nodes, neighbor);
+            if new_node_index != true  {
+                let new_node_index = graph_alive.add_node(graph_dead.node_weight(neighbor));
+                //push found node on the stack
+                node_stack.push(NodeDuo::new(dead_index = neighbor, alive_index = new_node_index));
+                //to add new edge the weight has to be looked up in the old graph
+                graph_alive.add_edge(new_node_index, current_node.alive_index,
+                                     graph_dead.edge_weight(graph_dead.find_edge(neighbor, current_node.dead_index)));
+
+                //if there are 2 outgoing edges
+                if more_than_one_outgoing_edge(graph_dead, neighbor) {
+                    added_nodes.push(NodeDuo::new(dead_index = neighbor, alive_index = new_node_index));
+                }
+
+            } else {
+                //if the node has been added we only need to add the edge
+                graph_alive.add_edge(new_node_index, current_node.alive_index,
+                                     graph_dead.edge_weight(graph_dead.find_edge(neighbor, current_node.dead_index)));
+
             }
         }
     }
+    graph_alive
 }
