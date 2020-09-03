@@ -6,6 +6,7 @@ mod candidate_path;
 mod cfg;
 mod cli;
 mod compile;
+mod dead_code_elimination;
 mod decode;
 mod disassemble;
 mod elf;

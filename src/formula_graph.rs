@@ -545,6 +545,7 @@ mod tests {
     use super::*;
     use crate::cfg;
     use crate::cfg::ControlFlowGraph;
+    use crate::dead_code_elimination::eliminate_dead_code;
     use petgraph::dot::Dot;
     use petgraph::visit::EdgeRef;
     use serial_test::serial;
@@ -627,6 +628,20 @@ mod tests {
 
         let (formula, _root) =
             build_dataflow_graph(&path, data_segment.as_slice(), elf_metadata).unwrap();
+
+        let graph_wo_dc = eliminate_dead_code(&formula, _root);
+
+        let dot_graph = Dot::with_config(&graph_wo_dc, &[]);
+
+        let mut f = File::create("tmp-graph.dot").unwrap();
+        f.write_fmt(format_args!("{:?}", dot_graph)).unwrap();
+
+        let _ = Command::new("dot")
+            .arg("-Tpng")
+            .arg("tmp-graph.dot")
+            .arg("-o")
+            .arg("main_wo_dc.png")
+            .output();
 
         let dot_graph = Dot::with_config(&formula, &[]);
 
