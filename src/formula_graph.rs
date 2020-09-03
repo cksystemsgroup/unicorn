@@ -116,18 +116,25 @@ impl fmt::Debug for Input {
 }
 
 #[derive(Clone, Eq, Hash, PartialEq)]
-pub struct Output {
-    // has 1 input edge only and 0 output edges
-    name: String,
+pub enum BooleanFunction {
+    // Equals,
+    GreaterThan,
 }
 
-impl Output {
-    fn new(name: String) -> Self {
-        Self { name }
+#[derive(Clone, Eq, Hash, PartialEq)]
+pub struct Constrain {
+    // has 1 input edge only and 0 output edges
+    name: String,
+    op: BooleanFunction,
+}
+
+impl Constrain {
+    fn new(name: String, op: BooleanFunction) -> Self {
+        Self { name, op }
     }
 }
 
-impl fmt::Debug for Output {
+impl fmt::Debug for Constrain {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.name)
     }
@@ -138,7 +145,7 @@ pub enum Node {
     Instruction(Instr),
     Constant(Const),
     Input(Input),
-    Output(Output),
+    Constrain(Constrain),
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -384,9 +391,18 @@ impl<'a> DataFlowGraphBuilder<'a> {
 
     fn execute_exit(&mut self) -> Option<NodeIndex> {
         if let Value::Symbolic(exit_code) = self.regs[REG_A0] {
-            let root = Node::Output(Output::new(String::from("exit_code")));
+            let const_node = Node::Constant(Const::new(0));
+            let const_node_idx = self.graph.add_node(const_node);
+
+            let root = Node::Constrain(Constrain::new(
+                String::from("exit_code"),
+                BooleanFunction::GreaterThan,
+            ));
             let root_idx = self.graph.add_node(root);
+
             self.graph.add_edge(exit_code, root_idx, ArgumentSide::Lhs);
+            self.graph
+                .add_edge(const_node_idx, root_idx, ArgumentSide::Rhs);
 
             Some(root_idx)
         } else {
@@ -407,13 +423,7 @@ impl<'a> DataFlowGraphBuilder<'a> {
             }
             Value::Concrete(x) => unimplemented!("this syscall ({}) is not implemented yet", x),
             Value::Uninitialized => unimplemented!("ecall with uninitialized syscall id"),
-            Value::Symbolic(n) => {
-                let root = Node::Output(Output::new(String::from("exit_code")));
-                let root_idx = self.graph.add_node(root);
-                self.graph.add_edge(n, root_idx, ArgumentSide::Lhs);
-
-                Some(root_idx)
-            }
+            Value::Symbolic(_) => unimplemented!("ecall with symbolic syscall id not implemented"),
         }
     }
 
@@ -521,7 +531,7 @@ fn sign_extend_itype_stype(imm: u32) -> u64 {
 }
 
 #[allow(dead_code)]
-fn build_formula_for_exit_code(
+fn build_dataflow_graph(
     path: &[Instruction],
     data_segment: &[u8],
     elf_metadata: ElfMetadata,
@@ -544,23 +554,46 @@ mod tests {
     use std::path::Path;
     use std::process::Command;
 
-    pub fn extract_candidate_path(graph: &ControlFlowGraph) -> Vec<Instruction> {
-        fn next(graph: &ControlFlowGraph, idx: NodeIndex) -> Option<NodeIndex> {
+    // Returns a path of RISC-U instructions and branch decisions (if true or false branch has been taken)
+    // for a path with 1 BEQ instruction, the vector of branch decisions has the length of 1
+    pub fn extract_candidate_path(graph: &ControlFlowGraph) -> (Vec<Instruction>, Vec<bool>) {
+        fn next(graph: &ControlFlowGraph, idx: NodeIndex) -> Option<(NodeIndex, Option<bool>)> {
             let edges = graph.edges(idx);
+
             if let Some(edge) = edges.last() {
-                Some(edge.target())
+                let target = edge.target();
+
+                match graph[idx] {
+                    Instruction::Beq(_) => {
+                        let next_idx = edge.target().index();
+
+                        if next_idx == idx.index() + 1 {
+                            Some((target, Some(false)))
+                        } else {
+                            Some((target, Some(true)))
+                        }
+                    }
+                    _ => Some((target, None)),
+                }
             } else {
                 None
             }
         }
         let mut path = vec![];
+        let mut branch_decisions = vec![];
         let mut idx = graph.node_indices().next().unwrap();
         path.push(idx);
         while let Some(n) = next(graph, idx) {
-            path.push(n);
-            idx = n;
+            path.push(n.0);
+            idx = n.0;
+
+            if let Some(branch_decision) = n.1 {
+                branch_decisions.push(branch_decision);
+            }
         }
-        path.iter().map(|idx| graph[*idx]).collect()
+        let instruction_path = path.iter().map(|idx| graph[*idx]).collect();
+
+        (instruction_path, branch_decisions)
     }
 
     // TODO: write a unit test without dependency on selfie and external files
@@ -588,12 +621,12 @@ mod tests {
 
         println!("{:?}", data_segment);
 
-        let path = extract_candidate_path(&graph);
+        let (path, _branch_decisions) = extract_candidate_path(&graph);
 
         println!("{:?}", path);
 
         let (formula, _root) =
-            build_formula_for_exit_code(&path, data_segment.as_slice(), elf_metadata).unwrap();
+            build_dataflow_graph(&path, data_segment.as_slice(), elf_metadata).unwrap();
 
         let dot_graph = Dot::with_config(&formula, &[]);
 
