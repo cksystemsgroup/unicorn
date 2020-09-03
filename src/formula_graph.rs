@@ -117,8 +117,19 @@ impl fmt::Debug for Input {
 
 #[derive(Clone, Eq, Hash, PartialEq)]
 pub enum BooleanFunction {
-    // Equals,
+    NotEqual,
+    Equals,
     GreaterThan,
+}
+
+impl fmt::Display for BooleanFunction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            BooleanFunction::GreaterThan => write!(f, "Greater Than"),
+            BooleanFunction::Equals => write!(f, "Equal"),
+            BooleanFunction::NotEqual => write!(f, "Not Equal"),
+        }
+    }
 }
 
 #[derive(Clone, Eq, Hash, PartialEq)]
@@ -136,7 +147,7 @@ impl Constrain {
 
 impl fmt::Debug for Constrain {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name)
+        write!(f, "{}, {}", self.name, self.op)
     }
 }
 
@@ -161,15 +172,17 @@ struct DataFlowGraphBuilder<'a> {
     program_break: u64,
     regs: [Value; 32],
     memory: Vec<Value>,
+    branch_decisions: Vec<bool>,
 }
 
 impl<'a> DataFlowGraphBuilder<'a> {
-    // creates a machine state with a specifc memory size
+    // creates a machine state with a specific memory size
     fn new(
         memory_size: usize,
         path: &'a [Instruction],
         data_segment: &[u8],
         elf_metadata: ElfMetadata,
+        branch_decisions: Vec<bool>,
     ) -> Self {
         let mut regs = [Value::Concrete(0); 32];
         let mut memory = vec![Value::Uninitialized; memory_size / 8];
@@ -197,6 +210,7 @@ impl<'a> DataFlowGraphBuilder<'a> {
             path,
             regs,
             memory,
+            branch_decisions,
         }
     }
 
@@ -389,6 +403,51 @@ impl<'a> DataFlowGraphBuilder<'a> {
         None
     }
 
+    fn execute_beq(&mut self, btype: BType) -> Option<NodeIndex> {
+        let node;
+        if self.branch_decisions.remove(0) {
+            node = Node::Constrain(Constrain::new(String::from("beq"), BooleanFunction::Equals));
+        } else {
+            node = Node::Constrain(Constrain::new(
+                String::from("beq"),
+                BooleanFunction::NotEqual,
+            ));
+        }
+        let node_idx = self.graph.add_node(node);
+        let lhs = self.regs[btype.rs1() as usize];
+        let rhs = self.regs[btype.rs2() as usize];
+
+        println!("{:?}", lhs);
+        println!("{:?}", rhs);
+
+        match (lhs, rhs) {
+            (Value::Concrete(v1), Value::Concrete(v2)) => {
+                let const_node1 = self.create_const_node(v1);
+                let const_node2 = self.create_const_node(v2);
+                self.graph
+                    .add_edge(const_node1, node_idx, ArgumentSide::Lhs);
+                self.graph
+                    .add_edge(const_node2, node_idx, ArgumentSide::Rhs);
+            }
+            (Value::Symbolic(v1), Value::Concrete(v2)) => {
+                let const_node = self.create_const_node(v2);
+                self.graph.add_edge(v1, node_idx, ArgumentSide::Lhs);
+                self.graph.add_edge(const_node, node_idx, ArgumentSide::Rhs);
+            }
+            (Value::Concrete(v1), Value::Symbolic(v2)) => {
+                let const_node = self.create_const_node(v1);
+                self.graph.add_edge(const_node, node_idx, ArgumentSide::Lhs);
+                self.graph.add_edge(v2, node_idx, ArgumentSide::Rhs);
+            }
+            (Value::Symbolic(v1), Value::Symbolic(v2)) => {
+                self.graph.add_edge(v1, node_idx, ArgumentSide::Lhs);
+                self.graph.add_edge(v2, node_idx, ArgumentSide::Rhs);
+            }
+            _ => panic!("access to uninitialized memory"),
+        }
+        None
+    }
+
     fn execute_exit(&mut self) -> Option<NodeIndex> {
         if let Value::Symbolic(exit_code) = self.regs[REG_A0] {
             let const_node = Node::Constant(Const::new(0));
@@ -505,7 +564,7 @@ impl<'a> DataFlowGraphBuilder<'a> {
                 }
                 None
             }
-            Instruction::Beq(_btype) => None,
+            Instruction::Beq(btype) => self.execute_beq(btype),
             _ => unimplemented!("can not handle this instruction"),
         }
     }
@@ -535,8 +594,10 @@ fn build_dataflow_graph(
     path: &[Instruction],
     data_segment: &[u8],
     elf_metadata: ElfMetadata,
+    branch_decision: Vec<bool>,
 ) -> Option<(Formula, NodeIndex)> {
-    DataFlowGraphBuilder::new(1000000, path, data_segment, elf_metadata).generate_graph()
+    DataFlowGraphBuilder::new(1000000, path, data_segment, elf_metadata, branch_decision)
+        .generate_graph()
 }
 
 // TODO: need to load data segment  => then write test
@@ -611,12 +672,12 @@ mod tests {
             .arg("cksystemsteaching/selfie")
             .arg("/opt/selfie/selfie")
             .arg("-c")
-            .arg("/opt/monster/symbolic/symbolic-exit.c")
+            .arg("/opt/monster/symbolic/simple-if-else-symbolic-exit.c")
             .arg("-o")
-            .arg("/opt/monster/symbolic/symbolic-exit.riscu.o")
+            .arg("/opt/monster/symbolic/simple-if-else-symbolic-exit.riscu.o")
             .output();
 
-        let test_file = Path::new("symbolic/symbolic-exit.riscu.o");
+        let test_file = Path::new("symbolic/simple-if-else-symbolic-exit.riscu.o");
 
         let (graph, data_segment, elf_metadata) = cfg::build_from_file(test_file).unwrap();
 
@@ -626,8 +687,13 @@ mod tests {
 
         println!("{:?}", path);
 
-        let (formula, _root) =
-            build_dataflow_graph(&path, data_segment.as_slice(), elf_metadata).unwrap();
+        let (formula, _root) = build_dataflow_graph(
+            &path,
+            data_segment.as_slice(),
+            elf_metadata,
+            _branch_decisions,
+        )
+        .unwrap();
 
         let graph_wo_dc = eliminate_dead_code(&formula, _root);
 
