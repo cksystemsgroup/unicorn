@@ -52,6 +52,9 @@ jobs:
         run: |
           cargo install cross
           rustup target add riscv64gc-unknown-linux-gnu
+      - name: Install mdbook dependencies
+        run: |
+          cargo install mdbook mdbook-graphviz mdbook-linkcheck
       - name: Build
         run: cargo build --verbose
       - name: Test

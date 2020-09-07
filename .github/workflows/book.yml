@@ -1,0 +1,44 @@
+name: Book
+
+on:
+  push:
+    branches-ignore:
+      - 'gh-pages'
+    paths:
+      - 'book/*'
+  pull_request:
+    paths:
+      - 'book/*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  generate:
+    name: Generate HTML with MdBook
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install graphviz
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y graphviz
+
+      - name: Install mdbook dependencies
+        run: |
+          # cargo is installed on Github runners: https://github.com/actions/virtual-environments/blob/main/images/linux/Ubuntu2004-README.md
+          cargo install mdbook 
+          cargo install mdbook-linkcheck
+          cargo install --git https://github.com/christianmoesl/mdbook-graphviz
+
+      - name: Generate book as html
+        run: mdbook build book
+
+      - name: Deploy on Github Pages
+        uses: peaceiris/actions-gh-pages@v3
+        if: ${{ github.repository == 'cksystemsgroup/monster' && github.ref == 'master' }}
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./book/book
+

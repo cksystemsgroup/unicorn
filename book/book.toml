@@ -1,0 +1,15 @@
+[book]
+authors = ["Christian Mösl"]
+language = "en"
+multilingual = false
+src = "src"
+title = "Monster"
+
+[preprocessor.graphviz]
+command = "mdbook-graphviz"
+
+[output.html]
+mathjax-support = true
+git-repository-url = "https://github.com/cksystemsgroup/monster"
+
+[output.linkcheck]  # enable the "mdbook-linkcheck" renderer
