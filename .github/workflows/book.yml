@@ -6,9 +6,11 @@ on:
       - 'gh-pages'
     paths:
       - 'book/*'
+      - '.github/workflows/book.yml'
   pull_request:
     paths:
       - 'book/*'
+      - '.github/workflows/book.yml'
 
 env:
   CARGO_TERM_COLOR: always
@@ -22,6 +24,7 @@ jobs:
 
       - name: Install graphviz
         run: |
+          echo "$GITHUB_REF"
           sudo apt-get update
           sudo apt-get install -y graphviz
 
@@ -37,7 +40,7 @@ jobs:
 
       - name: Deploy on Github Pages
         uses: peaceiris/actions-gh-pages@v3
-        if: ${{ github.repository == 'cksystemsgroup/monster' && github.ref == 'master' }}
+        if: ${{ github.repository == 'cksystemsgroup/monster' && github.ref == 'refs/heads/master' }}
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./book/book
