@@ -2,7 +2,7 @@ use crate::elf::ElfMetadata;
 use crate::iterator::ForEachUntilSome;
 use byteorder::{ByteOrder, LittleEndian};
 use core::fmt;
-use petgraph::graph::NodeIndex;
+pub use petgraph::graph::NodeIndex;
 use petgraph::Graph;
 use riscv_decode::types::*;
 use riscv_decode::Instruction;
@@ -50,6 +50,16 @@ pub enum ArgumentSide {
     Rhs,
 }
 
+impl ArgumentSide {
+    #[allow(dead_code)]
+    pub fn other(&self) -> Self {
+        match self {
+            ArgumentSide::Lhs => ArgumentSide::Rhs,
+            ArgumentSide::Rhs => ArgumentSide::Lhs,
+        }
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub struct Instr {
@@ -64,11 +74,11 @@ pub struct Instr {
     // Divu(rtype) -> 2 IE / 1 OE
     // Remu(rtype) -> 2 IE / 1 OE
     // Sltu(rtype) -> 2 IE / 1 OE
-    instruction: Instruction,
+    pub instruction: Instruction,
 }
 
 impl Instr {
-    fn new(instruction: Instruction) -> Self {
+    pub fn new(instruction: Instruction) -> Self {
         Self { instruction }
     }
 }
@@ -82,11 +92,11 @@ impl fmt::Debug for Instr {
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub struct Const {
     // can have multiple output edges, but no input edge
-    value: u64,
+    pub value: u64,
 }
 
 impl Const {
-    fn new(value: u64) -> Self {
+    pub fn new(value: u64) -> Self {
         Self { value }
     }
 }
@@ -104,7 +114,7 @@ pub struct Input {
 }
 
 impl Input {
-    fn new(name: String) -> Self {
+    pub fn new(name: String) -> Self {
         Self { name }
     }
 }
@@ -115,6 +125,7 @@ impl fmt::Debug for Input {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Eq, Hash, PartialEq)]
 pub enum BooleanFunction {
     NotEqual,
@@ -133,19 +144,19 @@ impl fmt::Display for BooleanFunction {
 }
 
 #[derive(Clone, Eq, Hash, PartialEq)]
-pub struct Constrain {
+pub struct Constraint {
     // has 1 input edge only and 0 output edges
-    name: String,
-    op: BooleanFunction,
+    pub name: String,
+    pub op: BooleanFunction,
 }
 
-impl Constrain {
-    fn new(name: String, op: BooleanFunction) -> Self {
+impl Constraint {
+    pub fn new(name: String, op: BooleanFunction) -> Self {
         Self { name, op }
     }
 }
 
-impl fmt::Debug for Constrain {
+impl fmt::Debug for Constraint {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}, {}", self.name, self.op)
     }
@@ -156,7 +167,7 @@ pub enum Node {
     Instruction(Instr),
     Constant(Const),
     Input(Input),
-    Constrain(Constrain),
+    Constraint(Constraint),
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -406,9 +417,12 @@ impl<'a> DataFlowGraphBuilder<'a> {
     fn execute_beq(&mut self, btype: BType) -> Option<NodeIndex> {
         let node;
         if self.branch_decisions.remove(0) {
-            node = Node::Constrain(Constrain::new(String::from("beq"), BooleanFunction::Equals));
+            node = Node::Constraint(Constraint::new(
+                String::from("beq"),
+                BooleanFunction::Equals,
+            ));
         } else {
-            node = Node::Constrain(Constrain::new(
+            node = Node::Constraint(Constraint::new(
                 String::from("beq"),
                 BooleanFunction::NotEqual,
             ));
@@ -453,7 +467,7 @@ impl<'a> DataFlowGraphBuilder<'a> {
             let const_node = Node::Constant(Const::new(0));
             let const_node_idx = self.graph.add_node(const_node);
 
-            let root = Node::Constrain(Constrain::new(
+            let root = Node::Constraint(Constraint::new(
                 String::from("exit_code"),
                 BooleanFunction::GreaterThan,
             ));

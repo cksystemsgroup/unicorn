@@ -10,9 +10,9 @@ mod dead_code_elimination;
 mod decode;
 mod disassemble;
 mod elf;
-mod engine;
 mod formula_graph;
 mod iterator;
+mod solver;
 mod ternary;
 
 use compile::compile_example;
