@@ -43,5 +43,5 @@ jobs:
         if: ${{ github.repository == 'cksystemsgroup/monster' && github.ref == 'refs/heads/master' }}
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./book/book
+          publish_dir: ./book/book/html
 
