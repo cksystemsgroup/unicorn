@@ -5,14 +5,10 @@ on:
     paths-ignore:
       - '**.md'
       - 'docs'
+      - 'book'
       - 'AUTHORS'
       - 'LICENSE'
   pull_request:
-    paths-ignore:
-      - '**.md'
-      - 'docs'
-      - 'AUTHORS'
-      - 'LICENSE'
   schedule:
     # trigger daily at 12am
     - cron: '0 0 * * *'
@@ -52,9 +48,6 @@ jobs:
         run: |
           cargo install cross
           rustup target add riscv64gc-unknown-linux-gnu
-      - name: Install mdbook dependencies
-        run: |
-          cargo install mdbook mdbook-graphviz mdbook-linkcheck
       - name: Build
         run: cargo build --verbose
       - name: Test
