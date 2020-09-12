@@ -1,11 +1,10 @@
 # Prototype Concept
 
 Monster is a Symbolic Execution Engine for RISC-U binary code.
-Given a RISC-U binary and any pointer into the binary, 
-Monster can compute (with a high probability) a concrete input, 
-where the program would reach that point.
-On top of that Monster can also compute (with a high success probability)
-a input for a constrained memory location at a specific point in the binary.
+Given a RISC-U binary and any pointer into the binaries code segment, 
+Monster can compute a concrete input, where the program would reach that point (with a high probability).
+On top of that Monster can also compute
+a input for a constrained memory location at a specific point in the binary (with a high success probability).
 
 
 ## Machine Model
@@ -33,7 +32,7 @@ addi a7, zero, 93
 ecall
 ```
 
-Now this code should be evaluated partially, where we differentiate between _Concrete_ and _Symbolic values_. 
+This code should be evaluated partially, where we differentiate between _Concrete_ and _Symbolic values_. 
 Concrete values are of type unsigned 64-bit integer, whereas symbolic values only consist of a name (e.g. x0) for a SMT formula stored somewhere else.
 We will also use a _Uninitialized_ value to model memory cells, which have not been initialized yet.
 Now we need to model the state of the machine to be able execute instructions for it.
@@ -64,7 +63,7 @@ Keep in mind, that we defined, that our input is in register a0 and therefore th
 </td></tr> </table>
 
 Every memory cell or register, which is not explicitly mentioned here is _Uninitialized_.
-Now the initial state of the machine is defined and we can start executing.
+With this the initial state of the machine is defined and we can start executing.
 
 ### Symbolic Execution
 
@@ -223,10 +222,10 @@ For that we introduce a new label and store the formula
 After the exit ecall we have to decide, how the query to the SMT solver will look like.
 In this case an `exit_code > 0` is interesting for us, because that is an error condition for a program.
 The `exit_code` at this point should be in register a0.
-Now that the constrain is defined and we now formula (x2), the SMT formula can be written down as following:
+Now that the constraint is defined and we know formula x2 represents `exit_code`, the SMT formula can be written down as following:
 `x1 = x0 + 5 and x2 = 10 - x1 and x2 > 0`
 
-We can now write SMT-lib down for this formula which would look like this:
+We can now write SMT-lib code for this formula, which would look like this:
 
 ```
 (set-option :produce-models true)
@@ -254,7 +253,7 @@ Someone could easily rewrite that to the following formula and therefore omit ma
 
 `10 - (x0 + 5) > 0`
 
-And for that reason, we do not use that tabular approach to represent the formula, but use a graph for that. 
+For this reason, we do not use the tabular approach to represent the formula, but rather use a graph. 
 To be precise, we are using a data flow graph.
 
 
@@ -304,8 +303,8 @@ digraph {
 }
 ```
 
-With this graph as result, an SMT formula can trivially be constructed by building an formula for every "Constrain" node. 
-An algorithm could start at a constrain and track all it's input edges to build the formula.
+With this graph as a result, an SMT formula can trivially be constructed by building a formula for every "Constraint" node. 
+An algorithm could start at a constraint and track all it's input edges to build the formula.
 This gives us a way more concise SMT formula:
 
 ```
@@ -326,12 +325,12 @@ This gives us a way more concise SMT formula:
 
 ## Control Flow
 
-Up until now, there was now control flow statement involved in our program. 
-In this section, I will describe control flow in our symbolic execution engine.
-Monster generates a so called Control Flow Graph, which encaptures all possible execution paths of a program in a graph.
+Up until now, there was no control flow statement involved in our program. 
+In this section, we will describe control flow in our symbolic execution engine.
+Monster generates a so called Control Flow Graph, which encaptures all possible execution paths of a program in one graph.
 Let's take a different example with non-trivial control flow:
 
-Here is the C pseudo code of the program:
+Here is the C pseudocode of the program:
 ```C
 uint64_t input = ?;
 uint64_t x1 = input + 5;
@@ -346,7 +345,7 @@ else
 exit(exit_code);
 ```
 
-RISC-V
+RISC-U
 ```
 addi t0, zero, 10
 addi t1, a0, 5
@@ -359,7 +358,7 @@ addi a7, zero, 93
 ecall
 ```
 
-The control flow graph for this program looks like this:
+The Control Flow Graph for this program looks like this:
 
 ```dot process
 digraph {
@@ -384,8 +383,8 @@ It is a straight forward Control Flow Graph, where every node is a RISC-U instru
 ### Candidate Path
 
 With Monster we restrict our engine to execute one full path from program entry point to a specified exit point at a time.
-This implies, that we have to generate so called candidate paths, which are execute symbolically.
-Candidate paths are the result of computing all shortest paths in of the control flow graph.
+This implies, that we have to generate so called candidate paths, which are executed symbolically.
+Candidate paths are the results of computing all shortest paths in the control flow graph. We start by picking the shortest first.
 
 So for our example the first candidate path to be executed is:
 
@@ -400,8 +399,8 @@ digraph {
 }
 ```
 
-At this point, this path can be executed symbolically simialarly to the first example.
-The only difference is, that we have encoded an additional constrain (`reg(t0) == reg(t1)`) at one point in the path.
+At this point, this path can be executed symbolically, simialarly to the first example.
+The only difference is, that we have encoded an additional constraint (`reg(t0) == reg(t1)`) at one point in the path.
 
 ### Conditional Symbolic Branching
 
@@ -437,7 +436,7 @@ digraph {
 ```
 
 Execution of this path begins to differ when a `beq` instruction is reached.
-For this instruction a constrain has to be modeled in the dataflow graph.
+For this instruction a constraint has to be modeled in the dataflow graph.
 This constrain is part of the so called "path condition".
 It reflects the decision made when branching.
 
@@ -505,9 +504,9 @@ digraph {
 }
 ```
 
-Now that this results in 2 constrains, SMT-lib looks kind of different for this graph.
+Now that this results in 2 constraints, SMT-lib looks kind of different for this graph.
 2 assertions have to be made.
-One comes from the path condition (`reg(t0) != reg(t1)`) and one is our output constrain (`reg(a0) > 0`).
+One comes from the path condition (`reg(t0) != reg(t1)`) and one is our output constraint (`reg(a0) > 0`).
 
 ```
 (set-option :produce-models true)
