@@ -330,7 +330,7 @@ In this section, we will describe control flow in our symbolic execution engine.
 Monster generates a so called Control Flow Graph, which encaptures all possible execution paths of a program in one graph.
 Let's take a different example with non-trivial control flow:
 
-Here is the C pseudocode of the program:
+Here is the C* pseudocode of the program:
 ```C
 uint64_t input = ?;
 uint64_t x1 = input + 5;
@@ -386,7 +386,7 @@ With Monster we restrict our engine to execute one full path from program entry 
 This implies, that we have to generate so called candidate paths, which are executed symbolically.
 Candidate paths are the results of computing all shortest paths in the control flow graph. We start by picking the shortest first.
 
-So for our example the first candidate path to be executed is:
+In the given example the first candidate path to be executed is:
 
 ```dot process
 digraph {
@@ -399,7 +399,7 @@ digraph {
 }
 ```
 
-At this point, this path can be executed symbolically, simialarly to the first example.
+At this point, this path can be executed symbolically, similarly to the first example.
 The only difference is, that we have encoded an additional constraint (`reg(t0) == reg(t1)`) at one point in the path.
 
 ### Conditional Symbolic Branching
@@ -504,8 +504,7 @@ digraph {
 }
 ```
 
-Now that this results in 2 constraints, SMT-lib looks kind of different for this graph.
-2 assertions have to be made.
+Now that this results in 2 constraints, SMT-lib looks kind of different for this graph since 2 assertions have to be made.
 One comes from the path condition (`reg(t0) != reg(t1)`) and one is our output constraint (`reg(a0) > 0`).
 
 ```
