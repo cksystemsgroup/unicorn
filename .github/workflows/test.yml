@@ -2,13 +2,10 @@ name: Test
 
 on:
   push:
-    paths-ignore:
-      - '**.md'
-      - 'docs'
-      - 'book'
-      - 'AUTHORS'
-      - 'LICENSE'
   pull_request:
+    types:
+      - opened
+      - reopened
   schedule:
     # trigger daily at 12am
     - cron: '0 0 * * *'

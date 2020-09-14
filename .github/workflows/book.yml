@@ -5,11 +5,14 @@ on:
     branches-ignore:
       - 'gh-pages'
     paths:
-      - 'book/*'
+      - 'book/**'
       - '.github/workflows/book.yml'
   pull_request:
+    types:
+      - opened
+      - reopened
     paths:
-      - 'book/*'
+      - 'book/**'
       - '.github/workflows/book.yml'
 
 env:
