@@ -1,4 +1,4 @@
-use clap::{crate_authors, crate_description, crate_name, crate_version, App, Arg};
+use clap::{crate_authors, crate_description, crate_name, crate_version, App, AppSettings, Arg};
 
 pub fn args() -> App<'static> {
     App::new(crate_name!())
@@ -17,7 +17,8 @@ pub fn args() -> App<'static> {
                         .long("disassemble")
                         .value_name("FILE")
                         .about("Binary file to be disassembled")
-                        .takes_value(true),
+                        .takes_value(true)
+                        .required(true),
                 ),
         )
         .subcommand(
@@ -74,4 +75,6 @@ pub fn args() -> App<'static> {
                         .default_value("dot"),
                 ),
         )
+        .setting(AppSettings::SubcommandRequiredElseHelp)
+        .global_setting(AppSettings::GlobalVersion)
 }
