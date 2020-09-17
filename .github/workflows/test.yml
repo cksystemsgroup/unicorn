@@ -2,13 +2,10 @@ name: Test
 
 on:
   push:
-  pull_request:
-    types:
-      - opened
-      - reopened
   schedule:
     # trigger daily at 12am
     - cron: '0 0 * * *'
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -16,37 +13,66 @@ env:
 # TODO: docker is not supported for Github MacOs virtual environments.
 # This is a problem, because "cross" needs docker to cross compile rust code
 
-#jobs:
-#  macos:
-#    name: build and test on macos
-#    runs-on: macos-latest
-#    steps:
-#      - uses: actions/checkout@v2
-#      - name: Install llvm
-#        run: |
-#          brew install llvm
-#          echo "::add-path::/usr/local/opt/llvm/bin"
-#      - name: Install rust cross compiler
-#        run: |
-#          cargo install cross
-#          rustup target add riscv64gc-unknown-linux-gnu
-#      - name: Build
-#        run: cargo build
-#      - name: Test
-#        run: cargo test
-
 jobs:
-  linux:
-    name: build and test on linux
+  build-and-test:
+    name: Build and Test on Linux
     runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v2
-      - name: Install rust cross compiler
-        run: |
-          cargo install cross
-          rustup target add riscv64gc-unknown-linux-gnu
-      - name: Build
-        run: cargo build --verbose
-      - name: Test
-        run: cargo test --verbose
+       
+      - name: Cache Cargo Dependencies
+        uses: actions/cache@v2
+        env:
+          cache-name: cache-cargo-dependencies
+        # disable cache four daily builds
+        if: ${{ github.event_name != 'schedule' }}
+        with:
+          # cargo cache files are stored in `~/.cargo` on Linux/macOS
+          # source for paths: https://doc.rust-lang.org/cargo/guide/cargo-home.html#caching-the-cargo-home-in-ci
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target
+          key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Install Rust Cross Compiler
+        run: |
+          cargo install cross || true
+          rustup target add riscv64gc-unknown-linux-gnu
+
+      - name: Build
+        run: cargo build --locked
+
+      - name: Test
+        run: cargo test --locked
+
+  security-scan:
+    name: Security Scan of Dependencies
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Cache Cargo Dependencies
+        uses: actions/cache@v2
+        env:
+          cache-name: cache-cargo-dependencies
+        # disable cache four daily builds
+        if: ${{ github.event_name != 'schedule' }}
+        with:
+          # cargo cache files are stored in `~/.cargo` on Linux/macOS
+          # source for paths: https://doc.rust-lang.org/cargo/guide/cargo-home.html#caching-the-cargo-home-in-ci
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target
+          key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install Rust Dependency Scanner
+        run: cargo install audit || true
+
+      - name: Scan Dependencies
+        run: cargo audit

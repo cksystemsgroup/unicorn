@@ -16,9 +16,12 @@ $ rustup component add clippy
 ```
 $ echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 ```
-4. Install tool for cross compilation
+4. Install tool for cross compilation and documentation generation
 ```
 $ cargo install cross
+$ cargo install mdbook
+$ cargo install mdbook-linkcheck
+$ cargo install --git https://github.com/christianmoesl/mdbook-graphviz
 ```
 
 ## Docker and llvm
@@ -39,9 +42,9 @@ $ brew install llvm
 ## Build and test
 7. Test your toolchain setup by compiling monster:
 ```
-$ cargo build
+$ cargo build --locked
 ```
 8. Execute tests:
 ```
-$ cargo test
+$ cargo test --locked
 ```

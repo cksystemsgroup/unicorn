@@ -7,13 +7,7 @@ on:
     paths:
       - 'book/**'
       - '.github/workflows/book.yml'
-  pull_request:
-    types:
-      - opened
-      - reopened
-    paths:
-      - 'book/**'
-      - '.github/workflows/book.yml'
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -25,20 +19,36 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Install graphviz
+      - name: Cache Cargo Dependencies
+        uses: actions/cache@v2
+        env:
+          cache-name: cache-cargo-dependencies
+        # disable cache four daily builds
+        if: ${{ github.event_name != 'schedule' }}
+        with:
+          # cargo cache files are stored in `~/.cargo` on Linux/macOS
+          # source for paths: https://doc.rust-lang.org/cargo/guide/cargo-home.html#caching-the-cargo-home-in-ci
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target
+          key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install Graphviz
         run: |
           echo "$GITHUB_REF"
           sudo apt-get update
           sudo apt-get install -y graphviz
 
-      - name: Install mdbook dependencies
+      - name: Install mdbook and Dependencies
         run: |
-          # cargo is installed on Github runners: https://github.com/actions/virtual-environments/blob/main/images/linux/Ubuntu2004-README.md
-          cargo install mdbook 
-          cargo install mdbook-linkcheck
-          cargo install --git https://github.com/christianmoesl/mdbook-graphviz
+          cargo install mdbook || true
+          cargo install mdbook-linkcheck || true
+          cargo install --git https://github.com/christianmoesl/mdbook-graphviz || true
 
-      - name: Generate book as html
+      - name: Generate Book as Html
         run: mdbook build book
 
       - name: Deploy on Github Pages
@@ -47,4 +57,3 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./book/book/html
-
