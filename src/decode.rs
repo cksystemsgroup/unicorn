@@ -1,6 +1,6 @@
 //! # Decode risc-v instructions
 
-use riscv_decode::types::*;
+use riscv_decode::types::{BType, IType, JType, RType, SType, UType};
 use riscv_decode::{decode, Instruction};
 
 pub trait RiscU: Sized + 'static {
@@ -31,8 +31,8 @@ impl<R: RiscU> Decoder<'_, R> {
 }
 impl<R: RiscU> Decoder<'_, R> {
     pub fn run(&mut self, instruction: u32) {
-        match decode(instruction) {
-            Ok(instr) => match instr {
+        if let Ok(instr) = decode(instruction) {
+            match instr {
                 Instruction::Lui(i) => self.next.lui(i),
                 Instruction::Addi(i) => self.next.addi(i),
                 Instruction::Add(i) => self.next.add(i),
@@ -47,9 +47,10 @@ impl<R: RiscU> Decoder<'_, R> {
                 Instruction::Jalr(i) => self.next.jalr(i),
                 Instruction::Beq(i) => self.next.beq(i),
                 Instruction::Ecall => self.next.ecall(),
-                _ => unimplemented!(),
-            },
-            _ => unimplemented!(),
+                i => unimplemented!("instruction: {:?}", i),
+            }
+        } else {
+            unimplemented!()
         }
     }
 }

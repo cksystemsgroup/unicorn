@@ -240,8 +240,8 @@ fn value(
             }
         }
         Node::Constraint(c) => {
-            if is_constraint_invertable(c.op.clone(), x, s, t, side) {
-                compute_inverse_constraint_value(c.op.clone(), x, s, t, side)
+            if is_constraint_invertable(c.op, x, s, t, side) {
+                compute_inverse_constraint_value(c.op, x, s, t, side)
             // TODO: Compute consistent value and choose between inverse and consistent
             // non-deterministiclly
             //let consistent = compute_consistent_value()
@@ -267,9 +267,7 @@ fn is_essential(
 
     match &formula[other] {
         Node::Instruction(i) => !is_invertable(i.instruction, at_ns, ab_nx, t, on_side.other()),
-        Node::Constraint(c) => {
-            !is_constraint_invertable(c.op.clone(), at_ns, ab_nx, t, on_side.other())
-        }
+        Node::Constraint(c) => !is_constraint_invertable(c.op, at_ns, ab_nx, t, on_side.other()),
         // TODO: not mentioned in paper => improvised. is that really true?
         Node::Constant(_) => true,
         // TODO: not mentioned in paper => improvised. is that really true?

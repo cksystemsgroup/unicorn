@@ -2,7 +2,7 @@
 
 use crate::elf::load_file;
 use byteorder::{ByteOrder, LittleEndian};
-use riscv_decode::types::*;
+use riscv_decode::types::{BType, IType, JType, RType, SType, UType};
 use std::path::Path;
 
 use crate::decode::{Decoder, RiscU};

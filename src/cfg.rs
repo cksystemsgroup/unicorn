@@ -180,20 +180,20 @@ fn fix_exit_ecall(graph: &mut ControlFlowGraph) {
 fn build(binary: &[u8]) -> ControlFlowGraph {
     let mut graph = create_instruction_graph(binary);
 
-    fn add_edges(graph: &mut ControlFlowGraph, edges: Vec<Edge>) {
+    fn add_edges(graph: &mut ControlFlowGraph, edges: &[Edge]) {
         edges.iter().for_each(|e| {
             graph.add_edge(e.0, e.1, e.2);
         });
     }
 
     let edges = compute_edges(&graph, construct_edge_if_trivial);
-    add_edges(&mut graph, edges);
+    add_edges(&mut graph, &edges);
 
     let pure_edges = compute_edges(&graph, construct_edge_if_pure);
-    add_edges(&mut graph, pure_edges);
+    add_edges(&mut graph, &pure_edges);
 
     let jump_edges = compute_stateful_edges(&graph);
-    add_edges(&mut graph, jump_edges);
+    add_edges(&mut graph, &jump_edges);
 
     fix_exit_ecall(&mut graph);
 

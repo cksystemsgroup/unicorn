@@ -109,15 +109,15 @@ fn main() {
 
                 // println!("{:?}", path);
 
-                let (formula, _root) = build_dataflow_graph(
+                let (formula, root) = build_dataflow_graph(
                     &path,
                     data_segment.as_slice(),
-                    elf_metadata,
+                    &elf_metadata,
                     branch_decisions,
                 )
                 .unwrap();
 
-                let graph_wo_dc = eliminate_dead_code(&formula, _root);
+                let graph_wo_dc = eliminate_dead_code(&formula, root);
 
                 let dot_graph = Dot::with_config(&graph_wo_dc, &[]);
 

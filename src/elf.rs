@@ -2,7 +2,8 @@
 
 use byteorder::{ByteOrder, LittleEndian};
 use goblin::elf::{
-    header::header64::Header, program_header::program_header64::ProgramHeader, program_header::*,
+    header::header64::Header, program_header::program_header64::ProgramHeader,
+    program_header::PT_LOAD,
 };
 use std::fs;
 use std::path::Path;
@@ -125,7 +126,7 @@ pub unsafe fn load(image: &[u8], memory_limit: usize) -> Option<(Vec<u8>, Vec<u8
     // TODO: this does only work for RISCU binaries
     let code_length = match image.chunks(8).nth(15) {
         Some(chunk) => LittleEndian::read_u64(chunk),
-        None => 0u64,
+        None => 0_u64,
     };
 
     println!("memory.len(): {}", memory.len());

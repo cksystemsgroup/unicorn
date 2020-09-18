@@ -6,7 +6,7 @@ use core::fmt;
 pub use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 use petgraph::Graph;
-use riscv_decode::types::*;
+use riscv_decode::types::{BType, IType, RType, SType, UType};
 use riscv_decode::Instruction;
 
 pub type Formula = Graph<Node, ArgumentSide>;
@@ -194,7 +194,7 @@ impl<'a> DataFlowGraphBuilder<'a> {
         memory_size: usize,
         path: &'a [Instruction],
         data_segment: &[u8],
-        elf_metadata: ElfMetadata,
+        elf_metadata: &ElfMetadata,
         branch_decisions: Vec<bool>,
     ) -> Self {
         let mut regs = [Value::Concrete(0); 32];
@@ -245,7 +245,7 @@ impl<'a> DataFlowGraphBuilder<'a> {
             return None;
         }
 
-        let immediate = utype.imm() as u64; //sign_extend_utype(utype.imm());
+        let immediate = u64::from(utype.imm()); //sign_extend_utype(utype.imm());
 
         let result = Value::Concrete(immediate);
 
@@ -598,22 +598,28 @@ pub fn sign_extend(n: u64, b: u32) -> u64 {
 
 #[allow(dead_code)]
 fn sign_extend_utype(imm: u32) -> u64 {
-    sign_extend(imm as u64, 20)
+    sign_extend(u64::from(imm), 20)
 }
 
 fn sign_extend_itype_stype(imm: u32) -> u64 {
-    sign_extend(imm as u64, 12)
+    sign_extend(u64::from(imm), 12)
 }
 
 #[allow(dead_code)]
 pub fn build_dataflow_graph(
     path: &[Instruction],
     data_segment: &[u8],
-    elf_metadata: ElfMetadata,
+    elf_metadata: &ElfMetadata,
     branch_decision: Vec<bool>,
 ) -> Option<(Formula, NodeIndex)> {
-    DataFlowGraphBuilder::new(1000000, path, data_segment, elf_metadata, branch_decision)
-        .generate_graph()
+    DataFlowGraphBuilder::new(
+        1_000_000,
+        path,
+        data_segment,
+        &elf_metadata,
+        branch_decision,
+    )
+    .generate_graph()
 }
 
 // Returns a path of RISC-U instructions and branch decisions (if true or false branch has been taken)
@@ -697,19 +703,19 @@ mod tests {
 
         println!("{:?}", data_segment);
 
-        let (path, _branch_decisions) = extract_candidate_path(&graph);
+        let (path, branch_decisions) = extract_candidate_path(&graph);
 
         println!("{:?}", path);
 
-        let (formula, _root) = build_dataflow_graph(
+        let (formula, root) = build_dataflow_graph(
             &path,
             data_segment.as_slice(),
-            elf_metadata,
-            _branch_decisions,
+            &elf_metadata,
+            branch_decisions,
         )
         .unwrap();
 
-        let graph_wo_dc = eliminate_dead_code(&formula, _root);
+        let graph_wo_dc = eliminate_dead_code(&formula, root);
 
         let dot_graph = Dot::with_config(&graph_wo_dc, &[]);
 
