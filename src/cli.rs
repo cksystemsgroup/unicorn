@@ -75,6 +75,7 @@ pub fn args() -> App<'static> {
                         .default_value("dot"),
                 ),
         )
+        .subcommand(App::new("smt"))
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .global_setting(AppSettings::GlobalVersion)
 }

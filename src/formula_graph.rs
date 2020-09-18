@@ -1,8 +1,10 @@
+use crate::cfg::ControlFlowGraph;
 use crate::elf::ElfMetadata;
 use crate::iterator::ForEachUntilSome;
 use byteorder::{ByteOrder, LittleEndian};
 use core::fmt;
 pub use petgraph::graph::NodeIndex;
+use petgraph::visit::EdgeRef;
 use petgraph::Graph;
 use riscv_decode::types::*;
 use riscv_decode::Instruction;
@@ -126,7 +128,7 @@ impl fmt::Debug for Input {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum BooleanFunction {
     NotEqual,
     Equals,
@@ -604,7 +606,7 @@ fn sign_extend_itype_stype(imm: u32) -> u64 {
 }
 
 #[allow(dead_code)]
-fn build_dataflow_graph(
+pub fn build_dataflow_graph(
     path: &[Instruction],
     data_segment: &[u8],
     elf_metadata: ElfMetadata,
@@ -614,63 +616,61 @@ fn build_dataflow_graph(
         .generate_graph()
 }
 
+// Returns a path of RISC-U instructions and branch decisions (if true or false branch has been taken)
+// for a path with 1 BEQ instruction, the vector of branch decisions has the length of 1
+pub fn extract_candidate_path(graph: &ControlFlowGraph) -> (Vec<Instruction>, Vec<bool>) {
+    fn next(graph: &ControlFlowGraph, idx: NodeIndex) -> Option<(NodeIndex, Option<bool>)> {
+        let edges = graph.edges(idx);
+
+        if let Some(edge) = edges.last() {
+            let target = edge.target();
+
+            match graph[idx] {
+                Instruction::Beq(_) => {
+                    let next_idx = edge.target().index();
+
+                    if next_idx == idx.index() + 1 {
+                        Some((target, Some(false)))
+                    } else {
+                        Some((target, Some(true)))
+                    }
+                }
+                _ => Some((target, None)),
+            }
+        } else {
+            None
+        }
+    }
+    let mut path = vec![];
+    let mut branch_decisions = vec![];
+    let mut idx = graph.node_indices().next().unwrap();
+    path.push(idx);
+    while let Some(n) = next(graph, idx) {
+        path.push(n.0);
+        idx = n.0;
+
+        if let Some(branch_decision) = n.1 {
+            branch_decisions.push(branch_decision);
+        }
+    }
+    let instruction_path = path.iter().map(|idx| graph[*idx]).collect();
+
+    (instruction_path, branch_decisions)
+}
+
 // TODO: need to load data segment  => then write test
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::cfg;
-    use crate::cfg::ControlFlowGraph;
     use crate::dead_code_elimination::eliminate_dead_code;
     use petgraph::dot::Dot;
-    use petgraph::visit::EdgeRef;
     use serial_test::serial;
     use std::env::current_dir;
     use std::fs::File;
     use std::io::prelude::*;
     use std::path::Path;
     use std::process::Command;
-
-    // Returns a path of RISC-U instructions and branch decisions (if true or false branch has been taken)
-    // for a path with 1 BEQ instruction, the vector of branch decisions has the length of 1
-    pub fn extract_candidate_path(graph: &ControlFlowGraph) -> (Vec<Instruction>, Vec<bool>) {
-        fn next(graph: &ControlFlowGraph, idx: NodeIndex) -> Option<(NodeIndex, Option<bool>)> {
-            let edges = graph.edges(idx);
-
-            if let Some(edge) = edges.last() {
-                let target = edge.target();
-
-                match graph[idx] {
-                    Instruction::Beq(_) => {
-                        let next_idx = edge.target().index();
-
-                        if next_idx == idx.index() + 1 {
-                            Some((target, Some(false)))
-                        } else {
-                            Some((target, Some(true)))
-                        }
-                    }
-                    _ => Some((target, None)),
-                }
-            } else {
-                None
-            }
-        }
-        let mut path = vec![];
-        let mut branch_decisions = vec![];
-        let mut idx = graph.node_indices().next().unwrap();
-        path.push(idx);
-        while let Some(n) = next(graph, idx) {
-            path.push(n.0);
-            idx = n.0;
-
-            if let Some(branch_decision) = n.1 {
-                branch_decisions.push(branch_decision);
-            }
-        }
-        let instruction_path = path.iter().map(|idx| graph[*idx]).collect();
-
-        (instruction_path, branch_decisions)
-    }
 
     // TODO: write a unit test without dependency on selfie and external files
     #[test]
