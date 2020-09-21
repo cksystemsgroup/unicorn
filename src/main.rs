@@ -74,10 +74,7 @@ fn main() {
         }
         ("smt", Some(_cfg_args)) => {
             handle_error(|| -> Result<(), String> {
-                use crate::{
-                    dead_code_elimination::eliminate_dead_code,
-                    formula_graph::{build_dataflow_graph, extract_candidate_path},
-                };
+                use crate::formula_graph::{build_dataflow_graph, extract_candidate_path};
                 use petgraph::dot::Dot;
                 use std::env::current_dir;
                 use std::fs::File;
@@ -109,20 +106,13 @@ fn main() {
 
                 // println!("{:?}", path);
 
-                let (formula, root) = build_dataflow_graph(
+                let (formula, _root) = build_dataflow_graph(
                     &path,
                     data_segment.as_slice(),
                     &elf_metadata,
                     branch_decisions,
                 )
                 .unwrap();
-
-                let graph_wo_dc = eliminate_dead_code(&formula, root);
-
-                let dot_graph = Dot::with_config(&graph_wo_dc, &[]);
-
-                let mut f = File::create("tmp-graph.dot").unwrap();
-                f.write_fmt(format_args!("{:?}", dot_graph)).unwrap();
 
                 let dot_graph = Dot::with_config(&formula, &[]);
 

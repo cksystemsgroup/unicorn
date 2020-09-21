@@ -188,6 +188,11 @@ struct DataFlowGraphBuilder<'a> {
     branch_decisions: Vec<bool>,
 }
 
+pub enum ExecutionResult {
+    PotentialError(NodeIndex),
+    PathUnsat,
+}
+
 impl<'a> DataFlowGraphBuilder<'a> {
     // creates a machine state with a specific memory size
     fn new(
@@ -240,7 +245,7 @@ impl<'a> DataFlowGraphBuilder<'a> {
         Value::Symbolic(result)
     }
 
-    fn execute_lui(&mut self, utype: UType) -> Option<NodeIndex> {
+    fn execute_lui(&mut self, utype: UType) -> Option<ExecutionResult> {
         if utype.rd() == 0 {
             return None;
         }
@@ -266,7 +271,7 @@ impl<'a> DataFlowGraphBuilder<'a> {
         instruction: Instruction,
         itype: IType,
         op: Op,
-    ) -> Option<NodeIndex>
+    ) -> Option<ExecutionResult>
     where
         Op: FnOnce(u64, u64) -> u64,
     {
@@ -297,7 +302,7 @@ impl<'a> DataFlowGraphBuilder<'a> {
         instruction: Instruction,
         rtype: RType,
         op: Op,
-    ) -> Option<NodeIndex>
+    ) -> Option<ExecutionResult>
     where
         Op: FnOnce(u64, u64) -> u64,
     {
@@ -360,19 +365,19 @@ impl<'a> DataFlowGraphBuilder<'a> {
         }
     }
 
-    pub fn generate_graph(&mut self) -> Option<(Formula, NodeIndex)> {
-        if let Some(root_idx) = self
+    pub fn generate_graph(&mut self) -> Option<(Formula, ExecutionResult)> {
+        if let Some(result) = self
             .path
             .iter()
             .for_each_until_some(|instr| self.execute(*instr))
         {
-            Some((self.graph.clone(), root_idx))
+            Some((self.graph.clone(), result))
         } else {
             None
         }
     }
 
-    fn execute_brk(&mut self) -> Option<NodeIndex> {
+    fn execute_brk(&mut self) -> Option<ExecutionResult> {
         if let Value::Concrete(new_program_break) = self.regs[REG_A0] {
             // TODO: handle cases where program break can not be modified
             if new_program_break < self.program_break {
@@ -387,7 +392,7 @@ impl<'a> DataFlowGraphBuilder<'a> {
         None
     }
 
-    fn execute_read(&mut self) -> Option<NodeIndex> {
+    fn execute_read(&mut self) -> Option<ExecutionResult> {
         // TODO: ignore FD??
         if let Value::Concrete(buffer) = self.regs[REG_A1] {
             if let Value::Concrete(size) = self.regs[REG_A2] {
@@ -416,46 +421,49 @@ impl<'a> DataFlowGraphBuilder<'a> {
         None
     }
 
-    fn execute_beq(&mut self, btype: BType) -> Option<NodeIndex> {
-        let node;
-        if self.branch_decisions.remove(0) {
-            node = Node::Constraint(Constraint::new(
-                String::from("beq"),
-                BooleanFunction::Equals,
+    fn execute_beq(&mut self, btype: BType) -> Option<ExecutionResult> {
+        fn create_constraint_node(decision: bool, graph: &mut Formula) -> NodeIndex {
+            let node = Node::Constraint(Constraint::new(
+                "beq".to_string(),
+                if decision {
+                    BooleanFunction::Equals
+                } else {
+                    BooleanFunction::NotEqual
+                },
             ));
-        } else {
-            node = Node::Constraint(Constraint::new(
-                String::from("beq"),
-                BooleanFunction::NotEqual,
-            ));
+
+            graph.add_node(node)
         }
-        let node_idx = self.graph.add_node(node);
+
         let lhs = self.regs[btype.rs1() as usize];
         let rhs = self.regs[btype.rs2() as usize];
+        let decision = self.branch_decisions.remove(0);
 
         println!("{:?}", lhs);
         println!("{:?}", rhs);
 
         match (lhs, rhs) {
             (Value::Concrete(v1), Value::Concrete(v2)) => {
-                let const_node1 = self.create_const_node(v1);
-                let const_node2 = self.create_const_node(v2);
-                self.graph
-                    .add_edge(const_node1, node_idx, ArgumentSide::Lhs);
-                self.graph
-                    .add_edge(const_node2, node_idx, ArgumentSide::Rhs);
+                let actual_decision = v1 == v2;
+
+                if decision != actual_decision {
+                    return Some(ExecutionResult::PathUnsat);
+                }
             }
             (Value::Symbolic(v1), Value::Concrete(v2)) => {
+                let node_idx = create_constraint_node(decision, &mut self.graph);
                 let const_node = self.create_const_node(v2);
                 self.graph.add_edge(v1, node_idx, ArgumentSide::Lhs);
                 self.graph.add_edge(const_node, node_idx, ArgumentSide::Rhs);
             }
             (Value::Concrete(v1), Value::Symbolic(v2)) => {
+                let node_idx = create_constraint_node(decision, &mut self.graph);
                 let const_node = self.create_const_node(v1);
                 self.graph.add_edge(const_node, node_idx, ArgumentSide::Lhs);
                 self.graph.add_edge(v2, node_idx, ArgumentSide::Rhs);
             }
             (Value::Symbolic(v1), Value::Symbolic(v2)) => {
+                let node_idx = create_constraint_node(decision, &mut self.graph);
                 self.graph.add_edge(v1, node_idx, ArgumentSide::Lhs);
                 self.graph.add_edge(v2, node_idx, ArgumentSide::Rhs);
             }
@@ -464,14 +472,14 @@ impl<'a> DataFlowGraphBuilder<'a> {
         None
     }
 
-    fn execute_exit(&mut self) -> Option<NodeIndex> {
+    fn execute_exit(&mut self) -> Option<ExecutionResult> {
         if let Value::Symbolic(exit_code) = self.regs[REG_A0] {
-            let const_node = Node::Constant(Const::new(0));
+            let const_node = Node::Constant(Const::new(1));
             let const_node_idx = self.graph.add_node(const_node);
 
             let root = Node::Constraint(Constraint::new(
                 String::from("exit_code"),
-                BooleanFunction::GreaterThan,
+                BooleanFunction::Equals,
             ));
             let root_idx = self.graph.add_node(root);
 
@@ -479,13 +487,13 @@ impl<'a> DataFlowGraphBuilder<'a> {
             self.graph
                 .add_edge(const_node_idx, root_idx, ArgumentSide::Rhs);
 
-            Some(root_idx)
+            Some(ExecutionResult::PotentialError(root_idx))
         } else {
             unimplemented!("exit only implemented for symbolic exit codes")
         }
     }
 
-    fn execute_ecall(&mut self) -> Option<NodeIndex> {
+    fn execute_ecall(&mut self) -> Option<ExecutionResult> {
         match self.regs[REG_A7] {
             Value::Concrete(syscall_id) if syscall_id == (SyscallId::Brk as u64) => {
                 self.execute_brk()
@@ -502,7 +510,7 @@ impl<'a> DataFlowGraphBuilder<'a> {
         }
     }
 
-    fn execute_load(&mut self, instruction: Instruction, itype: IType) -> Option<NodeIndex> {
+    fn execute_load(&mut self, instruction: Instruction, itype: IType) -> Option<ExecutionResult> {
         if itype.rd() != 0 {
             if let Value::Concrete(base_address) = self.regs[itype.rs1() as usize] {
                 let immediate = sign_extend_itype_stype(itype.imm());
@@ -528,7 +536,7 @@ impl<'a> DataFlowGraphBuilder<'a> {
         None
     }
 
-    fn execute_store(&mut self, instruction: Instruction, stype: SType) -> Option<NodeIndex> {
+    fn execute_store(&mut self, instruction: Instruction, stype: SType) -> Option<ExecutionResult> {
         if let Value::Concrete(base_address) = self.regs[stype.rs1() as usize] {
             let immediate = sign_extend_itype_stype(stype.imm());
 
@@ -552,7 +560,7 @@ impl<'a> DataFlowGraphBuilder<'a> {
         None
     }
 
-    fn execute(&mut self, instruction: Instruction) -> Option<NodeIndex> {
+    fn execute(&mut self, instruction: Instruction) -> Option<ExecutionResult> {
         match instruction {
             Instruction::Ecall => self.execute_ecall(),
             Instruction::Lui(utype) => self.execute_lui(utype),
@@ -611,7 +619,7 @@ pub fn build_dataflow_graph(
     data_segment: &[u8],
     elf_metadata: &ElfMetadata,
     branch_decision: Vec<bool>,
-) -> Option<(Formula, NodeIndex)> {
+) -> Option<(Formula, ExecutionResult)> {
     DataFlowGraphBuilder::new(
         1_000_000,
         path,
@@ -669,7 +677,6 @@ pub fn extract_candidate_path(graph: &ControlFlowGraph) -> (Vec<Instruction>, Ve
 mod tests {
     use super::*;
     use crate::cfg;
-    use crate::dead_code_elimination::eliminate_dead_code;
     use petgraph::dot::Dot;
     use serial_test::serial;
     use std::env::current_dir;
@@ -707,7 +714,7 @@ mod tests {
 
         println!("{:?}", path);
 
-        let (formula, root) = build_dataflow_graph(
+        let (formula, _root) = build_dataflow_graph(
             &path,
             data_segment.as_slice(),
             &elf_metadata,
@@ -715,9 +722,7 @@ mod tests {
         )
         .unwrap();
 
-        let graph_wo_dc = eliminate_dead_code(&formula, root);
-
-        let dot_graph = Dot::with_config(&graph_wo_dc, &[]);
+        let dot_graph = Dot::with_config(&formula, &[]);
 
         let mut f = File::create("tmp-graph.dot").unwrap();
         f.write_fmt(format_args!("{:?}", dot_graph)).unwrap();
@@ -729,17 +734,7 @@ mod tests {
             .arg("main_wo_dc.png")
             .output();
 
-        let dot_graph = Dot::with_config(&formula, &[]);
-
-        let mut f = File::create("tmp-graph.dot").unwrap();
-        f.write_fmt(format_args!("{:?}", dot_graph)).unwrap();
-
-        let _ = Command::new("dot")
-            .arg("-Tpng")
-            .arg("tmp-graph.dot")
-            .arg("-o")
-            .arg("main.png")
-            .output();
+        let _ = Dot::with_config(&formula, &[]);
 
         // TODO: test more than just this result
         // assert!(result.is_ok());
