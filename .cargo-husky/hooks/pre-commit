@@ -5,6 +5,7 @@ set -e
 echo '+cargo check'
 cargo check
 echo '+cargo clippy --all-targets --all-features -- -D warnings'
+find . -name '*.rs' | xargs touch
 cargo clippy --all-targets --all-features -- -D warnings
 echo '+cargo fmt -- --check'
 cargo fmt -- --check
