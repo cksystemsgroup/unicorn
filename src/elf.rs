@@ -69,6 +69,7 @@ pub fn load_file(
     }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn load(image: &[u8], memory_limit: usize) -> Option<(Vec<u8>, Vec<u8>, ElfMetadata)> {
     let header: Header = match image.read_raw() {
         Some(x) => x,

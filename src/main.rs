@@ -1,23 +1,9 @@
 use std::fmt::Display;
 use std::path::Path;
 
-mod bitvec;
-mod candidate_path;
-mod cfg;
 mod cli;
-mod compile;
-mod dead_code_elimination;
-mod decode;
-mod disassemble;
-mod elf;
-mod formula_graph;
-mod iterator;
-mod smt;
-mod solver;
-mod ternary;
 
-use compile::compile_example;
-use disassemble::disassemble_riscu;
+use monster::{cfg, disassemble::disassemble_riscu, engine};
 
 fn main() {
     let matches = cli::args().get_matches();
@@ -41,15 +27,6 @@ fn main() {
             let input = Path::new(disassemble_args.value_of("input-file").unwrap());
             disassemble_riscu(Path::new(input))
         }),
-        Some(("compile", compiler_args)) => handle_error(|| -> Result<(), String> {
-            let compiler = compiler_args.value_of("compiler").unwrap();
-
-            let input = Path::new(compiler_args.value_of("input-file").unwrap());
-
-            compile_example(input, Some(compiler))?;
-
-            Ok(())
-        }),
         Some(("cfg", cfg_args)) => {
             handle_error(|| -> Result<(), String> {
                 let input = Path::new(cfg_args.value_of("input-file").unwrap());
@@ -72,57 +49,16 @@ fn main() {
                 Ok(())
             });
         }
-        Some(("smt", _cfg_args)) => {
+        Some(("execute", args)) => {
             handle_error(|| -> Result<(), String> {
-                use crate::candidate_path::create_candidate_paths;
-                use crate::formula_graph::build_dataflow_graph;
-                use petgraph::dot::Dot;
-                use std::env::current_dir;
-                use std::fs::File;
-                use std::io::Write;
-                use std::process::Command;
+                let input = Path::new(args.value_of("input-file").unwrap());
+                let solver = args.value_of("solver").unwrap();
 
-                let cd = String::from(current_dir().unwrap().to_str().unwrap());
-
-                // generate RISC-U binary with Selfie
-                let _ = Command::new("docker")
-                    .arg("run")
-                    .arg("-v")
-                    .arg(cd + ":/opt/monster")
-                    .arg("cksystemsteaching/selfie")
-                    .arg("/opt/selfie/selfie")
-                    .arg("-c")
-                    .arg("/opt/monster/symbolic/symbolic-exit.c")
-                    .arg("-o")
-                    .arg("/opt/monster/symbolic/symbolic-exit.riscu.o")
-                    .output();
-
-                let test_file = Path::new("symbolic/symbolic-exit.riscu.o");
-
-                let (graph, data_segment, elf_metadata) = cfg::build_from_file(test_file).unwrap();
-
-                // println!("{:?}", data_segment);
-
-                let (path, branch_decisions) = create_candidate_paths(&graph)[0].clone();
-
-                // println!("{:?}", path);
-
-                let (formula, _root) = build_dataflow_graph(
-                    &path,
-                    data_segment.as_slice(),
-                    &elf_metadata,
-                    branch_decisions,
-                )
-                .unwrap();
-
-                let dot_graph = Dot::with_config(&formula, &[]);
-
-                let mut f = File::create("tmp-graph.dot").unwrap();
-                f.write_fmt(format_args!("{:?}", dot_graph)).unwrap();
-
-                smt::smt(&formula);
-
-                Ok(())
+                match solver {
+                    "monster" => engine::execute(input, engine::Backend::Monster),
+                    "boolector" => engine::execute(input, engine::Backend::Boolector),
+                    _ => unreachable!(),
+                }
             });
         }
         _ => unreachable!(),

@@ -66,10 +66,6 @@ impl TernaryBitVector {
     }
 
     pub fn constant_bit_mask(&self) -> BitVector {
-        println!("!self.0 = {:?}", !self.0);
-        println!("self.1 = {:?}", self.1);
-        println!("result = {:?}", !self.0 & self.1);
-
         !(!self.0 & self.1)
     }
 

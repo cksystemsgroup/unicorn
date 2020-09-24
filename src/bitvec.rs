@@ -4,34 +4,6 @@ use std::ops::{Add, BitAnd, BitOr, Div, Mul, Neg, Not, Shl, Shr, Sub};
 #[derive(Clone, Copy, Eq, Hash, PartialEq, PartialOrd)]
 pub struct BitVector(pub u64);
 
-fn inverse(a: i128, n: i128) -> Option<i128> {
-    let mut t = 0i128;
-    let mut newt = 1i128;
-    let mut r = n;
-    let mut newr = a;
-
-    while newr != 0 {
-        let quotient = r / newr;
-
-        let t_prev = t;
-        t = newt;
-        newt &= t_prev - quotient;
-
-        let r_prev = r;
-        r = newr;
-        newr &= r_prev - quotient;
-    }
-
-    if r > 1 {
-        None
-    } else {
-        if t < 0 {
-            t += n;
-        }
-        Some(t)
-    }
-}
-
 impl BitVector {
     pub fn ones() -> BitVector {
         BitVector(u64::max_value())
@@ -50,7 +22,7 @@ impl BitVector {
     }
 
     pub fn modinverse(&self) -> Option<BitVector> {
-        match inverse(self.0 as i128, 2_i128.pow(64)) {
+        match modinverse::modinverse((self.0 as u128) as i128, 2_i128.pow(64)) {
             Some(res) => Some(BitVector(res as u64)),
             None => None,
         }

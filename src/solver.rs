@@ -5,10 +5,10 @@ use crate::bitvec::*;
 use crate::formula_graph::{ArgumentSide, BooleanFunction, Formula, Node, NodeIndex};
 use crate::ternary::*;
 use petgraph::{visit::EdgeRef, Direction};
-use rand::random;
+use rand::{random, Rng};
 use riscv_decode::Instruction;
 
-type Assignment<T> = Vec<T>;
+pub type Assignment<T> = Vec<T>;
 
 // check if invertability condition is met
 fn is_invertable(
@@ -47,12 +47,7 @@ fn is_constraint_invertable(
     }
 }
 
-fn is_consistent(
-    instruction: Instruction,
-    x: TernaryBitVector,
-    _s: BitVector,
-    t: BitVector,
-) -> bool {
+fn is_consistent(instruction: Instruction, x: TernaryBitVector, t: BitVector) -> bool {
     match instruction {
         Instruction::Add(_) | Instruction::Addi(_) => true,
         Instruction::Mul(_) => {
@@ -126,8 +121,19 @@ fn select(
 ) -> (NodeIndex, NodeIndex, ArgumentSide) {
     let (lhs, rhs) = parents(f, idx);
 
+    fn is_constant(f: &Formula, n: NodeIndex) -> bool {
+        match f[n] {
+            Node::Constant(_) => true,
+            _ => false,
+        }
+    }
+
     #[allow(clippy::if_same_then_else)]
-    if is_essential(f, lhs, ArgumentSide::Lhs, rhs, t, at, ab) {
+    if is_constant(f, lhs) {
+        (rhs, lhs, ArgumentSide::Rhs)
+    } else if is_constant(f, rhs) {
+        (lhs, rhs, ArgumentSide::Lhs)
+    } else if is_essential(f, lhs, ArgumentSide::Lhs, rhs, t, at, ab) {
         (lhs, rhs, ArgumentSide::Lhs)
     } else if is_essential(f, rhs, ArgumentSide::Rhs, lhs, t, at, ab) {
         (rhs, lhs, ArgumentSide::Rhs)
@@ -188,7 +194,24 @@ fn compute_consistent_value(
 ) -> BitVector {
     match i {
         Instruction::Add(_) | Instruction::Addi(_) => BitVector(random::<u64>()),
-        Instruction::Mul(_) => BitVector(random_from((1u64 << t.ctz())..u64::max_value())),
+        Instruction::Mul(_) => BitVector({
+            if t == BitVector(0) {
+                0
+            } else {
+                let mut r;
+                loop {
+                    r = random::<u128>();
+                    if r != 0 {
+                        break;
+                    }
+                }
+                if t.ctz() < r.trailing_zeros() {
+                    r >>= r.trailing_zeros() - t.ctz();
+                }
+                assert!(t.ctz() >= r.trailing_zeros());
+                r as u64
+            }
+        }),
         _ => unimplemented!(),
     }
 }
@@ -229,8 +252,10 @@ fn value(
 
             if is_invertable(i.instruction, x, s, t, side) {
                 let inverse = compute_inverse_value(i.instruction, x, s, t, side);
+                let choose_inverse =
+                    rand::thread_rng().gen_range(0.0_f64, 1.0_f64) < CHOOSE_INVERSE;
 
-                if random::<f64>() < CHOOSE_INVERSE {
+                if choose_inverse {
                     inverse
                 } else {
                     consistent
@@ -269,9 +294,7 @@ fn is_essential(
         Node::Instruction(i) => !is_invertable(i.instruction, at_ns, ab_nx, t, on_side.other()),
         Node::Constraint(c) => !is_constraint_invertable(c.op, at_ns, ab_nx, t, on_side.other()),
         // TODO: not mentioned in paper => improvised. is that really true?
-        Node::Constant(_) => true,
-        // TODO: not mentioned in paper => improvised. is that really true?
-        Node::Input(_) => false,
+        Node::Constant(_) | Node::Input(_) => false,
     }
 }
 
@@ -311,7 +334,7 @@ fn propagate_assignment(f: &Formula, ab: &mut Assignment<BitVector>, n: NodeInde
     match &f[n] {
         Node::Instruction(i) => {
             match i.instruction {
-                Instruction::Add(_) => update_binary(f, ab, n, |l, r| l + r),
+                Instruction::Add(_) | Instruction::Addi(_) => update_binary(f, ab, n, |l, r| l + r),
                 Instruction::Mul(_) => update_binary(f, ab, n, |l, r| l * r),
                 _ => unimplemented!(),
             }
@@ -333,7 +356,7 @@ fn propagate_assignment(f: &Formula, ab: &mut Assignment<BitVector>, n: NodeInde
                     },
                 )
             }
-            _ => unimplemented!(),
+            bf => unimplemented!("not implemented: {:?}", bf),
         },
         _ => unreachable!(),
     }
@@ -353,10 +376,16 @@ fn sat(
         while !is_leaf(formula, n) {
             let (nx, ns, side) = select(formula, n, t, &at, &ab);
 
-            // TODO: imlemenent consistency conditions
-            //if !is_consistent(n, nx, t, at) {
-            //break;
-            //}
+            match formula[n] {
+                Node::Instruction(instr) => {
+                    let x = at[nx.index()];
+                    if !is_consistent(instr.instruction, x, t) {
+                        break;
+                    }
+                }
+                Node::Constraint(_) => {}
+                _ => panic!("non instruction node found"),
+            };
 
             let v = value(formula, n, nx, ns, side, t, &at, &ab);
 
@@ -372,7 +401,7 @@ fn sat(
     ab
 }
 
-fn solve(formula: &Formula, root: NodeIndex) -> Option<Assignment<BitVector>> {
+pub fn solve(formula: &Formula, root: NodeIndex) -> Option<Assignment<BitVector>> {
     let ab = initialize_ab(formula);
     let at = compute_at(formula);
 
@@ -511,7 +540,7 @@ mod tests {
         let s = BitVector(s);
         let t = BitVector(t);
         assert!(
-            is_consistent(op, x, s, t) == result,
+            is_consistent(op, x, t) == result,
             "{:?} {} {:?} == {:?}   {}",
             x,
             instr_to_str(op),
@@ -537,7 +566,7 @@ mod tests {
 
         let computed = compute_inverse_value(op, x, s, t, d);
 
-        // proove: computed <> s == t        where <> is the binary operator
+        // prove: computed <> s == t        where <> is the binary operator
         assert_eq!(
             f(computed, s),
             t,
@@ -569,7 +598,7 @@ mod tests {
         // To proof that there exists a y, we would have to compute and inverse value, which is not
         // always possible.
         // I think, Alastairs
-        // proove: Ey.(computed <> y == t)        where <> is the binary bit vector operator
+        // prove: Ey.(computed <> y == t)        where <> is the binary bit vector operator
 
         let y = match op {
             Instruction::Add(_) => Some(t - computed),

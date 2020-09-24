@@ -19,29 +19,6 @@ pub fn args() -> App<'static> {
                 ),
         )
         .subcommand(
-            App::new("compile")
-                .about("Compile source files to RISC-V ELF binaries")
-                .arg(
-                    Arg::new("input-file")
-                        .about("Source file to be compiled")
-                        .short('c')
-                        .long("input-file")
-                        .takes_value(true)
-                        .value_name("FILE")
-                        .required(true),
-                )
-                .arg(
-                    Arg::new("compiler")
-                        .about("Compiler to be used")
-                        .short('k')
-                        .long("compiler")
-                        .takes_value(true)
-                        .value_name("COMPILER")
-                        .possible_values(&["clang", "selfie"])
-                        .default_value("selfie"),
-                ),
-        )
-        .subcommand(
             App::new("cfg")
                 .about("Generate control flow graph from RISC-U ELF binary")
                 .arg(
@@ -72,7 +49,28 @@ pub fn args() -> App<'static> {
                         .default_value("dot"),
                 ),
         )
-        .subcommand(App::new("smt"))
+        .subcommand(
+            App::new("execute")
+                .about("Symbolically execute a RISC-U ELF binary")
+                .arg(
+                    Arg::new("input-file")
+                        .about("RISC-U ELF binary to be executed")
+                        .short('f')
+                        .long("file")
+                        .takes_value(true)
+                        .value_name("FILE")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("solver")
+                        .about("SMT solver")
+                        .short('s')
+                        .long("solver")
+                        .takes_value(true)
+                        .possible_values(&["monster", "boolector"])
+                        .default_value("monster"),
+                ),
+        )
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .global_setting(AppSettings::GlobalVersion)
 }

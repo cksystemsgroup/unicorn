@@ -110,7 +110,7 @@ impl fmt::Debug for Const {
 #[derive(Clone, Eq, Hash, PartialEq)]
 pub struct Input {
     // can have multiple output edges, but no input edge
-    name: String,
+    pub name: String,
 }
 
 impl Input {

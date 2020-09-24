@@ -13,6 +13,7 @@ riscv-decode = { git = "https://github.com/cksystemsgroup/riscv-decode" }
 petgraph = "0.5.1"
 rand = "0.7.3"
 boolector = { version = "0.4", git = "https://github.com/finga/boolector-rs", branch = "boolector-src", features = ["vendored"] }
+modinverse = "0.1.1"
 
 [dev-dependencies]
 serial_test = "0.4.0"

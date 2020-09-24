@@ -1,7 +1,9 @@
+use crate::bitvec::BitVector;
 use crate::formula_graph::{
     ArgumentSide, BooleanFunction, Formula,
     Node::{Constant, Constraint, Input, Instruction},
 };
+use crate::solver::Assignment;
 use boolector::{
     option::{BtorOption, ModelGen, OutputFileFormat},
     Btor, BV,
@@ -50,29 +52,31 @@ fn traverse<'a>(graph: &Formula, node: NodeIndex, solver: &'a Rc<Btor>) -> BV<Rc
             match i.op {
                 BooleanFunction::GreaterThan => lhs.ugt(&rhs),
                 BooleanFunction::NotEqual => lhs._ne(&rhs),
-                f => unimplemented!("boolean function: {:?}", f),
+                BooleanFunction::Equals => lhs._eq(&rhs),
             }
         }
-        // TODO: use size of read size / 8
-        Input(_i) => BV::new(solver.clone(), 8, None),
-        Constant(i) => BV::from_u64(solver.clone(), i.value, 8),
+        Input(_i) => BV::new(solver.clone(), 64, None),
+        Constant(i) => BV::from_u64(solver.clone(), i.value, 64),
     }
 }
 
-pub fn smt(graph: &Formula) {
-    graph.externals(Direction::Outgoing).for_each(|n| {
-        let solver = Rc::new(Btor::new());
-        solver.set_opt(BtorOption::ModelGen(ModelGen::All));
-        solver.set_opt(BtorOption::Incremental(true));
-        solver.set_opt(BtorOption::OutputFileFormat(OutputFileFormat::SMTLIBv2));
+pub fn smt(graph: &Formula, root: NodeIndex) -> Option<Assignment<BitVector>> {
+    let solver = Rc::new(Btor::new());
+    solver.set_opt(BtorOption::ModelGen(ModelGen::All));
+    solver.set_opt(BtorOption::Incremental(true));
+    solver.set_opt(BtorOption::OutputFileFormat(OutputFileFormat::SMTLIBv2));
 
-        if let Constraint(_) = &graph[n] {
-            traverse(graph, n, &solver).assert();
+    if let Constraint(_) = &graph[root] {
+        traverse(graph, root, &solver).assert();
 
-            println!("solver:");
-            print!("{}", solver.print_constraints());
-            println!("result: {:?}", solver.sat());
-            println!();
-        }
-    });
+        println!("result: {:?}\n", solver.sat());
+        print!("constraints: \n{}\n", solver.print_constraints());
+        print!("assignment: \n{}\n", solver.print_model());
+        println!();
+
+        // TODO: Extract assignment from boolector
+        Some(vec![])
+    } else {
+        None
+    }
 }
