@@ -74,7 +74,8 @@ fn main() {
         }
         Some(("smt", _cfg_args)) => {
             handle_error(|| -> Result<(), String> {
-                use crate::formula_graph::{build_dataflow_graph, extract_candidate_path};
+                use crate::candidate_path::create_candidate_paths;
+                use crate::formula_graph::build_dataflow_graph;
                 use petgraph::dot::Dot;
                 use std::env::current_dir;
                 use std::fs::File;
@@ -102,7 +103,7 @@ fn main() {
 
                 // println!("{:?}", data_segment);
 
-                let (path, branch_decisions) = extract_candidate_path(&graph);
+                let (path, branch_decisions) = create_candidate_paths(&graph)[0].clone();
 
                 // println!("{:?}", path);
 

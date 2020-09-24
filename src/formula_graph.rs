@@ -1,10 +1,8 @@
-use crate::cfg::ControlFlowGraph;
 use crate::elf::ElfMetadata;
 use crate::iterator::ForEachUntilSome;
 use byteorder::{ByteOrder, LittleEndian};
 use core::fmt;
 pub use petgraph::graph::NodeIndex;
-use petgraph::visit::EdgeRef;
 use petgraph::Graph;
 use riscv_decode::types::{BType, IType, RType, SType, UType};
 use riscv_decode::Instruction;
@@ -630,52 +628,11 @@ pub fn build_dataflow_graph(
     .generate_graph()
 }
 
-// Returns a path of RISC-U instructions and branch decisions (if true or false branch has been taken)
-// for a path with 1 BEQ instruction, the vector of branch decisions has the length of 1
-pub fn extract_candidate_path(graph: &ControlFlowGraph) -> (Vec<Instruction>, Vec<bool>) {
-    fn next(graph: &ControlFlowGraph, idx: NodeIndex) -> Option<(NodeIndex, Option<bool>)> {
-        let edges = graph.edges(idx);
-
-        if let Some(edge) = edges.last() {
-            let target = edge.target();
-
-            match graph[idx] {
-                Instruction::Beq(_) => {
-                    let next_idx = edge.target().index();
-
-                    if next_idx == idx.index() + 1 {
-                        Some((target, Some(false)))
-                    } else {
-                        Some((target, Some(true)))
-                    }
-                }
-                _ => Some((target, None)),
-            }
-        } else {
-            None
-        }
-    }
-    let mut path = vec![];
-    let mut branch_decisions = vec![];
-    let mut idx = graph.node_indices().next().unwrap();
-    path.push(idx);
-    while let Some(n) = next(graph, idx) {
-        path.push(n.0);
-        idx = n.0;
-
-        if let Some(branch_decision) = n.1 {
-            branch_decisions.push(branch_decision);
-        }
-    }
-    let instruction_path = path.iter().map(|idx| graph[*idx]).collect();
-
-    (instruction_path, branch_decisions)
-}
-
 // TODO: need to load data segment  => then write test
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::candidate_path::create_candidate_paths;
     use crate::cfg;
     use petgraph::dot::Dot;
     use serial_test::serial;
@@ -710,7 +667,7 @@ mod tests {
 
         println!("{:?}", data_segment);
 
-        let (path, branch_decisions) = extract_candidate_path(&graph);
+        let (path, branch_decisions) = create_candidate_paths(&graph)[0].clone();
 
         println!("{:?}", path);
 
