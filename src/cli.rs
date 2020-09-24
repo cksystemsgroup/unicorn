@@ -3,16 +3,13 @@ use clap::{crate_authors, crate_description, crate_name, crate_version, App, App
 pub fn args() -> App<'static> {
     App::new(crate_name!())
         .version(crate_version!())
-        .author(
-            // Fixed in future release of clap:
-            crate_authors!(), //.replace(":", ", ").as_str()
-        )
+        .author(crate_authors!(", "))
         .about(crate_description!())
         .subcommand(
             App::new("disassemble")
                 .about("Disassemble a RISC-V ELF binary")
                 .arg(
-                    Arg::with_name("input-file")
+                    Arg::new("input-file")
                         .short('c')
                         .long("disassemble")
                         .value_name("FILE")
@@ -25,7 +22,7 @@ pub fn args() -> App<'static> {
             App::new("compile")
                 .about("Compile source files to RISC-V ELF binaries")
                 .arg(
-                    Arg::with_name("input-file")
+                    Arg::new("input-file")
                         .about("Source file to be compiled")
                         .short('c')
                         .long("input-file")
@@ -34,7 +31,7 @@ pub fn args() -> App<'static> {
                         .required(true),
                 )
                 .arg(
-                    Arg::with_name("compiler")
+                    Arg::new("compiler")
                         .about("Compiler to be used")
                         .short('k')
                         .long("compiler")
@@ -48,7 +45,7 @@ pub fn args() -> App<'static> {
             App::new("cfg")
                 .about("Generate control flow graph from RISC-U ELF binary")
                 .arg(
-                    Arg::with_name("input-file")
+                    Arg::new("input-file")
                         .about("Source RISC-U binary to be analyzed")
                         .short('c')
                         .long("input-file")
@@ -57,7 +54,7 @@ pub fn args() -> App<'static> {
                         .required(true),
                 )
                 .arg(
-                    Arg::with_name("output-file")
+                    Arg::new("output-file")
                         .about("Output file to write to")
                         .short('o')
                         .long("output-file")
@@ -66,7 +63,7 @@ pub fn args() -> App<'static> {
                         .default_value("cfg.dot"),
                 )
                 .arg(
-                    Arg::with_name("format")
+                    Arg::new("format")
                         .about("File format of the generated CFG")
                         .short('f')
                         .long("format")

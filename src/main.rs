@@ -37,11 +37,11 @@ fn main() {
     }
 
     match matches.subcommand() {
-        ("disassemble", Some(disassemble_args)) => handle_error(|| {
+        Some(("disassemble", disassemble_args)) => handle_error(|| {
             let input = Path::new(disassemble_args.value_of("input-file").unwrap());
             disassemble_riscu(Path::new(input))
         }),
-        ("compile", Some(compiler_args)) => handle_error(|| -> Result<(), String> {
+        Some(("compile", compiler_args)) => handle_error(|| -> Result<(), String> {
             let compiler = compiler_args.value_of("compiler").unwrap();
 
             let input = Path::new(compiler_args.value_of("input-file").unwrap());
@@ -50,7 +50,7 @@ fn main() {
 
             Ok(())
         }),
-        ("cfg", Some(cfg_args)) => {
+        Some(("cfg", cfg_args)) => {
             handle_error(|| -> Result<(), String> {
                 let input = Path::new(cfg_args.value_of("input-file").unwrap());
                 let output = Path::new(cfg_args.value_of("output-file").unwrap());
@@ -72,7 +72,7 @@ fn main() {
                 Ok(())
             });
         }
-        ("smt", Some(_cfg_args)) => {
+        Some(("smt", _cfg_args)) => {
             handle_error(|| -> Result<(), String> {
                 use crate::formula_graph::{build_dataflow_graph, extract_candidate_path};
                 use petgraph::dot::Dot;
