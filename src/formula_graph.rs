@@ -211,8 +211,8 @@ impl<'a> DataFlowGraphBuilder<'a> {
             elf_metadata.entry_address
         );
 
-        let start = (elf_metadata.entry_address / 8) as usize;
-        let end = start + data_segment.len() / 8;
+        let start = ((elf_metadata.entry_address + elf_metadata.code_length) / 8) as usize;
+        let end = start + (data_segment.len() / 8);
 
         data_segment
             .chunks(8)
@@ -667,7 +667,7 @@ mod tests {
 
         println!("{:?}", data_segment);
 
-        let (path, branch_decisions) = create_candidate_paths(&graph)[0].clone();
+        let (path, branch_decisions) = create_candidate_paths(&graph)[3].clone();
 
         println!("{:?}", path);
 
