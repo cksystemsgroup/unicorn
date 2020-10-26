@@ -3,7 +3,11 @@ use std::path::Path;
 
 mod cli;
 
-use monster::{cfg, disassemble::disassemble_riscu, engine};
+use monster::{
+    cfg::{build_cfg_from_file, write_to_file},
+    disassemble::disassemble_riscu,
+    engine,
+};
 
 fn main() {
     let matches = cli::args().get_matches();
@@ -32,19 +36,9 @@ fn main() {
                 let input = Path::new(cfg_args.value_of("input-file").unwrap());
                 let output = Path::new(cfg_args.value_of("output-file").unwrap());
 
-                let (graph, _, _) = cfg::build_from_file(Path::new(input))?;
+                let (graph, _, _) = build_cfg_from_file(Path::new(input))?;
 
-                if let Some(_format @ "png") = cfg_args.value_of("format") {
-                    let tmp = Path::new(".tmp-cfg.dot");
-
-                    cfg::write_to_file(&graph, tmp).map_err(|e| e.to_string())?;
-
-                    cfg::convert_dot_to_png(tmp, output)?;
-
-                    std::fs::remove_file(tmp).map_err(|e| e.to_string())?;
-                } else {
-                    cfg::write_to_file(&graph, output).map_err(|e| e.to_string())?;
-                }
+                write_to_file(&graph, output).map_err(|e| e.to_string())?;
 
                 Ok(())
             });

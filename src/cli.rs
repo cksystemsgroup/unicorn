@@ -38,15 +38,6 @@ pub fn args() -> App<'static> {
                         .takes_value(true)
                         .value_name("FILE")
                         .default_value("cfg.dot"),
-                )
-                .arg(
-                    Arg::new("format")
-                        .about("File format of the generated CFG")
-                        .short('f')
-                        .long("format")
-                        .takes_value(true)
-                        .possible_values(&["dot", "png"])
-                        .default_value("dot"),
                 ),
         )
         .subcommand(

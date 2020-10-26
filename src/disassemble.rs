@@ -2,140 +2,72 @@
 
 use crate::elf::load_file;
 use byteorder::{ByteOrder, LittleEndian};
-use riscv_decode::types::{BType, IType, JType, RType, SType, UType};
+use riscv_decode::{
+    types::{BType, IType, JType, RType, SType, UType},
+    Register,
+};
 use std::path::Path;
 
 use crate::decode::{Decoder, RiscU};
-
-fn reg_to_str(reg: u32) -> String {
-    match reg {
-        0 => String::from("zero"),
-        1 => String::from("ra"),
-        2 => String::from("sp"),
-        3 => String::from("gp"),
-        4 => String::from("tp"),
-        i if i >= 5 && i <= 7 => format!("t{}", i - 5),
-        i if i >= 8 && i <= 9 => format!("s{}", i - 8),
-        i if i >= 10 && i <= 17 => format!("a{}", i - 10),
-        i if i >= 18 && i <= 27 => format!("s{}", i - 16),
-        i if i >= 28 && i <= 31 => format!("t{}", i - 25),
-        _ => unreachable!(),
-    }
-}
 
 struct Disassembler {}
 
 impl RiscU for Disassembler {
     fn lui(&mut self, i: UType) {
-        println!("lui {},{:#x}", reg_to_str(i.rd()), i.imm())
+        println!("lui {:?},{:#x}", i.rd(), i.imm())
     }
 
     // TODO: fix representation of negativ immediate values
     fn addi(&mut self, i: IType) {
-        if i.rd() == 0 && i.rs1() == 0 && i.imm() == 0 {
+        if i.rd() == Register::Zero && i.rs1() == Register::Zero && i.imm() == 0 {
             println!("nop")
         } else {
-            println!(
-                "addi {},{},{}",
-                reg_to_str(i.rd()),
-                reg_to_str(i.rs1()),
-                i.imm()
-            )
+            println!("addi {:?},{:?},{}", i.rd(), i.rs1(), i.imm())
         }
     }
 
     fn add(&mut self, i: RType) {
-        println!(
-            "add {},{},{}",
-            reg_to_str(i.rd()),
-            reg_to_str(i.rs1()),
-            reg_to_str(i.rs2())
-        )
+        println!("add {:?},{:?},{:?}", i.rd(), i.rs1(), i.rs2())
     }
 
     fn sub(&mut self, i: RType) {
-        println!(
-            "sub {},{},{}",
-            reg_to_str(i.rd()),
-            reg_to_str(i.rs1()),
-            reg_to_str(i.rs2())
-        )
+        println!("sub {:?},{:?},{:?}", i.rd(), i.rs1(), i.rs2())
     }
 
     fn mul(&mut self, i: RType) {
-        println!(
-            "mul {},{},{}",
-            reg_to_str(i.rd()),
-            reg_to_str(i.rs1()),
-            reg_to_str(i.rs2())
-        )
+        println!("mul {:?},{:?},{:?}", i.rd(), i.rs1(), i.rs2())
     }
 
     fn divu(&mut self, i: RType) {
-        println!(
-            "divu {},{},{}",
-            reg_to_str(i.rd()),
-            reg_to_str(i.rs1()),
-            reg_to_str(i.rs2())
-        )
+        println!("divu {:?},{:?},{:?}", i.rd(), i.rs1(), i.rs2())
     }
 
     fn remu(&mut self, i: RType) {
-        println!(
-            "remu {},{},{}",
-            reg_to_str(i.rd()),
-            reg_to_str(i.rs1()),
-            reg_to_str(i.rs2())
-        )
+        println!("remu {:?},{:?},{:?}", i.rd(), i.rs1(), i.rs2())
     }
 
     fn sltu(&mut self, i: RType) {
-        println!(
-            "sltu {},{},{}",
-            reg_to_str(i.rd()),
-            reg_to_str(i.rs1()),
-            reg_to_str(i.rs2())
-        )
+        println!("sltu {:?},{:?},{:?}", i.rd(), i.rs1(), i.rs2())
     }
 
     fn ld(&mut self, i: IType) {
-        println!(
-            "ld {},{}({})",
-            reg_to_str(i.rd()),
-            i.imm(),
-            reg_to_str(i.rs1())
-        )
+        println!("ld {:?},{}({:?})", i.rd(), i.imm(), i.rs1())
     }
 
     fn sd(&mut self, i: SType) {
-        println!(
-            "sd {},{}({})",
-            reg_to_str(i.rs2()),
-            i.imm(),
-            reg_to_str(i.rs1())
-        )
+        println!("sd {:?},{}({:?})", i.rs2(), i.imm(), i.rs1())
     }
 
     fn jal(&mut self, i: JType) {
-        println!("jal {},{}", reg_to_str(i.rd()), i.imm())
+        println!("jal {:?},{}", i.rd(), i.imm())
     }
 
     fn jalr(&mut self, i: IType) {
-        println!(
-            "jalr {},{}({})",
-            reg_to_str(i.rd()),
-            i.imm(),
-            reg_to_str(i.rs1())
-        )
+        println!("jalr {:?},{}({:?})", i.rd(), i.imm(), i.rs1())
     }
 
     fn beq(&mut self, i: BType) {
-        println!(
-            "beq {},{},{}",
-            reg_to_str(i.rs1()),
-            reg_to_str(i.rs2()),
-            i.imm()
-        )
+        println!("beq {:?},{:?},{}", i.rs1(), i.rs2(), i.imm())
     }
 
     fn ecall(&mut self) {

@@ -5,15 +5,15 @@ use core::fmt;
 pub use petgraph::graph::NodeIndex;
 use petgraph::Graph;
 use riscv_decode::types::{BType, IType, RType, SType, UType};
-use riscv_decode::Instruction;
+use riscv_decode::{Instruction, Register};
 
 pub type Formula = Graph<Node, ArgumentSide>;
 
-static REG_SP: usize = 2;
-static REG_A0: usize = 10;
-static REG_A1: usize = 11;
-static REG_A2: usize = 12;
-static REG_A7: usize = 17;
+pub static REG_SP: usize = 2;
+pub static REG_A0: usize = 10;
+pub static REG_A1: usize = 11;
+pub static REG_A2: usize = 12;
+pub static REG_A7: usize = 17;
 
 #[allow(dead_code)]
 pub enum SyscallId {
@@ -24,7 +24,7 @@ pub enum SyscallId {
     Brk = 214,
 }
 
-fn instruction_to_str(i: Instruction) -> &'static str {
+pub fn instruction_to_str(i: Instruction) -> &'static str {
     match i {
         Instruction::Lui(_) => "lui",
         Instruction::Jal(_) => "jal",
@@ -39,7 +39,7 @@ fn instruction_to_str(i: Instruction) -> &'static str {
         Instruction::Mul(_) => "mul",
         Instruction::Divu(_) => "divu",
         Instruction::Remu(_) => "remu",
-        Instruction::Ecall => "ecall",
+        Instruction::Ecall(_) => "ecall",
         _ => "unknown",
     }
 }
@@ -244,11 +244,11 @@ impl<'a> DataFlowGraphBuilder<'a> {
     }
 
     fn execute_lui(&mut self, utype: UType) -> Option<ExecutionResult> {
-        if utype.rd() == 0 {
+        if utype.rd() == Register::Zero {
             return None;
         }
 
-        let immediate = u64::from(utype.imm()); //sign_extend_utype(utype.imm());
+        let immediate = u64::from(utype.imm());
 
         let result = Value::Concrete(immediate);
 
@@ -273,20 +273,24 @@ impl<'a> DataFlowGraphBuilder<'a> {
     where
         Op: FnOnce(u64, u64) -> u64,
     {
-        if itype.rd() == 0 {
+        if itype.rd() == Register::Zero {
             return None;
         }
 
         let rs1_value = self.regs[itype.rs1() as usize];
-        let immediate = sign_extend_itype_stype(itype.imm());
 
-        let result = self.execute_binary_op(instruction, rs1_value, Value::Concrete(immediate), op);
+        let result = self.execute_binary_op(
+            instruction,
+            rs1_value,
+            Value::Concrete(itype.imm() as u64),
+            op,
+        );
 
         println!(
             "{}  rs1: {:?} imm: {:?} -> rd: {:?}",
             instruction_to_str(instruction),
             rs1_value,
-            immediate as i64,
+            itype.imm() as i64,
             result,
         );
 
@@ -304,7 +308,7 @@ impl<'a> DataFlowGraphBuilder<'a> {
     where
         Op: FnOnce(u64, u64) -> u64,
     {
-        if rtype.rd() == 0 {
+        if rtype.rd() == Register::Zero {
             return None;
         }
 
@@ -509,9 +513,9 @@ impl<'a> DataFlowGraphBuilder<'a> {
     }
 
     fn execute_load(&mut self, instruction: Instruction, itype: IType) -> Option<ExecutionResult> {
-        if itype.rd() != 0 {
+        if itype.rd() != Register::Zero {
             if let Value::Concrete(base_address) = self.regs[itype.rs1() as usize] {
-                let immediate = sign_extend_itype_stype(itype.imm());
+                let immediate = itype.imm() as u64;
 
                 let address = base_address.wrapping_add(immediate);
 
@@ -536,9 +540,9 @@ impl<'a> DataFlowGraphBuilder<'a> {
 
     fn execute_store(&mut self, instruction: Instruction, stype: SType) -> Option<ExecutionResult> {
         if let Value::Concrete(base_address) = self.regs[stype.rs1() as usize] {
-            let immediate = sign_extend_itype_stype(stype.imm());
+            let immediate = stype.imm();
 
-            let address = base_address.wrapping_add(immediate);
+            let address = base_address.wrapping_add(immediate as u64);
 
             let value = self.regs[stype.rs2() as usize];
 
@@ -560,7 +564,7 @@ impl<'a> DataFlowGraphBuilder<'a> {
 
     fn execute(&mut self, instruction: Instruction) -> Option<ExecutionResult> {
         match instruction {
-            Instruction::Ecall => self.execute_ecall(),
+            Instruction::Ecall(_) => self.execute_ecall(),
             Instruction::Lui(utype) => self.execute_lui(utype),
             Instruction::Addi(itype) => self.execute_itype(instruction, itype, u64::wrapping_add),
             Instruction::Add(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_add),
@@ -575,13 +579,13 @@ impl<'a> DataFlowGraphBuilder<'a> {
             Instruction::Ld(itype) => self.execute_load(instruction, itype),
             Instruction::Sd(stype) => self.execute_store(instruction, stype),
             Instruction::Jal(jtype) => {
-                if jtype.rd() != 0 {
+                if jtype.rd() != Register::Zero {
                     self.regs[jtype.rd() as usize] = Value::Concrete(0);
                 }
                 None
             }
             Instruction::Jalr(itype) => {
-                if itype.rd() != 0 {
+                if itype.rd() != Register::Zero {
                     self.regs[itype.rd() as usize] = Value::Concrete(0);
                 }
                 None
@@ -592,9 +596,11 @@ impl<'a> DataFlowGraphBuilder<'a> {
     }
 }
 
-pub fn sign_extend(n: u64, b: u32) -> u64 {
+pub fn sign_extend(n: u32, b: u32) -> u64 {
     // assert: 0 <= n <= 2^b
     // assert: 0 < b < CPUBITWIDTH
+    let n = u64::from(n);
+
     if n < 2_u64.pow(b - 1) {
         n
     } else {
@@ -603,12 +609,20 @@ pub fn sign_extend(n: u64, b: u32) -> u64 {
 }
 
 #[allow(dead_code)]
-fn sign_extend_utype(imm: u32) -> u64 {
-    sign_extend(u64::from(imm), 20)
+pub fn sign_extend_utype(imm: u32) -> u64 {
+    sign_extend(imm, 20)
 }
 
-fn sign_extend_itype_stype(imm: u32) -> u64 {
-    sign_extend(u64::from(imm), 12)
+pub fn sign_extend_jtype(imm: u32) -> u64 {
+    sign_extend(imm, 21)
+}
+
+pub fn sign_extend_itype_stype(imm: u32) -> u64 {
+    sign_extend(imm, 12)
+}
+
+pub fn sign_extend_btype(imm: u32) -> u64 {
+    sign_extend(imm, 13)
 }
 
 #[allow(dead_code)]
@@ -633,7 +647,7 @@ pub fn build_dataflow_graph(
 mod tests {
     use super::*;
     use crate::candidate_path::create_candidate_paths;
-    use crate::cfg;
+    use crate::cfg::build_cfg_from_file;
     use petgraph::dot::Dot;
     use serial_test::serial;
     use std::env::current_dir;
@@ -663,7 +677,7 @@ mod tests {
 
         let test_file = Path::new("symbolic/simple-if-else-symbolic-exit.riscu.o");
 
-        let (graph, data_segment, elf_metadata) = cfg::build_from_file(test_file).unwrap();
+        let (graph, data_segment, elf_metadata) = build_cfg_from_file(test_file).unwrap();
 
         println!("{:?}", data_segment);
 

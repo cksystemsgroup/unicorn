@@ -46,7 +46,7 @@ impl<R: RiscU> Decoder<'_, R> {
                 Instruction::Jal(i) => self.next.jal(i),
                 Instruction::Jalr(i) => self.next.jalr(i),
                 Instruction::Beq(i) => self.next.beq(i),
-                Instruction::Ecall => self.next.ecall(),
+                Instruction::Ecall(_) => self.next.ecall(),
                 i => unimplemented!("instruction: {:?}", i),
             }
         } else {

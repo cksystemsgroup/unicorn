@@ -5,3 +5,4 @@
 **/*.dot
 **/*.png
 **/*.s
+.DS_Store
