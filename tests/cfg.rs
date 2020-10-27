@@ -9,7 +9,7 @@ use common::time;
 #[test]
 fn can_build_control_flow_graph() {
     common::forall_compiled_riscu(move |path| {
-        let (graph, _, _) = time(format!("compute cfg: {:?}", path), || {
+        let ((graph, _), _, _) = time(format!("compute cfg: {:?}", path), || {
             build_cfg_from_file(path.clone()).unwrap()
         });
 

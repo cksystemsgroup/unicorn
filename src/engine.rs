@@ -16,7 +16,7 @@ pub enum Backend {
 }
 
 pub fn execute(input: &Path, with: Backend) -> Result<(), String> {
-    let (graph, data_segment, elf_metadata) = build_cfg_from_file(input)?;
+    let ((graph, _), data_segment, elf_metadata) = build_cfg_from_file(input)?;
 
     let potential_assignment = create_candidate_paths(&graph)
         .into_iter()

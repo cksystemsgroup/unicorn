@@ -677,7 +677,7 @@ mod tests {
 
         let test_file = Path::new("symbolic/simple-if-else-symbolic-exit.riscu.o");
 
-        let (graph, data_segment, elf_metadata) = build_cfg_from_file(test_file).unwrap();
+        let ((graph, _), data_segment, elf_metadata) = build_cfg_from_file(test_file).unwrap();
 
         println!("{:?}", data_segment);
 

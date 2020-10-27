@@ -24,8 +24,31 @@ use petgraph::{
 use riscv_decode::{decode, Instruction, Register};
 use std::{fs::File, io::prelude::*, path::Path, process::Command, vec::Vec};
 
-type Edge = (NodeIndex, NodeIndex, Option<NodeIndex>);
-pub type ControlFlowGraph = Graph<Instruction, Option<NodeIndex>>;
+type Edge = (NodeIndex, NodeIndex, Option<ProcedureCallId>);
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum ProcedureCallId {
+    Call(u64),
+    Return(u64),
+}
+
+pub type ControlFlowGraph = Graph<Instruction, Option<ProcedureCallId>>;
+
+static mut PROCEDURE_CALL_ID_SEED: u64 = 0;
+
+fn reset_procedure_call_id_seed() {
+    unsafe {
+        PROCEDURE_CALL_ID_SEED = 0;
+    }
+}
+
+fn allocate_procedure_call_id() -> u64 {
+    unsafe {
+        let id = PROCEDURE_CALL_ID_SEED;
+        PROCEDURE_CALL_ID_SEED += 1;
+        id
+    }
+}
 
 /// Create a `ControlFlowGraph` from an `u8` slice without fixing edges
 fn create_instruction_graph(binary: &[u8]) -> ControlFlowGraph {
@@ -107,15 +130,15 @@ fn construct_edge_if_stateful(idx: NodeIndex, graph: &ControlFlowGraph) -> Optio
                 (((idx.index() as u64) * 4).wrapping_add(jtype.imm() as u64) / 4) as usize,
             );
             let return_dest = NodeIndex::new(idx.index() + 1);
-            let mark = Some(return_dest);
+            let id = allocate_procedure_call_id();
+
+            let call_edge = (idx, jump_dest, Some(ProcedureCallId::Call(id)));
 
             let return_edge = (
                 compute_return_edge_position(graph, jump_dest),
                 return_dest,
-                mark,
+                Some(ProcedureCallId::Return(id)),
             );
-
-            let call_edge = (idx, jump_dest, mark);
 
             Some(vec![call_edge, return_edge])
         }
@@ -150,18 +173,23 @@ fn find_possible_exit_edge(graph: &ControlFlowGraph, idx: NodeIndex) -> Option<E
 }
 
 /// Fix the exit ecall edge
-fn fix_exit_ecall(graph: &mut ControlFlowGraph) {
-    graph.node_indices().for_each(|idx| {
-        if let Instruction::Ecall(_) = graph[idx] {
-            if let Some(edge) = find_possible_exit_edge(graph, idx) {
-                graph.remove_edge(edge);
+fn fix_exit_ecall(graph: &mut ControlFlowGraph) -> NodeIndex {
+    graph
+        .node_indices()
+        .find(|idx| {
+            if let Instruction::Ecall(_) = graph[*idx] {
+                if let Some(edge) = find_possible_exit_edge(graph, *idx) {
+                    graph.remove_edge(edge);
+                    return true;
+                }
             }
-        }
-    })
+            false
+        })
+        .unwrap()
 }
 
 /// Create a ControlFlowGraph from `u8` slice.
-fn build(binary: &[u8]) -> ControlFlowGraph {
+fn build(binary: &[u8]) -> (ControlFlowGraph, NodeIndex) {
     let mut graph = create_instruction_graph(binary);
 
     fn add_edges(graph: &mut ControlFlowGraph, edges: &[Edge]) {
@@ -179,9 +207,9 @@ fn build(binary: &[u8]) -> ControlFlowGraph {
     let jump_edges = compute_stateful_edges(&graph);
     add_edges(&mut graph, &jump_edges);
 
-    fix_exit_ecall(&mut graph);
+    let exit_node = fix_exit_ecall(&mut graph);
 
-    graph
+    (graph, exit_node)
 }
 
 pub type DataSegment = Vec<u8>;
@@ -190,10 +218,12 @@ pub type DataSegment = Vec<u8>;
 // TODO: only tested with Selfie RISC-U file and relies on that ELF format
 pub fn build_cfg_from_file<P>(
     file: P,
-) -> Result<(ControlFlowGraph, DataSegment, ElfMetadata), &'static str>
+) -> Result<((ControlFlowGraph, NodeIndex), DataSegment, ElfMetadata), &'static str>
 where
     P: AsRef<Path>,
 {
+    reset_procedure_call_id_seed();
+
     match load_file(file, 1024) {
         Some((code, data, meta_data)) => Ok((build(code.as_slice()), data, meta_data)),
         None => Err("Cannot load RISC-U ELF file"),

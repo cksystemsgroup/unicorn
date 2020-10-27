@@ -84,7 +84,7 @@ mod tests {
 
         let test_file = Path::new("symbolic/division-by-zero-3-35.riscu.o");
 
-        let (graph, _, _) = build_cfg_from_file(test_file).unwrap();
+        let ((graph, _), _, _) = build_cfg_from_file(test_file).unwrap();
 
         let paths = create_candidate_paths(&graph).into_iter().count();
 

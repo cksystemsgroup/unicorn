@@ -36,7 +36,7 @@ fn main() {
                 let input = Path::new(cfg_args.value_of("input-file").unwrap());
                 let output = Path::new(cfg_args.value_of("output-file").unwrap());
 
-                let (graph, _, _) = build_cfg_from_file(Path::new(input))?;
+                let ((graph, _), _, _) = build_cfg_from_file(Path::new(input))?;
 
                 write_to_file(&graph, output).map_err(|e| e.to_string())?;
 
