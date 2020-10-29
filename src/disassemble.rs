@@ -88,8 +88,8 @@ pub fn disassemble(binary: &[u8]) {
 // TODO: only tested with Selfie RISC-U file and relies on that ELF format
 pub fn disassemble_riscu(file: &Path) -> Result<(), &str> {
     match load_file(file, 1024) {
-        Some((code, _data, _meta_data)) => {
-            disassemble(code.as_slice());
+        Some(program) => {
+            disassemble(program.code_segment.as_slice());
 
             Ok(())
         }

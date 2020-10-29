@@ -3,39 +3,46 @@ use crate::formula_graph::{
     ArgumentSide, BooleanFunction, Formula,
     Node::{Constant, Constraint, Input, Instruction},
 };
-use crate::solver::Assignment;
+use crate::solver::{Assignment, Solver};
 use boolector::{
     option::{BtorOption, ModelGen, OutputFileFormat},
-    Btor, BV,
+    Btor, SolverResult, BV,
 };
 use petgraph::{graph::NodeIndex, Direction};
 use riscv_decode::Instruction as Inst;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 fn get_operands(
     graph: &Formula,
     node: NodeIndex,
     solver: &Rc<Btor>,
+    bvs: &mut HashMap<NodeIndex, BV<Rc<Btor>>>,
 ) -> (BV<Rc<Btor>>, BV<Rc<Btor>>) {
     let mut operands = graph.neighbors_directed(node, Direction::Incoming).detach();
 
     match operands.next(graph) {
         Some(p) if graph[p.0] == ArgumentSide::Lhs => (
-            traverse(graph, p.1, solver),
-            traverse(graph, operands.next(graph).unwrap().1, solver),
+            traverse(graph, p.1, solver, bvs),
+            traverse(graph, operands.next(graph).unwrap().1, solver, bvs),
         ),
         Some(p) if graph[p.0] == ArgumentSide::Rhs => (
-            traverse(graph, p.1, solver),
-            traverse(graph, operands.next(graph).unwrap().1, solver),
+            traverse(graph, p.1, solver, bvs),
+            traverse(graph, operands.next(graph).unwrap().1, solver, bvs),
         ),
         _ => unreachable!(),
     }
 }
 
-fn traverse<'a>(graph: &Formula, node: NodeIndex, solver: &'a Rc<Btor>) -> BV<Rc<Btor>> {
-    match &graph[node] {
+fn traverse<'a>(
+    graph: &Formula,
+    node: NodeIndex,
+    solver: &'a Rc<Btor>,
+    bvs: &mut HashMap<NodeIndex, BV<Rc<Btor>>>,
+) -> BV<Rc<Btor>> {
+    let bv = match &graph[node] {
         Instruction(i) => {
-            let (lhs, rhs) = get_operands(graph, node, solver);
+            let (lhs, rhs) = get_operands(graph, node, solver, bvs);
 
             match i.instruction {
                 Inst::Add(_) | Inst::Addi(_) => lhs.add(&rhs),
@@ -45,7 +52,7 @@ fn traverse<'a>(graph: &Formula, node: NodeIndex, solver: &'a Rc<Btor>) -> BV<Rc
             }
         }
         Constraint(i) => {
-            let (lhs, rhs) = get_operands(graph, node, solver);
+            let (lhs, rhs) = get_operands(graph, node, solver, bvs);
 
             match i.op {
                 BooleanFunction::GreaterThan => lhs.ugt(&rhs),
@@ -55,37 +62,60 @@ fn traverse<'a>(graph: &Formula, node: NodeIndex, solver: &'a Rc<Btor>) -> BV<Rc
         }
         Input(_i) => BV::new(solver.clone(), 64, None),
         Constant(i) => BV::from_u64(solver.clone(), i.value, 64),
-    }
+    };
+
+    bvs.insert(node, bv.clone());
+    bv
 }
 
-pub fn solve(graph: &Formula, root: NodeIndex) -> Option<Assignment<BitVector>> {
+fn solve(graph: &Formula, root: NodeIndex) -> Option<Assignment<BitVector>> {
     let solver = Rc::new(Btor::new());
     solver.set_opt(BtorOption::ModelGen(ModelGen::All));
     solver.set_opt(BtorOption::Incremental(true));
     solver.set_opt(BtorOption::OutputFileFormat(OutputFileFormat::SMTLIBv2));
 
     if let Constraint(_) = &graph[root] {
-        traverse(graph, root, &solver).assert();
+        let mut bvs = HashMap::new();
+        let bv = traverse(graph, root, &solver, &mut bvs);
+        bv.assert();
 
-        println!("result: {:?}\n", solver.sat());
+        let result = solver.sat();
+        println!("result: {:?}\n", result);
         print!("constraints: \n{}\n", solver.print_constraints());
         print!("assignment: \n{}\n", solver.print_model());
         println!();
 
-        // TODO: Extract assignment from boolector
+        if let SolverResult::Sat = result {
+            let assignments = graph
+                .node_indices()
+                .map(|i| BitVector(bvs.get(&i).unwrap().get_a_solution().as_u64().unwrap()))
+                .collect();
 
-        let assignments = graph
-            .raw_nodes()
-            .iter()
-            .filter(|n| match n.weight {
-                Input(_) => true,
-                _ => false,
-            })
-            .map(|_| BitVector(0))
-            .collect::<Vec<_>>();
-
-        Some(assignments)
+            Some(assignments)
+        } else {
+            None
+        }
     } else {
         None
+    }
+}
+
+pub struct Boolector {}
+
+impl Boolector {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl Default for Boolector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Solver for Boolector {
+    fn solve(&mut self, graph: &Formula, root: NodeIndex) -> Option<Assignment<BitVector>> {
+        solve(graph, root)
     }
 }

@@ -13,7 +13,7 @@
 //!   - `jal`: when link is used (=> `rd` is `ra`)
 //!   - `jalr`
 
-use crate::elf::{load_file, ElfMetadata};
+use crate::elf::{load_file, Program};
 use byteorder::{ByteOrder, LittleEndian};
 use petgraph::{
     dot::Dot,
@@ -218,14 +218,14 @@ pub type DataSegment = Vec<u8>;
 // TODO: only tested with Selfie RISC-U file and relies on that ELF format
 pub fn build_cfg_from_file<P>(
     file: P,
-) -> Result<((ControlFlowGraph, NodeIndex), DataSegment, ElfMetadata), &'static str>
+) -> Result<((ControlFlowGraph, NodeIndex), Program), &'static str>
 where
     P: AsRef<Path>,
 {
     reset_procedure_call_id_seed();
 
     match load_file(file, 1024) {
-        Some((code, data, meta_data)) => Ok((build(code.as_slice()), data, meta_data)),
+        Some(program) => Ok((build(program.code_segment.as_slice()), program)),
         None => Err("Cannot load RISC-U ELF file"),
     }
 }

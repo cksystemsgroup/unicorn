@@ -9,11 +9,11 @@ use common::time;
 #[test]
 fn can_build_control_flow_graph_with_distance_from_exit() {
     common::forall_compiled_riscu(move |path| {
-        let ((graph, exit), _, _) = time(format!("compute cfg: {:?}", path), || {
+        let ((graph, exit), program) = time(format!("compute cfg: {:?}", path), || {
             build_cfg_from_file(path.clone()).unwrap()
         });
 
-        let strategy = ShortestPathStrategy::new(&graph, exit);
+        let strategy = ShortestPathStrategy::new(&graph, exit, program.entry_address);
 
         let dot_file = path.with_extension("dot");
 

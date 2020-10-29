@@ -59,7 +59,14 @@ pub struct ElfMetadata {
     pub code_length: u64,
 }
 
-pub fn load_file<P>(object_file: P, memory_limit: usize) -> Option<(Vec<u8>, Vec<u8>, ElfMetadata)>
+#[derive(Clone, Debug)]
+pub struct Program {
+    pub code_segment: Vec<u8>,
+    pub data_segment: Vec<u8>,
+    pub entry_address: u64,
+}
+
+pub fn load_file<P>(object_file: P, memory_limit: usize) -> Option<Program>
 where
     P: AsRef<Path>,
 {
@@ -70,7 +77,7 @@ where
 }
 
 #[allow(clippy::missing_safety_doc)]
-pub unsafe fn load(image: &[u8], memory_limit: usize) -> Option<(Vec<u8>, Vec<u8>, ElfMetadata)> {
+pub unsafe fn load(image: &[u8], memory_limit: usize) -> Option<Program> {
     let header: Header = match image.read_raw() {
         Some(x) => x,
         None => return None,
@@ -131,14 +138,11 @@ pub unsafe fn load(image: &[u8], memory_limit: usize) -> Option<(Vec<u8>, Vec<u8
 
     let data_segment = memory.split_off(code_length as usize);
 
-    Some((
-        memory,
+    Some(Program {
+        code_segment: memory,
         data_segment,
-        ElfMetadata {
-            entry_address: header.e_entry,
-            code_length,
-        },
-    ))
+        entry_address: header.e_entry,
+    })
 }
 
 #[cfg(test)]

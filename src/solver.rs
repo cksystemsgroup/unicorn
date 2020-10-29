@@ -10,6 +10,10 @@ use riscv_decode::Instruction;
 
 pub type Assignment<T> = Vec<T>;
 
+pub trait Solver {
+    fn solve(&mut self, formula: &Formula, root: NodeIndex) -> Option<Vec<BitVector>>;
+}
+
 // check if invertability condition is met
 fn is_invertable(
     instruction: Instruction,
@@ -47,6 +51,7 @@ fn is_constraint_invertable(
 ) -> bool {
     match bf {
         BooleanFunction::Equals => true,
+        BooleanFunction::NotEqual => true,
         _ => unimplemented!(),
     }
 }
@@ -126,10 +131,7 @@ fn select(
     let (lhs, rhs) = parents(f, idx);
 
     fn is_constant(f: &Formula, n: NodeIndex) -> bool {
-        match f[n] {
-            Node::Constant(_) => true,
-            _ => false,
-        }
+        matches!(f[n], Node::Constant(_))
     }
 
     #[allow(clippy::if_same_then_else)]
@@ -235,6 +237,13 @@ fn compute_inverse_constraint_value(
 ) -> BitVector {
     match bf {
         BooleanFunction::Equals => s,
+        BooleanFunction::NotEqual => loop {
+            let r = BitVector(random::<u64>());
+
+            if r != s {
+                return r;
+            }
+        },
         _ => unimplemented!(),
     }
 }
@@ -347,6 +356,9 @@ fn propagate_assignment(f: &Formula, ab: &mut Assignment<BitVector>, n: NodeInde
                 Instruction::Add(_) | Instruction::Addi(_) => update_binary(f, ab, n, |l, r| l + r),
                 Instruction::Sub(_) => update_binary(f, ab, n, |l, r| l - r),
                 Instruction::Mul(_) => update_binary(f, ab, n, |l, r| l * r),
+                Instruction::Sltu(_) => {
+                    update_binary(f, ab, n, |l, r| BitVector(if l < r { 1 } else { 0 }))
+                }
                 _ => unimplemented!(),
             }
             f.neighbors_directed(n, Direction::Outgoing)
@@ -363,6 +375,20 @@ fn propagate_assignment(f: &Formula, ab: &mut Assignment<BitVector>, n: NodeInde
                             BitVector(1)
                         } else {
                             BitVector(0)
+                        }
+                    },
+                )
+            }
+            BooleanFunction::NotEqual => {
+                update_binary(
+                    f,
+                    ab,
+                    n,
+                    |l, r| {
+                        if l == r {
+                            BitVector(0)
+                        } else {
+                            BitVector(1)
                         }
                     },
                 )
@@ -410,6 +436,26 @@ fn sat(
     }
 
     ab
+}
+
+pub struct NativeSolver {}
+
+impl Default for NativeSolver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl NativeSolver {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl Solver for NativeSolver {
+    fn solve(&mut self, formula: &Formula, root: NodeIndex) -> Option<Vec<BitVector>> {
+        solve(formula, root)
+    }
 }
 
 pub fn solve(formula: &Formula, root: NodeIndex) -> Option<Assignment<BitVector>> {

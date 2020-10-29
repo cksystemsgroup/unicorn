@@ -9,7 +9,7 @@ use common::time;
 #[test]
 fn can_build_control_flow_graph() {
     common::forall_compiled_riscu(move |path| {
-        let ((graph, _), _, _) = time(format!("compute cfg: {:?}", path), || {
+        let ((graph, _), _) = time(format!("compute cfg: {:?}", path), || {
             build_cfg_from_file(path.clone()).unwrap()
         });
 
@@ -17,7 +17,7 @@ fn can_build_control_flow_graph() {
 
         let dot_file = path.with_extension("dot");
 
-        let mut f = File::create(dot_file).unwrap();
+        let mut f = File::create(dot_file /*.clone()*/).unwrap();
         f.write_fmt(format_args!("{:?}", dot_graph)).unwrap();
 
         //let png_file = dot_file.with_extension("png");
@@ -26,7 +26,7 @@ fn can_build_control_flow_graph() {
         //let pfile = png_file.as_path();
 
         //time(String::from("dot-to-png"), || {
-        //  common::convert_dot_to_png(dfile, pfile).unwrap();
+        //common::convert_dot_to_png(dfile, pfile).unwrap();
         //});
     });
 }

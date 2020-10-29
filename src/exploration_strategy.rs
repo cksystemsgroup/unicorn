@@ -7,20 +7,22 @@ use std::collections::BinaryHeap;
 
 use petgraph::visit::{EdgeRef, VisitMap, Visitable};
 
-trait ExplorationStrategy {
+pub trait ExplorationStrategy {
     fn choose_path(&self, branch1: u64, branch2: u64) -> u64;
 }
 
 pub struct ShortestPathStrategy<'a> {
     cfg: &'a ControlFlowGraph,
     distance: Vec<Option<u64>>,
+    entry_address: u64,
 }
 
 impl<'a> ShortestPathStrategy<'a> {
-    pub fn new(cfg: &'a ControlFlowGraph, exit_node: NodeIndex) -> Self {
+    pub fn new(cfg: &'a ControlFlowGraph, exit_node: NodeIndex, entry_address: u64) -> Self {
         Self {
             cfg,
             distance: dijkstra_with_conditional_edges(cfg, exit_node),
+            entry_address,
         }
     }
 }
@@ -28,8 +30,8 @@ impl<'a> ShortestPathStrategy<'a> {
 impl<'a> ExplorationStrategy for ShortestPathStrategy<'a> {
     fn choose_path(&self, branch1: u64, branch2: u64) -> u64 {
         match (
-            self.distance[branch1 as usize / 4],
-            self.distance[branch2 as usize / 4],
+            self.distance[(branch1 - self.entry_address) as usize / 4],
+            self.distance[(branch2 - self.entry_address) as usize / 4],
         ) {
             (Some(distance1), Some(distance2)) => {
                 if distance1 > distance2 {
