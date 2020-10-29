@@ -403,7 +403,8 @@ impl<'a> DataFlowGraphBuilder<'a> {
                 //     "can only handle read syscalls with word width"
                 // );
                 // TODO: round up to word width.. not the best idea, right???
-                let to_add = 8 - (size % 8);
+
+                let to_add = if size % 8 == 0 { 0 } else { 8 - (size % 8) };
                 let words_read = (size + to_add) / 8;
 
                 for i in 0..words_read {

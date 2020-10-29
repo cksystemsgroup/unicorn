@@ -1,10 +1,11 @@
 use crate::{
     bitvec::BitVector,
+    boolector,
     candidate_path::create_candidate_paths,
     cfg::build_cfg_from_file,
     elf::ElfMetadata,
     formula_graph::{self, build_dataflow_graph, ExecutionResult, Formula},
-    smt, solver,
+    solver,
 };
 use riscv_decode::Instruction;
 use std::{collections::HashMap, path::Path};
@@ -47,7 +48,7 @@ fn execute_path(
             ExecutionResult::PathUnsat => None,
             ExecutionResult::PotentialError(root) => match with {
                 Backend::Monster => solver::solve(&formula, root),
-                Backend::Boolector => smt::smt(&formula, root),
+                Backend::Boolector => boolector::solve(&formula, root),
             },
         };
 

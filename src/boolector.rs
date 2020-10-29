@@ -38,11 +38,9 @@ fn traverse<'a>(graph: &Formula, node: NodeIndex, solver: &'a Rc<Btor>) -> BV<Rc
             let (lhs, rhs) = get_operands(graph, node, solver);
 
             match i.instruction {
-                Inst::Sub(_i) => lhs.sub(&rhs),
-                Inst::Addi(_i) => lhs.add(&rhs),
-                Inst::Add(_i) => lhs.add(&rhs),
-                Inst::Mul(_i) => lhs.mul(&rhs),
-                Inst::Sltu(_i) => unimplemented!("fix this"),
+                Inst::Add(_) | Inst::Addi(_) => lhs.add(&rhs),
+                Inst::Sub(_) => lhs.sub(&rhs),
+                Inst::Mul(_) => lhs.mul(&rhs),
                 i => unimplemented!("instruction: {:?}", i),
             }
         }
@@ -60,7 +58,7 @@ fn traverse<'a>(graph: &Formula, node: NodeIndex, solver: &'a Rc<Btor>) -> BV<Rc
     }
 }
 
-pub fn smt(graph: &Formula, root: NodeIndex) -> Option<Assignment<BitVector>> {
+pub fn solve(graph: &Formula, root: NodeIndex) -> Option<Assignment<BitVector>> {
     let solver = Rc::new(Btor::new());
     solver.set_opt(BtorOption::ModelGen(ModelGen::All));
     solver.set_opt(BtorOption::Incremental(true));
@@ -75,7 +73,18 @@ pub fn smt(graph: &Formula, root: NodeIndex) -> Option<Assignment<BitVector>> {
         println!();
 
         // TODO: Extract assignment from boolector
-        Some(vec![])
+
+        let assignments = graph
+            .raw_nodes()
+            .iter()
+            .filter(|n| match n.weight {
+                Input(_) => true,
+                _ => false,
+            })
+            .map(|_| BitVector(0))
+            .collect::<Vec<_>>();
+
+        Some(assignments)
     } else {
         None
     }
