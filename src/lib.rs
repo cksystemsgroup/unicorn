@@ -6,7 +6,6 @@ pub mod disassemble;
 pub mod elf;
 pub mod engine;
 pub mod exploration_strategy;
-pub mod formula_graph;
-pub mod iterator;
 pub mod solver;
+pub mod symbolic_state;
 pub mod ternary;

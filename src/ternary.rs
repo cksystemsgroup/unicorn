@@ -5,7 +5,7 @@ use std::fmt;
 use std::ops::Shl;
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
-pub struct TernaryBitVector(pub BitVector, pub BitVector);
+pub struct TernaryBitVector(BitVector, BitVector);
 
 impl TernaryBitVector {
     pub fn new(xlo: u64, xhi: u64) -> Self {
@@ -15,6 +15,14 @@ impl TernaryBitVector {
         assert!(Self::valid(xlo, xhi), "is not a valid ternary bit vector");
 
         Self(xlo, xhi)
+    }
+
+    pub fn lo(&self) -> BitVector {
+        self.0
+    }
+
+    pub fn hi(&self) -> BitVector {
+        self.1
     }
 
     pub const fn lit(literal: &'static str) -> TernaryBitVector {

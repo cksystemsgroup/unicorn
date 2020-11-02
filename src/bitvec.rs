@@ -1,5 +1,5 @@
 use std::fmt;
-use std::ops::{Add, BitAnd, BitOr, Div, Mul, Neg, Not, Shl, Shr, Sub};
+use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Shl, Shr, Sub};
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq, PartialOrd)]
 pub struct BitVector(pub u64);
@@ -18,7 +18,7 @@ impl BitVector {
     }
 
     pub fn lsb(&self) -> u64 {
-        self.0 & 1_u64
+        self.0 & 1
     }
 
     pub fn modinverse(&self) -> Option<BitVector> {
@@ -82,6 +82,14 @@ impl BitAnd<BitVector> for BitVector {
 
     fn bitand(self, other: BitVector) -> Self::Output {
         Self(self.0 & other.0)
+    }
+}
+
+impl BitXor<BitVector> for BitVector {
+    type Output = BitVector;
+
+    fn bitxor(self, other: BitVector) -> Self::Output {
+        Self(self.0 ^ other.0)
     }
 }
 
