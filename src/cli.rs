@@ -1,10 +1,22 @@
 use clap::{crate_authors, crate_description, crate_name, crate_version, App, AppSettings, Arg};
 
+pub const LOGGING_LEVELS: [&str; 5] = ["trace", "debug", "info", "warn", "error"];
+
 pub fn args() -> App<'static> {
     App::new(crate_name!())
         .version(crate_version!())
         .author(crate_authors!(", "))
         .about(crate_description!())
+        .arg(
+            Arg::new("verbose")
+                .short('v')
+                .long("verbose")
+                .about("configure logging level to use")
+                .takes_value(true)
+                .value_name("LEVEL")
+                .possible_values(&LOGGING_LEVELS)
+                .default_value(LOGGING_LEVELS[2]),
+        )
         .subcommand(
             App::new("disassemble")
                 .about("Disassemble a RISC-V ELF binary")

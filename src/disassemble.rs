@@ -1,77 +1,77 @@
 //! # Disassemble risc-v instructions
 
+use crate::decode::{Decoder, RiscU};
 use crate::elf::load_file;
 use byteorder::{ByteOrder, LittleEndian};
+use log::info;
 use riscv_decode::{
     types::{BType, IType, JType, RType, SType, UType},
     Register,
 };
 use std::path::Path;
 
-use crate::decode::{Decoder, RiscU};
-
 struct Disassembler {}
 
 impl RiscU for Disassembler {
     fn lui(&mut self, i: UType) {
-        println!("lui {:?},{:#x}", i.rd(), i.imm())
+        info!("lui {:?},{:#x}", i.rd(), i.imm())
     }
 
     // TODO: fix representation of negativ immediate values
     fn addi(&mut self, i: IType) {
         if i.rd() == Register::Zero && i.rs1() == Register::Zero && i.imm() == 0 {
-            println!("nop")
+            info!("nop")
         } else {
-            println!("addi {:?},{:?},{}", i.rd(), i.rs1(), i.imm())
+            info!("addi {:?},{:?},{}", i.rd(), i.rs1(), i.imm())
         }
     }
 
     fn add(&mut self, i: RType) {
-        println!("add {:?},{:?},{:?}", i.rd(), i.rs1(), i.rs2())
+        info!("add {:?},{:?},{:?}", i.rd(), i.rs1(), i.rs2())
     }
 
     fn sub(&mut self, i: RType) {
-        println!("sub {:?},{:?},{:?}", i.rd(), i.rs1(), i.rs2())
+        info!("sub {:?},{:?},{:?}", i.rd(), i.rs1(), i.rs2())
     }
 
     fn mul(&mut self, i: RType) {
-        println!("mul {:?},{:?},{:?}", i.rd(), i.rs1(), i.rs2())
+        info!("mul {:?},{:?},{:?}", i.rd(), i.rs1(), i.rs2())
     }
 
     fn divu(&mut self, i: RType) {
-        println!("divu {:?},{:?},{:?}", i.rd(), i.rs1(), i.rs2())
+        info!("divu {:?},{:?},{:?}", i.rd(), i.rs1(), i.rs2())
     }
 
     fn remu(&mut self, i: RType) {
-        println!("remu {:?},{:?},{:?}", i.rd(), i.rs1(), i.rs2())
+        info!("remu {:?},{:?},{:?}", i.rd(), i.rs1(), i.rs2())
     }
 
     fn sltu(&mut self, i: RType) {
-        println!("sltu {:?},{:?},{:?}", i.rd(), i.rs1(), i.rs2())
+        info!("sltu {:?},{:?},{:?}", i.rd(), i.rs1(), i.rs2())
     }
 
     fn ld(&mut self, i: IType) {
-        println!("ld {:?},{}({:?})", i.rd(), i.imm(), i.rs1())
+        info!("ld {:?},{}({:?})", i.rd(), i.imm(), i.rs1())
     }
 
     fn sd(&mut self, i: SType) {
-        println!("sd {:?},{}({:?})", i.rs2(), i.imm(), i.rs1())
+        info!("sd {:?},{}({:?})", i.rs2(), i.imm(), i.rs1())
     }
 
     fn jal(&mut self, i: JType) {
-        println!("jal {:?},{}", i.rd(), i.imm())
+        info!("jal {:?},{}", i.rd(), i.imm())
     }
 
     fn jalr(&mut self, i: IType) {
-        println!("jalr {:?},{}({:?})", i.rd(), i.imm(), i.rs1())
+        info!("jalr {:?},{}({:?})", i.rd(), i.imm(), i.rs1())
     }
 
     fn beq(&mut self, i: BType) {
-        println!("beq {:?},{:?},{}", i.rs1(), i.rs2(), i.imm())
+        info!("beq {:?},{:?},{}", i.rs1(), i.rs2(), i.imm())
     }
 
     fn ecall(&mut self) {
-        println!("ecall")
+        info!("ecall")
     }
 }
 

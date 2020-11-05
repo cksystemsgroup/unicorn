@@ -15,6 +15,8 @@
 
 use crate::elf::{load_file, Program};
 use byteorder::{ByteOrder, LittleEndian};
+use bytesize::ByteSize;
+use log::info;
 use petgraph::{
     dot::Dot,
     graph::{EdgeIndex, NodeIndex},
@@ -225,18 +227,34 @@ where
     reset_procedure_call_id_seed();
 
     match load_file(file, 1024) {
-        Some(program) => Ok((build(program.code_segment.as_slice()), program)),
+        Some(program) => {
+            let cfg = time_info!("generate CFG from binary", {
+                build(program.code_segment.as_slice())
+            });
+
+            Ok((cfg, program))
+        }
         None => Err("Cannot load RISC-U ELF file"),
     }
 }
 
 /// Write ControlFlowGraph `graph` to dot file at `file` Path.
-pub fn write_to_file(graph: &ControlFlowGraph, file: &Path) -> Result<(), std::io::Error> {
+pub fn write_to_file<P>(graph: &ControlFlowGraph, file_path: P) -> Result<(), std::io::Error>
+where
+    P: AsRef<Path>,
+{
     let dot_graph = Dot::with_config(graph, &[]);
 
-    let mut file = File::create(file)?;
+    let mut file = File::create(file_path.as_ref())?;
 
     file.write_fmt(format_args!("{:?}", dot_graph))?;
+    file.flush()?;
+
+    info!(
+        "{} written to file {}",
+        ByteSize(file.metadata().unwrap().len()),
+        file_path.as_ref().to_str().unwrap(),
+    );
 
     Ok(())
 }

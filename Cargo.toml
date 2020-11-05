@@ -14,6 +14,9 @@ petgraph = "0.5.1"
 rand = "0.7.3"
 boolector = { version = "0.4", git = "https://github.com/finga/boolector-rs", branch = "boolector-src", features = ["vendored"] }
 modinverse = "0.1.1"
+log = "0.4"
+env_logger = "0.8.1"
+bytesize = "1.0.1"
 
 [dev-dependencies]
 serial_test = "0.4.0"

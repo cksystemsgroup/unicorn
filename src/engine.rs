@@ -8,14 +8,10 @@ use crate::{
     symbolic_state::{Query, SymbolId, SymbolicState},
 };
 use byteorder::{ByteOrder, LittleEndian};
+use bytesize::ByteSize;
+use log::{debug, info, trace};
 use riscv_decode::{types::*, Instruction, Register};
-use std::{cell::RefCell, collections::HashMap, path::Path, rc::Rc};
-
-pub static REG_SP: usize = 2;
-pub static REG_A0: usize = 10;
-pub static REG_A1: usize = 11;
-pub static REG_A2: usize = 12;
-pub static REG_A7: usize = 17;
+use std::{cell::RefCell, collections::HashMap, fmt, mem::size_of, path::Path, rc::Rc};
 
 #[allow(dead_code)]
 pub enum SyscallId {
@@ -25,27 +21,6 @@ pub enum SyscallId {
     Openat = 56,
     Brk = 214,
 }
-
-pub fn instruction_to_str(i: Instruction) -> &'static str {
-    match i {
-        Instruction::Lui(_) => "lui",
-        Instruction::Jal(_) => "jal",
-        Instruction::Jalr(_) => "jalr",
-        Instruction::Beq(_) => "beq",
-        Instruction::Ld(_) => "ld",
-        Instruction::Sd(_) => "sd",
-        Instruction::Addi(_) => "addi",
-        Instruction::Add(_) => "add",
-        Instruction::Sub(_) => "sub",
-        Instruction::Sltu(_) => "sltu",
-        Instruction::Mul(_) => "mul",
-        Instruction::Divu(_) => "divu",
-        Instruction::Remu(_) => "remu",
-        Instruction::Ecall(_) => "ecall",
-        _ => "unknown",
-    }
-}
-
 #[derive(Clone, Copy)]
 pub enum Backend {
     Monster,
@@ -63,7 +38,7 @@ pub fn execute(input: &Path, with: Backend) -> Result<(), String> {
             let solver = Rc::new(RefCell::new(NativeSolver::new()));
             let state = Box::new(SymbolicState::new(solver));
 
-            let mut executor = Engine::new(1_000_000, &program, &mut strategy, state);
+            let mut executor = Engine::new(ByteSize::mib(1), &program, &mut strategy, state);
 
             executor.run();
         }
@@ -71,7 +46,7 @@ pub fn execute(input: &Path, with: Backend) -> Result<(), String> {
             let solver = Rc::new(RefCell::new(Boolector::new()));
             let state = Box::new(SymbolicState::new(solver));
 
-            let mut executor = Engine::new(1_000_000, &program, &mut strategy, state);
+            let mut executor = Engine::new(ByteSize::mib(1), &program, &mut strategy, state);
 
             executor.run();
         }
@@ -85,6 +60,16 @@ pub enum Value {
     Concrete(u64),
     Symbolic(SymbolId),
     Uninitialized,
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Value::Concrete(c) => write!(f, "{:#x}", c),
+            Value::Symbolic(i) => write!(f, "x{}", i.index()),
+            Value::Uninitialized => write!(f, "uninit"),
+        }
+    }
 }
 
 pub struct Engine<'a, E, S>
@@ -101,10 +86,6 @@ where
     is_exited: bool,
 }
 
-pub enum ExecutionResult {
-    PotentialError(SymbolId),
-}
-
 impl<'a, E, S> Engine<'a, E, S>
 where
     E: ExplorationStrategy,
@@ -112,21 +93,20 @@ where
 {
     // creates a machine state with a specific memory size
     pub fn new(
-        memory_size: usize,
+        memory_size: ByteSize,
         program: &Program,
         strategy: &'a mut E,
         symbolic_state: Box<SymbolicState<S>>,
     ) -> Self {
         let mut regs = [Value::Concrete(0); 32];
-        let mut memory = vec![Value::Uninitialized; memory_size / 8];
+        let mut memory = vec![Value::Uninitialized; memory_size.as_u64() as usize / 8];
 
-        regs[REG_SP] = Value::Concrete(memory_size as u64 - 8);
+        let sp = memory_size.as_u64() - 8;
+        regs[Register::Sp as usize] = Value::Concrete(sp);
 
-        println!(
-            "data_segment.len(): {}   entry_address:  {}",
-            program.data_segment.len(),
-            program.entry_address
-        );
+        // TOOD: Init main function arguments
+        let argc = 0;
+        memory[sp as usize / size_of::<u64>()] = Value::Concrete(argc);
 
         let code_start = (program.entry_address / 8) as usize;
         let data_start = code_start + (program.code_segment.len() / 8) as usize;
@@ -146,14 +126,49 @@ where
             .zip(data_start..end)
             .for_each(|(x, i)| memory[i] = Value::Concrete(x));
 
+        let pc = program.entry_address;
+        let program_break = (end as u64 + 1) * 8;
+
+        debug!(
+            "initializing new execution context with {} of main memory",
+            memory_size
+        );
+        debug!(
+            "code segment: start={:#x} length={}",
+            code_start * 8,
+            program.code_segment.len(),
+        );
+        debug!(
+            "data segment: start={:#x} length={}",
+            data_start * 8,
+            program.data_segment.len(),
+        );
+        debug!(
+            "init state: pc={:#x} brk={:#x}, argc={}",
+            pc, program_break, argc
+        );
+
         Self {
             symbolic_state,
-            program_break: (end as u64 + 1) * 8,
-            pc: program.entry_address,
+            program_break,
+            pc,
             regs,
             memory,
             strategy,
             is_exited: false,
+        }
+    }
+
+    pub fn run(&mut self) {
+        while !self.is_exited {
+            let word = self.fetch();
+
+            // TODO: handle case where decoding fails
+            let instr = self
+                .decode(word)
+                .expect("instructions have to be always decodable");
+
+            self.execute(instr);
         }
     }
 
@@ -162,10 +177,11 @@ where
 
         let result = Value::Concrete(immediate);
 
-        println!(
-            "{}  imm: {:?} -> rd: {:?}",
+        trace!(
+            "[{:#010x}] {}: {:?} <- {}",
+            self.pc,
             instruction_to_str(Instruction::Lui(utype)),
-            immediate as i64,
+            utype.rd(),
             result,
         );
 
@@ -181,19 +197,17 @@ where
         Op: FnOnce(u64, u64) -> u64,
     {
         let rs1_value = self.regs[itype.rs1() as usize];
+        let imm_value = Value::Concrete(itype.imm() as u64);
 
-        let result = self.execute_binary_op(
-            instruction,
-            rs1_value,
-            Value::Concrete(itype.imm() as u64),
-            op,
-        );
+        let result = self.execute_binary_op(instruction, rs1_value, imm_value, op);
 
-        println!(
-            "{}  rs1: {:?} imm: {:?} -> rd: {:?}",
+        trace!(
+            "[{:#010x}] {}: {}, {} |- {:?} <- {}",
+            self.pc - 4,
             instruction_to_str(instruction),
             rs1_value,
-            itype.imm() as i64,
+            imm_value,
+            itype.rd(),
             result,
         );
 
@@ -211,11 +225,13 @@ where
 
         let result = self.execute_binary_op(instruction, rs1_value, rs2_value, op);
 
-        println!(
-            "{}  rs1: {:?} rs2: {:?} -> rd: {:?}",
+        trace!(
+            "[{:#010x}] {}:  {}, {} |- {:?} <- {}",
+            self.pc - 4,
             instruction_to_str(instruction),
             rs1_value,
             rs2_value,
+            rtype.rd(),
             result,
         );
 
@@ -255,46 +271,66 @@ where
     }
 
     fn execute_brk(&mut self) {
-        if let Value::Concrete(new_program_break) = self.regs[REG_A0] {
+        if let Value::Concrete(new_program_break) = self.regs[Register::A0 as usize] {
             // TODO: handle cases where program break can not be modified
+            let old_program_break = self.program_break;
+
             if new_program_break < self.program_break {
-                self.regs[REG_A0] = Value::Concrete(self.program_break);
+                self.regs[Register::A0 as usize] = Value::Concrete(self.program_break);
             } else {
                 self.program_break = new_program_break;
             }
-            println!("new program break: {}", new_program_break);
+
+            trace!(
+                "brk: old={:#x} new={:#x}",
+                old_program_break,
+                new_program_break
+            );
         } else {
             unimplemented!("can not handle symbolic or uninitialized program break")
         }
     }
 
     fn execute_read(&mut self) {
-        // TODO: ignore FD??
-        if let Value::Concrete(buffer) = self.regs[REG_A1] {
-            if let Value::Concrete(size) = self.regs[REG_A2] {
-                // assert!(
-                //     size % 8 == 0,
-                //     "can only handle read syscalls with word width"
-                // );
-                // TODO: round up to word width.. not the best idea, right???
+        if let Value::Concrete(fd) = self.regs[Register::A0 as usize] {
+            if fd == 0 {
+                if let Value::Concrete(buffer) = self.regs[Register::A1 as usize] {
+                    if let Value::Concrete(size) = self.regs[Register::A2 as usize] {
+                        // TODO: round up to word width.. not the best idea, right???
 
-                let to_add = if size % 8 == 0 { 0 } else { 8 - (size % 8) };
-                let words_read = (size + to_add) / 8;
+                        let to_add = if size % 8 == 0 { 0 } else { 8 - (size % 8) };
+                        let words_read = (size + to_add) / 8;
 
-                for i in 0..words_read {
-                    let name = format!("read({}, {}, {})", 0, buffer, size);
+                        for i in 0..words_read {
+                            let name = format!("read({}, {}, {})", 0, buffer, size);
 
-                    let node_idx = self.symbolic_state.create_input(&name);
+                            let node_idx = self.symbolic_state.create_input(&name);
 
-                    self.memory[((buffer / 8) + i) as usize] = Value::Symbolic(node_idx);
+                            self.memory[((buffer / 8) + i) as usize] = Value::Symbolic(node_idx);
+                        }
+
+                        trace!(
+                            "read: fd={} buffer={:#x} size={} -> {} symbolic double words read",
+                            fd,
+                            buffer,
+                            size,
+                            words_read,
+                        );
+                    } else {
+                        unimplemented!(
+                            "can not handle symbolic or uinitialized size in read syscall"
+                        )
+                    }
+                } else {
+                    unimplemented!(
+                        "can not handle symbolic or uninitialized buffer address in read syscall"
+                    )
                 }
             } else {
-                unimplemented!("can not handle symbolic or uinitialized size in read syscall")
+                unimplemented!("can not handle other fd than stdin in read syscall")
             }
         } else {
-            unimplemented!(
-                "can not handle symbolic or uninitialized buffer address in read syscall"
-            )
+            unimplemented!("can not handle symbolic or uninitialized fd in read syscall")
         }
     }
 
@@ -305,7 +341,6 @@ where
         lhs: SymbolId,
         rhs: SymbolId,
     ) {
-        println!("execute BEQ with symbolic condition");
         let memory_snapshot = self.memory.clone();
         let regs_snapshot = self.regs;
         let graph_snapshot = Box::new((*self.symbolic_state).clone());
@@ -315,12 +350,19 @@ where
 
         let decision = next_pc == true_branch;
 
-        println!("execute {} branch first", next_pc == false_branch);
-
         self.symbolic_state
             .create_beq_path_condition(decision, lhs, rhs);
-        self.pc = next_pc;
 
+        trace!(
+            "[{:#010x}] beq: x{}, x{} |- assume {}, pc <- {:#x}",
+            self.pc,
+            lhs.index(),
+            rhs.index(),
+            next_pc == false_branch,
+            next_pc,
+        );
+
+        self.pc = next_pc;
         self.run();
 
         self.is_exited = false;
@@ -334,9 +376,17 @@ where
 
         self.symbolic_state
             .create_beq_path_condition(!decision, lhs, rhs);
-        self.pc = next_pc;
 
-        println!("execute {} branch next", next_pc == false_branch);
+        trace!(
+            "[{:#010x}] beq: x{}, x{} |- assume {}, pc <- {:#x}",
+            self.pc,
+            lhs.index(),
+            rhs.index(),
+            next_pc == false_branch,
+            next_pc,
+        );
+
+        self.pc = next_pc;
     }
 
     fn execute_beq(&mut self, btype: BType) {
@@ -346,12 +396,19 @@ where
         let true_branch = self.pc.wrapping_add(btype.imm() as u64);
         let false_branch = self.pc.wrapping_add(4);
 
-        println!("{:?}", lhs);
-        println!("{:?}", rhs);
-
         match (lhs, rhs) {
             (Value::Concrete(v1), Value::Concrete(v2)) => {
+                let old_pc = self.pc;
+
                 self.pc = if v1 == v2 { true_branch } else { false_branch };
+
+                trace!(
+                    "[{:#010x}] beq: {}, {} |- pc <- {:#x}",
+                    old_pc,
+                    lhs,
+                    rhs,
+                    self.pc
+                );
             }
             (Value::Symbolic(v1), Value::Concrete(v2)) => {
                 let v2 = self.symbolic_state.create_const(v2);
@@ -369,14 +426,22 @@ where
     }
 
     fn execute_exit(&mut self) {
-        match self.regs[REG_A0] {
+        match self.regs[Register::A0 as usize] {
             Value::Symbolic(exit_code) => {
+                trace!("exit: symbolic code -> find input for exit_code != 0");
+
                 let result = self
                     .symbolic_state
                     .execute_query(Query::NotEquals((exit_code, 0)));
 
                 if let Some(assignment) = result {
-                    println!("found assignment: {:?}", assignment);
+                    let printable_assignments =
+                        self.symbolic_state.get_input_assignments(&assignment);
+
+                    info!("exit: found input assignment");
+                    print_assignment(&printable_assignments);
+
+                    info!("exiting execution engine");
                     std::process::exit(0);
                 }
 
@@ -384,16 +449,25 @@ where
             }
             Value::Concrete(exit_code) => {
                 if exit_code > 0 {
+                    trace!(
+                        "exit: with code {} -> find input to satisfy path condition",
+                        exit_code
+                    );
+
                     let result = self.symbolic_state.execute_query(Query::Reachable);
+
                     if let Some(assignment) = result {
                         let printable_assignments =
                             self.symbolic_state.get_input_assignments(&assignment);
 
+                        info!("exit: found input assignment");
                         print_assignment(&printable_assignments);
+
+                        info!("exiting execution engine");
                         std::process::exit(0);
                     }
                 } else {
-                    println!("exiting context with exit_code 0");
+                    trace!("exiting context with exit_code 0");
                 }
 
                 self.is_exited = true;
@@ -403,7 +477,9 @@ where
     }
 
     fn execute_ecall(&mut self) {
-        match self.regs[REG_A7] {
+        trace!("[{:#010x}] ecall", self.pc,);
+
+        match self.regs[Register::A7 as usize] {
             Value::Concrete(syscall_id) if syscall_id == (SyscallId::Brk as u64) => {
                 self.execute_brk()
             }
@@ -429,11 +505,14 @@ where
 
             let value = self.memory[(address / 8) as usize];
 
-            println!(
-                "{} rs1: {:?} imm: {} -> rd: {:?}",
+            trace!(
+                "[{:#010x}] {}: {:#x}, {} |- {:?} <- mem[{:#x}]={}",
+                self.pc,
                 instruction_to_str(instruction),
-                self.regs[itype.rs1() as usize],
-                immediate as i64,
+                base_address,
+                immediate,
+                itype.rd(),
+                address,
                 value,
             );
 
@@ -455,11 +534,14 @@ where
 
             let value = self.regs[stype.rs2() as usize];
 
-            println!(
-                "{}  immediate: {:?} rs2: {:?} rs1: {:?} -> ",
+            trace!(
+                "[{:#010x}] {}: {:#x}, {}, {} |- mem[{:#x}] <- {}",
+                self.pc,
                 instruction_to_str(instruction),
-                immediate as i64,
-                self.regs[stype.rs1() as usize],
+                base_address,
+                immediate,
+                self.regs[stype.rs2() as usize],
+                address,
                 value,
             );
 
@@ -474,7 +556,17 @@ where
     fn execute_jal(&mut self, jtype: JType) {
         let link = self.pc + 4;
 
-        self.pc = self.pc.wrapping_add(jtype.imm() as u64);
+        let new_pc = self.pc.wrapping_add(jtype.imm() as u64);
+
+        trace!(
+            "[{:#010x}] jal: pc <- {:#x}, {:?} <- {:#x}",
+            self.pc,
+            new_pc,
+            jtype.rd(),
+            link,
+        );
+
+        self.pc = new_pc;
 
         if jtype.rd() != Register::Zero {
             self.regs[jtype.rd() as usize] = Value::Concrete(link);
@@ -485,7 +577,19 @@ where
         let link = self.pc + 4;
 
         if let Value::Concrete(dest) = self.regs[itype.rs1() as usize] {
-            self.pc = dest.wrapping_add(itype.imm() as u64);
+            let new_pc = dest.wrapping_add(itype.imm() as u64);
+
+            trace!(
+                "[{:#010x}] jalr: {:#x}, {} |- pc <- {:#x}, {:?} <- {:#x}",
+                self.pc,
+                dest,
+                itype.imm(),
+                new_pc,
+                itype.rd(),
+                link
+            );
+
+            self.pc = new_pc;
         } else {
             panic!("can only handle concrete addresses in JALR")
         }
@@ -533,113 +637,30 @@ where
             _ => unimplemented!("can not handle this instruction"),
         }
     }
-
-    pub fn run(&mut self) {
-        while !self.is_exited {
-            let word = self.fetch();
-
-            // TODO: handle case where decoding fails
-            let instr = self
-                .decode(word)
-                .expect("instructions have to be always decodable");
-
-            self.execute(instr);
-        }
-    }
 }
 
 fn print_assignment(assignment: &HashMap<String, BitVector>) {
-    println!("Found an assignment:");
-
     assignment.iter().for_each(|(name, value)| {
-        println!("{}: {:?} ({})", name, value, value.0);
+        info!("{} = {:?} ({})", name, value, value.0);
     });
 }
 
-//#[allow(dead_code)]
-//pub fn build_dataflow_graph(
-//path: &[Instruction],
-//data_segment: &[u8],
-//elf_metadata: &ElfMetadata,
-//branch_decision: Vec<bool>,
-//) -> Option<(Formula, ExecutionResult)> {
-//DataFlowGraphBuilder::new(
-//1_000_000,
-//path,
-//data_segment,
-//&elf_metadata,
-//branch_decision,
-//)
-//.generate_graph()
-//}
-
-// TODO: need to load data segment  => then write test
-//#[cfg(test)]
-//mod tests {
-//use super::*;
-//use crate::cfg::build_cfg_from_file;
-//use petgraph::dot::Dot;
-//use serial_test::serial;
-//use std::env::current_dir;
-//use std::fs::File;
-//use std::io::prelude::*;
-//use std::path::Path;
-//use std::process::Command;
-
-//// TODO: write a unit test without dependency on selfie and external files
-//#[test]
-//#[serial]
-//fn can_build_formula() {
-//let cd = String::from(current_dir().unwrap().to_str().unwrap());
-
-//// generate RISC-U binary with Selfie
-//let _ = Command::new("docker")
-//.arg("run")
-//.arg("-v")
-//.arg(cd + ":/opt/monster")
-//.arg("cksystemsteaching/selfie")
-//.arg("/opt/selfie/selfie")
-//.arg("-c")
-//.arg("/opt/monster/symbolic/simple-if-else-symbolic-exit.c")
-//.arg("-o")
-//.arg("/opt/monster/symbolic/simple-if-else-symbolic-exit.riscu.o")
-//.output();
-
-//let test_file = Path::new("symbolic/simple-if-else-symbolic-exit.riscu.o");
-
-//let ((graph, _), data_segment, elf_metadata) = build_cfg_from_file(test_file).unwrap();
-
-//println!("{:?}", data_segment);
-
-//let (path, branch_decisions) = create_candidate_paths(&graph)[3].clone();
-
-//println!("{:?}", path);
-
-//let (formula, _root) = build_dataflow_graph(
-//&path,
-//data_segment.as_slice(),
-//&elf_metadata,
-//branch_decisions,
-//)
-//.unwrap();
-
-//let dot_graph = Dot::with_config(&formula, &[]);
-
-//let mut f = File::create("tmp-graph.dot").unwrap();
-//f.write_fmt(format_args!("{:?}", dot_graph)).unwrap();
-
-//let _ = Command::new("dot")
-//.arg("-Tpng")
-//.arg("tmp-graph.dot")
-//.arg("-o")
-//.arg("main_wo_dc.png")
-//.output();
-
-//let _ = Dot::with_config(&formula, &[]);
-
-//// TODO: test more than just this result
-//// assert!(result.is_ok());
-
-//let _ = std::fs::remove_file(test_file);
-//}
-//}
+const fn instruction_to_str(i: Instruction) -> &'static str {
+    match i {
+        Instruction::Lui(_) => "lui",
+        Instruction::Jal(_) => "jal",
+        Instruction::Jalr(_) => "jalr",
+        Instruction::Beq(_) => "beq",
+        Instruction::Ld(_) => "ld",
+        Instruction::Sd(_) => "sd",
+        Instruction::Addi(_) => "addi",
+        Instruction::Add(_) => "add",
+        Instruction::Sub(_) => "sub",
+        Instruction::Sltu(_) => "sltu",
+        Instruction::Mul(_) => "mul",
+        Instruction::Divu(_) => "divu",
+        Instruction::Remu(_) => "remu",
+        Instruction::Ecall(_) => "ecall",
+        _ => "unknown",
+    }
+}

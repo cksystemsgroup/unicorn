@@ -1,13 +1,15 @@
 use crate::bitvec::BitVector;
 use crate::solver::{Assignment, Solver};
 use crate::symbolic_state::{
-    ArgumentSide, BVOperator, Formula,
+    BVOperator, Formula,
     Node::{Constant, Input, Operator},
+    OperandSide,
 };
 use boolector::{
     option::{BtorOption, ModelGen, OutputFileFormat},
     Btor, SolverResult, BV,
 };
+use log::debug;
 use petgraph::{graph::NodeIndex, Direction};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -22,13 +24,7 @@ fn solve(graph: &Formula, root: NodeIndex) -> Option<Assignment<BitVector>> {
     let bv = traverse(graph, root, &solver, &mut bvs);
     bv.assert();
 
-    let result = solver.sat();
-    println!("result: {:?}\n", result);
-    print!("constraints: \n{}\n", solver.print_constraints());
-    print!("assignment: \n{}\n", solver.print_model());
-    println!();
-
-    if let SolverResult::Sat = result {
+    if let SolverResult::Sat = solver.sat() {
         let assignments = graph
             .node_indices()
             .map(|i| BitVector(bvs.get(&i).unwrap().get_a_solution().as_u64().unwrap()))
@@ -49,14 +45,14 @@ fn get_operands(
     let mut operands = graph.neighbors_directed(node, Direction::Incoming).detach();
 
     match operands.next(graph) {
-        Some(p) if graph[p.0] == ArgumentSide::Lhs => (traverse(graph, p.1, solver, bvs), {
+        Some(p) if graph[p.0] == OperandSide::Lhs => (traverse(graph, p.1, solver, bvs), {
             if let Some(node) = operands.next(graph) {
                 Some(traverse(graph, node.1, solver, bvs))
             } else {
                 None
             }
         }),
-        Some(p) if graph[p.0] == ArgumentSide::Rhs => (
+        Some(p) if graph[p.0] == OperandSide::Rhs => (
             traverse(graph, p.1, solver, bvs),
             if let Some(node) = operands.next(graph) {
                 Some(traverse(graph, node.1, solver, bvs))
@@ -124,6 +120,8 @@ impl Default for Boolector {
 
 impl Solver for Boolector {
     fn solve(&mut self, graph: &Formula, root: NodeIndex) -> Option<Assignment<BitVector>> {
-        solve(graph, root)
+        debug!("try to solve with Boolector");
+
+        time_debug!("finished solving formula", { solve(graph, root) })
     }
 }

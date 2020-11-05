@@ -1,11 +1,12 @@
 use crate::cfg::{ControlFlowGraph, ProcedureCallId};
-use petgraph::dot::Dot;
-use petgraph::graph::NodeIndex;
-use petgraph::prelude::*;
-use std::cmp::Ordering;
-use std::collections::BinaryHeap;
-
-use petgraph::visit::{EdgeRef, VisitMap, Visitable};
+use log::trace;
+use petgraph::{
+    dot::Dot,
+    graph::NodeIndex,
+    prelude::*,
+    visit::{EdgeRef, VisitMap, Visitable},
+};
+use std::{cmp::Ordering, collections::BinaryHeap};
 
 pub trait ExplorationStrategy {
     fn choose_path(&self, branch1: u64, branch2: u64) -> u64;
@@ -19,20 +20,24 @@ pub struct ShortestPathStrategy<'a> {
 
 impl<'a> ShortestPathStrategy<'a> {
     pub fn new(cfg: &'a ControlFlowGraph, exit_node: NodeIndex, entry_address: u64) -> Self {
-        Self {
-            cfg,
-            distance: dijkstra_with_conditional_edges(cfg, exit_node),
-            entry_address,
-        }
+        time_info!("computing shortest paths in CFG", {
+            Self {
+                cfg,
+                distance: dijkstra_with_conditional_edges(cfg, exit_node),
+                entry_address,
+            }
+        })
     }
 }
 
 impl<'a> ExplorationStrategy for ShortestPathStrategy<'a> {
     fn choose_path(&self, branch1: u64, branch2: u64) -> u64 {
-        match (
-            self.distance[(branch1 - self.entry_address) as usize / 4],
-            self.distance[(branch2 - self.entry_address) as usize / 4],
-        ) {
+        let distance1 = self.distance[(branch1 - self.entry_address) as usize / 4];
+        let distance2 = self.distance[(branch2 - self.entry_address) as usize / 4];
+
+        trace!("branch distance: d1={:?}, d2={:?}", distance1, distance2);
+
+        match (distance1, distance2) {
             (Some(distance1), Some(distance2)) => {
                 if distance1 > distance2 {
                     branch2
@@ -154,7 +159,7 @@ fn dijkstra_with_conditional_edges(graph: &ControlFlowGraph, start: NodeIndex) -
                 }
                 // edge can not be traversed
                 a => {
-                    println!("edge can not be traversed:\n  {:?}", a);
+                    trace!("edge can not be traversed:\n  {:?}", a);
                     continue;
                 }
             };

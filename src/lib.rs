@@ -1,3 +1,6 @@
+#[macro_use]
+pub mod util;
+
 pub mod bitvec;
 pub mod boolector;
 pub mod cfg;

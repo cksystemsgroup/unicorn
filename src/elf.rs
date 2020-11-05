@@ -70,10 +70,15 @@ pub fn load_file<P>(object_file: P, memory_limit: usize) -> Option<Program>
 where
     P: AsRef<Path>,
 {
-    match fs::read(object_file) {
-        Ok(buffer) => unsafe { load(buffer.as_slice(), memory_limit) },
-        _ => None,
-    }
+    time_info!(
+        format!("loading file {}", object_file.as_ref().to_str().unwrap()).as_str(),
+        {
+            match fs::read(object_file.as_ref()) {
+                Ok(buffer) => unsafe { load(buffer.as_slice(), memory_limit) },
+                _ => None,
+            }
+        }
+    )
 }
 
 #[allow(clippy::missing_safety_doc)]
