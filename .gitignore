@@ -6,3 +6,4 @@
 **/*.png
 **/*.s
 .DS_Store
+.z3-trace

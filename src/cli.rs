@@ -1,6 +1,7 @@
 use clap::{crate_authors, crate_description, crate_name, crate_version, App, AppSettings, Arg};
 
 pub const LOGGING_LEVELS: [&str; 5] = ["trace", "debug", "info", "warn", "error"];
+pub const SOLVER: [&str; 3] = ["monster", "boolector", "z3"];
 
 pub fn args() -> App<'static> {
     App::new(crate_name!())
@@ -70,8 +71,8 @@ pub fn args() -> App<'static> {
                         .short('s')
                         .long("solver")
                         .takes_value(true)
-                        .possible_values(&["monster", "boolector"])
-                        .default_value("monster"),
+                        .possible_values(&SOLVER)
+                        .default_value(SOLVER[0]),
                 ),
         )
         .setting(AppSettings::SubcommandRequiredElseHelp)

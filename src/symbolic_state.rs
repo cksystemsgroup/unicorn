@@ -73,6 +73,7 @@ pub enum Node {
     Operator(BVOperator),
 }
 
+pub type Formula = Graph<Node, OperandSide>;
 pub type SymbolId = NodeIndex;
 
 fn instruction_to_bv_operator(instruction: Instruction) -> BVOperator {
@@ -85,7 +86,23 @@ fn instruction_to_bv_operator(instruction: Instruction) -> BVOperator {
     }
 }
 
-pub type Formula = Graph<Node, OperandSide>;
+pub fn get_operands(graph: &Formula, sym: SymbolId) -> (SymbolId, Option<SymbolId>) {
+    let mut iter = graph.neighbors_directed(sym, Direction::Incoming).detach();
+
+    let lhs = iter
+        .next(graph)
+        .expect("get_operands() should not be called on operators without operands")
+        .1;
+
+    let rhs = iter.next(graph).map(|n| n.1);
+
+    assert!(
+        iter.next(graph) == None,
+        "operators with arity 1 or 2 are supported only"
+    );
+
+    (lhs, rhs)
+}
 
 #[derive(Debug)]
 pub struct SymbolicState<S>

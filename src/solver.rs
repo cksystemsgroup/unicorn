@@ -1,7 +1,7 @@
 #![allow(clippy::many_single_char_names)]
 
 use crate::bitvec::*;
-use crate::symbolic_state::{BVOperator, Formula, Node, OperandSide, SymbolId as NodeIndex};
+use crate::symbolic_state::{get_operands, BVOperator, Formula, Node, OperandSide, SymbolId};
 use crate::ternary::*;
 use log::{debug, log_enabled, trace, Level};
 use petgraph::{visit::EdgeRef, Direction};
@@ -10,38 +10,46 @@ use rand::{random, Rng};
 pub type Assignment<T> = Vec<T>;
 
 pub trait Solver {
-    fn solve(&mut self, formula: &Formula, root: NodeIndex) -> Option<Assignment<BitVector>>;
+    fn name() -> &'static str;
+
+    fn solve(&mut self, formula: &Formula, root: SymbolId) -> Option<Assignment<BitVector>> {
+        debug!("try to solve with {} solver", Self::name());
+
+        time_debug!("finished solving formula", {
+            self.solve_impl(formula, root)
+        })
+    }
+
+    fn solve_impl(&mut self, formula: &Formula, root: SymbolId) -> Option<Assignment<BitVector>>;
 }
 
-pub struct NativeSolver {}
+pub struct MonsterSolver {}
 
-impl Default for NativeSolver {
+impl Default for MonsterSolver {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl NativeSolver {
+impl MonsterSolver {
     pub fn new() -> Self {
         Self {}
     }
 }
 
-impl Solver for NativeSolver {
-    fn solve(&mut self, formula: &Formula, root: NodeIndex) -> Option<Assignment<BitVector>> {
-        debug!("try to solve with native solver");
-
-        time_debug!("finished solving formula", { solve(formula, root) })
+impl Solver for MonsterSolver {
+    fn name() -> &'static str {
+        "Monster"
     }
-}
 
-pub fn solve(formula: &Formula, root: NodeIndex) -> Option<Assignment<BitVector>> {
-    let ab = initialize_ab(formula);
-    let at = compute_at(formula);
+    fn solve_impl(&mut self, formula: &Formula, root: SymbolId) -> Option<Assignment<BitVector>> {
+        let ab = initialize_ab(formula);
+        let at = compute_at(formula);
 
-    let result = sat(formula, root, at, ab);
+        let result = sat(formula, root, at, ab);
 
-    Some(result)
+        Some(result)
+    }
 }
 
 // short-circuiting implies
@@ -107,7 +115,7 @@ fn is_consistent(op: BVOperator, x: TernaryBitVector, t: BitVector) -> bool {
     }
 }
 
-fn is_leaf(formula: &Formula, idx: NodeIndex) -> bool {
+fn is_leaf(formula: &Formula, idx: SymbolId) -> bool {
     let incoming = formula.edges_directed(idx, Direction::Incoming).count();
 
     incoming == 0
@@ -165,30 +173,32 @@ fn initialize_ab(formula: &Formula) -> Assignment<BitVector> {
 // otherwise selects an input undeterministically
 fn select(
     f: &Formula,
-    idx: NodeIndex,
+    idx: SymbolId,
     t: BitVector,
     at: &[TernaryBitVector],
     ab: &[BitVector],
-) -> (NodeIndex, NodeIndex, OperandSide) {
-    let (lhs, rhs) = parents(f, idx);
+) -> (SymbolId, SymbolId, OperandSide) {
+    if let (lhs, Some(rhs)) = get_operands(f, idx) {
+        fn is_constant(f: &Formula, n: SymbolId) -> bool {
+            matches!(f[n], Node::Constant(_))
+        }
 
-    fn is_constant(f: &Formula, n: NodeIndex) -> bool {
-        matches!(f[n], Node::Constant(_))
-    }
-
-    #[allow(clippy::if_same_then_else)]
-    if is_constant(f, lhs) {
-        (rhs, lhs, OperandSide::Rhs)
-    } else if is_constant(f, rhs) {
-        (lhs, rhs, OperandSide::Lhs)
-    } else if is_essential(f, lhs, OperandSide::Lhs, rhs, t, at, ab) {
-        (lhs, rhs, OperandSide::Lhs)
-    } else if is_essential(f, rhs, OperandSide::Rhs, lhs, t, at, ab) {
-        (rhs, lhs, OperandSide::Rhs)
-    } else if random() {
-        (rhs, lhs, OperandSide::Rhs)
+        #[allow(clippy::if_same_then_else)]
+        if is_constant(f, lhs) {
+            (rhs, lhs, OperandSide::Rhs)
+        } else if is_constant(f, rhs) {
+            (lhs, rhs, OperandSide::Lhs)
+        } else if is_essential(f, lhs, OperandSide::Lhs, rhs, t, at, ab) {
+            (lhs, rhs, OperandSide::Lhs)
+        } else if is_essential(f, rhs, OperandSide::Rhs, lhs, t, at, ab) {
+            (rhs, lhs, OperandSide::Rhs)
+        } else if random() {
+            (rhs, lhs, OperandSide::Rhs)
+        } else {
+            (lhs, rhs, OperandSide::Lhs)
+        }
     } else {
-        (lhs, rhs, OperandSide::Lhs)
+        panic!("can only select path for binary operators")
     }
 }
 
@@ -314,9 +324,9 @@ const CHOOSE_INVERSE: f64 = 0.90;
 #[allow(clippy::too_many_arguments)]
 fn value(
     f: &Formula,
-    n: NodeIndex,
-    nx: NodeIndex,
-    ns: NodeIndex,
+    n: SymbolId,
+    nx: SymbolId,
+    ns: SymbolId,
     side: OperandSide,
     t: BitVector,
     at: &[TernaryBitVector],
@@ -349,9 +359,9 @@ fn value(
 
 fn is_essential(
     formula: &Formula,
-    this: NodeIndex,
+    this: SymbolId,
     on_side: OperandSide,
-    other: NodeIndex,
+    other: SymbolId,
     t: BitVector,
     at: &[TernaryBitVector],
     ab: &[BitVector],
@@ -366,28 +376,14 @@ fn is_essential(
     }
 }
 
-fn parent(f: &Formula, n: NodeIndex) -> NodeIndex {
+fn get_operand(f: &Formula, n: SymbolId) -> SymbolId {
     f.edges_directed(n, Direction::Incoming)
         .next()
         .unwrap()
         .source()
 }
 
-fn parents(f: &Formula, n: NodeIndex) -> (NodeIndex, NodeIndex) {
-    fn target_by_side(f: &Formula, n: NodeIndex, side: OperandSide) -> NodeIndex {
-        f.edges_directed(n, Direction::Incoming)
-            .find(|e| *e.weight() == side)
-            .unwrap()
-            .source()
-    }
-
-    let lhs = target_by_side(f, n, OperandSide::Lhs);
-    let rhs = target_by_side(f, n, OperandSide::Rhs);
-
-    (lhs, rhs)
-}
-
-fn update_assignment(f: &Formula, ab: &mut Assignment<BitVector>, n: NodeIndex, v: BitVector) {
+fn update_assignment(f: &Formula, ab: &mut Assignment<BitVector>, n: SymbolId, v: BitVector) {
     ab[n.index()] = v;
 
     trace!("update: x{} <- {:#x}", n.index(), v.0);
@@ -396,49 +392,53 @@ fn update_assignment(f: &Formula, ab: &mut Assignment<BitVector>, n: NodeIndex, 
         .for_each(|n| propagate_assignment(f, ab, n));
 }
 
-fn propagate_assignment(f: &Formula, ab: &mut Assignment<BitVector>, n: NodeIndex) {
-    fn update_binary<Op>(f: &Formula, ab: &mut Assignment<BitVector>, n: NodeIndex, s: &str, op: Op)
+fn propagate_assignment(f: &Formula, ab: &mut Assignment<BitVector>, n: SymbolId) {
+    fn update_binary<Op>(f: &Formula, ab: &mut Assignment<BitVector>, n: SymbolId, s: &str, op: Op)
     where
         Op: FnOnce(BitVector, BitVector) -> BitVector,
     {
-        let (lhs, rhs) = parents(f, n);
+        if let (lhs, Some(rhs)) = get_operands(f, n) {
+            let result = op(ab[lhs.index()], ab[rhs.index()]);
 
-        let result = op(ab[lhs.index()], ab[rhs.index()]);
+            trace!(
+                "propagate: x{} := x{}({:#x}) {} x{}({:#x}) |- x{} <- {:#x}",
+                n.index(),
+                lhs.index(),
+                ab[lhs.index()].0,
+                s,
+                rhs.index(),
+                ab[rhs.index()].0,
+                n.index(),
+                result.0
+            );
 
-        trace!(
-            "propagate: x{} := x{}({:#x}) {} x{}({:#x}) |- x{} <- {:#x}",
-            n.index(),
-            lhs.index(),
-            ab[lhs.index()].0,
-            s,
-            rhs.index(),
-            ab[rhs.index()].0,
-            n.index(),
-            result.0
-        );
-
-        ab[n.index()] = result;
+            ab[n.index()] = result;
+        } else {
+            panic!("can not update binary operator with 1 operand")
+        }
     }
 
-    fn update_unary<Op>(f: &Formula, ab: &mut Assignment<BitVector>, n: NodeIndex, s: &str, op: Op)
+    fn update_unary<Op>(f: &Formula, ab: &mut Assignment<BitVector>, n: SymbolId, s: &str, op: Op)
     where
         Op: FnOnce(BitVector) -> BitVector,
     {
-        let p = parent(f, n);
+        if let (p, None) = get_operands(f, n) {
+            let result = op(ab[p.index()]);
 
-        let result = op(ab[p.index()]);
+            trace!(
+                "propagate: x{} := {}x{}({:#x}) |- x{} <- {:#x}",
+                n.index(),
+                s,
+                p.index(),
+                ab[p.index()].0,
+                n.index(),
+                result.0
+            );
 
-        trace!(
-            "propagate: x{} := {}x{}({:#x}) |- x{} <- {:#x}",
-            n.index(),
-            s,
-            p.index(),
-            ab[p.index()].0,
-            n.index(),
-            result.0
-        );
-
-        ab[n.index()] = result;
+            ab[n.index()] = result;
+        } else {
+            panic!("can not update unary operator with more than one operand")
+        }
     }
 
     match &f[n] {
@@ -474,7 +474,7 @@ fn propagate_assignment(f: &Formula, ab: &mut Assignment<BitVector>, n: NodeInde
 // can only handle one Equals constrain with constant
 fn sat(
     formula: &Formula,
-    root: NodeIndex,
+    root: SymbolId,
     at: Assignment<TernaryBitVector>,
     mut ab: Assignment<BitVector>,
 ) -> Assignment<BitVector> {
@@ -491,7 +491,7 @@ fn sat(
             let (v, nx) = match formula[n] {
                 Node::Operator(op) => {
                     if op.is_unary() {
-                        let nx = parent(formula, n);
+                        let nx = get_operand(formula, n);
 
                         let x = at[nx.index()];
 
@@ -575,7 +575,7 @@ fn sat(
 mod tests {
     use super::*;
 
-    fn create_formula_with_input() -> (Formula, NodeIndex) {
+    fn create_formula_with_input() -> (Formula, SymbolId) {
         let mut formula = Formula::new();
 
         let input = Node::Input(String::from("x0"));
@@ -586,10 +586,10 @@ mod tests {
 
     fn add_equals_constrain(
         formula: &mut Formula,
-        to: NodeIndex,
+        to: SymbolId,
         on: OperandSide,
         constant: u64,
-    ) -> NodeIndex {
+    ) -> SymbolId {
         let constrain = Node::Operator(BVOperator::Equals);
         let constrain_idx = formula.add_node(constrain);
 
@@ -608,7 +608,8 @@ mod tests {
 
         let root = add_equals_constrain(&mut formula, input_idx, OperandSide::Lhs, 10);
 
-        let result = solve(&formula, root);
+        let mut solver = MonsterSolver::default();
+        let result = solver.solve(&formula, root);
 
         assert!(result.is_some(), "has result for trivial equals constrain");
         assert_eq!(
@@ -633,7 +634,8 @@ mod tests {
 
         let root = add_equals_constrain(&mut formula, instr_idx, OperandSide::Lhs, 10);
 
-        let result = solve(&formula, root);
+        let mut solver = MonsterSolver::default();
+        let result = solver.solve(&formula, root);
 
         assert!(result.is_some(), "has result for trivial add op");
         assert_eq!(

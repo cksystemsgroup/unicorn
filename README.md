@@ -1,8 +1,9 @@
 # monster
 Monster is a symbolic execution engine for 64-bit RISC-V code
 
-# Toolchain setup
-## Install rust
+### Toolchain setup
+
+#### Linux and Unix-like OS
 1. Bootstrap rust
 ```
 $ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -21,25 +22,31 @@ $ echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 $ cargo install cross
 $ cargo install mdbook
 $ cargo install mdbook-linkcheck
-$ cargo install --git https://github.com/christianmoesl/mdbook-graphviz
+$ cargo install mdbook-graphviz
 ```
+5. install Docker and LLVM with your favorite package manager
 
-## Docker and llvm
-### Debian based
-5. Install docker (needed by cross) with [this installation guide](https://docs.docker.com/engine/install/debian/)
-6. Make sure you have a recent version of clang/llvm (>= v9) installed:
+##### MacOS
+6. Install docker (needed by cross) with [this installation guide](https://docs.docker.com/docker-for-mac/install/)
 ```
-$ apt install llvm
+$ brew cask install docker
 ```
-
-### Mac
-5. Install docker (needed by cross) with [this installation guide](https://docs.docker.com/docker-for-mac/install/)
-6. Make sure you have a recent version of clang/llvm (>= v9) installed:
+7. Make sure you have a recent version of clang/llvm (>= v9) installed:
 ```
 $ brew install llvm
 ```
 
-## Build and test
+##### Debian based
+6. Install docker (needed by cross) with [this installation guide](https://docs.docker.com/engine/install/debian/)
+7. Make sure you have a recent version of clang/llvm (>= v9) installed:
+```
+$ apt install llvm
+```
+
+#### Windows
+We do not support Windows directly. But someone can use WSL2 to run/develop for Monster.
+
+### Build and Test from Source
 7. Test your toolchain setup by compiling monster:
 ```
 $ cargo build --locked
@@ -48,3 +55,4 @@ $ cargo build --locked
 ```
 $ cargo test --locked
 ```
+

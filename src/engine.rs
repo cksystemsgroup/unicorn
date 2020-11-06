@@ -4,8 +4,9 @@ use crate::{
     cfg::build_cfg_from_file,
     elf::Program,
     exploration_strategy::{ExplorationStrategy, ShortestPathStrategy},
-    solver::{NativeSolver, Solver},
+    solver::{MonsterSolver, Solver},
     symbolic_state::{Query, SymbolId, SymbolicState},
+    z3::Z3,
 };
 use byteorder::{ByteOrder, LittleEndian};
 use bytesize::ByteSize;
@@ -25,6 +26,7 @@ pub enum SyscallId {
 pub enum Backend {
     Monster,
     Boolector,
+    Z3,
 }
 
 // TODO: What should the engine return as result?
@@ -35,7 +37,7 @@ pub fn execute(input: &Path, with: Backend) -> Result<(), String> {
 
     match with {
         Backend::Monster => {
-            let solver = Rc::new(RefCell::new(NativeSolver::new()));
+            let solver = Rc::new(RefCell::new(MonsterSolver::new()));
             let state = Box::new(SymbolicState::new(solver));
 
             let mut executor = Engine::new(ByteSize::mib(1), &program, &mut strategy, state);
@@ -44,6 +46,14 @@ pub fn execute(input: &Path, with: Backend) -> Result<(), String> {
         }
         Backend::Boolector => {
             let solver = Rc::new(RefCell::new(Boolector::new()));
+            let state = Box::new(SymbolicState::new(solver));
+
+            let mut executor = Engine::new(ByteSize::mib(1), &program, &mut strategy, state);
+
+            executor.run();
+        }
+        Backend::Z3 => {
+            let solver = Rc::new(RefCell::new(Z3::new()));
             let state = Box::new(SymbolicState::new(solver));
 
             let mut executor = Engine::new(ByteSize::mib(1), &program, &mut strategy, state);

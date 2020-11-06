@@ -61,11 +61,15 @@ fn main() {
                 let input = Path::new(args.value_of("input-file").unwrap());
                 let solver = args.value_of("solver").unwrap();
 
-                match solver {
-                    "monster" => engine::execute(input, engine::Backend::Monster),
-                    "boolector" => engine::execute(input, engine::Backend::Boolector),
-                    _ => unreachable!(),
-                }
+                engine::execute(
+                    input,
+                    match solver {
+                        "monster" => engine::Backend::Monster,
+                        "boolector" => engine::Backend::Boolector,
+                        "z3" => engine::Backend::Z3,
+                        _ => unreachable!(),
+                    },
+                )
             });
         }
         _ => unreachable!(),

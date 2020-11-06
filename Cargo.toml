@@ -6,20 +6,21 @@ edition = "2018"
 description = "Monster is a symbolic execution engine for 64-bit RISC-V code"
 
 [dependencies]
-goblin = "0.2"
-byteorder = "1.3.4"
+goblin = "~0.2.3"
+byteorder = "~1.3.4"
 clap = "3.0.0-beta.2"
 riscv-decode = { git = "https://github.com/cksystemsgroup/riscv-decode" }
-petgraph = "0.5.1"
-rand = "0.7.3"
+petgraph = "~0.5.1"
+rand = "~0.7.3"
 boolector = { version = "0.4", git = "https://github.com/finga/boolector-rs", branch = "boolector-src", features = ["vendored"] }
-modinverse = "0.1.1"
-log = "0.4"
-env_logger = "0.8.1"
-bytesize = "1.0.1"
+z3 = { version = "~0.7.1", features = ["static-link-z3"] }
+modinverse = "~0.1.1"
+log = "~0.4.11"
+env_logger = "~0.8.1"
+bytesize = "~1.0.1"
 
 [dev-dependencies]
-serial_test = "0.4.0"
+serial_test = "~0.4.0"
 
 [dev-dependencies.cargo-husky]
 version = "1"

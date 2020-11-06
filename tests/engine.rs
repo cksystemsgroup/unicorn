@@ -29,3 +29,9 @@ fn execute_riscu_with_boolector_solver() {
     execute_riscu_with_monster("symbolic/arithmetic.c", engine::Backend::Boolector);
     execute_riscu_with_monster("symbolic/if-else.c", engine::Backend::Boolector);
 }
+
+#[test]
+fn execute_riscu_with_z3_solver() {
+    execute_riscu_with_monster("symbolic/arithmetic.c", engine::Backend::Z3);
+    execute_riscu_with_monster("symbolic/if-else.c", engine::Backend::Z3);
+}
