@@ -311,11 +311,11 @@ where
         rhs: SymbolId,
         op: SymbolId,
     ) -> (EdgeIndex, EdgeIndex) {
-        // assert: left hand side edge has to be inserted first
+        // assert: right hand side edge has to be inserted first
         // solvers depend on edge insertion order!!!
         (
-            self.data_flow.add_edge(lhs, op, OperandSide::Lhs),
             self.data_flow.add_edge(rhs, op, OperandSide::Rhs),
+            self.data_flow.add_edge(lhs, op, OperandSide::Lhs),
         )
     }
 
