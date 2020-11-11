@@ -31,6 +31,7 @@ pub enum BVOperator {
     Sub,
     Mul,
     Divu,
+    Sltu,
     Not,
     Equals,
     BitwiseAnd,
@@ -55,6 +56,7 @@ impl fmt::Display for BVOperator {
                 BVOperator::Not => "!",
                 BVOperator::Equals => "=",
                 BVOperator::BitwiseAnd => "&",
+                BVOperator::Sltu => "<",
             }
         )
     }
@@ -82,6 +84,7 @@ fn instruction_to_bv_operator(instruction: Instruction) -> BVOperator {
         Instruction::Sub(_) => BVOperator::Sub,
         Instruction::Mul(_) => BVOperator::Mul,
         Instruction::Divu(_) => BVOperator::Divu,
+        Instruction::Sltu(_) => BVOperator::Sltu,
         _ => unimplemented!("can not translate {:?} to Operator", instruction),
     }
 }
