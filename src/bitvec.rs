@@ -27,6 +27,14 @@ impl BitVector {
             None => None,
         }
     }
+
+    pub fn addo(&self, t: BitVector) -> bool {
+        self.0.overflowing_add(t.0).1
+    }
+
+    pub fn mulo(&self, t: BitVector) -> bool {
+        self.0.overflowing_mul(t.0).1
+    }
 }
 
 impl Neg for BitVector {

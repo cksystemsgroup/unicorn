@@ -76,6 +76,8 @@ fn traverse<'a>(
                             ._eq(&traverse(graph, rhs, solver, bvs)),
                         BVOperator::BitwiseAnd => traverse(graph, lhs, solver, bvs)
                             .and(&traverse(graph, rhs, solver, bvs)),
+                        BVOperator::Divu => traverse(graph, lhs, solver, bvs)
+                            .udiv(&traverse(graph, rhs, solver, bvs)),
                         i => unimplemented!("binary operator: {:?}", i),
                     }
                 }

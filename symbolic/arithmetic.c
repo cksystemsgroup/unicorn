@@ -16,6 +16,8 @@ uint64_t main() {
 
   b = b + a;
 
+  b = b / 2;
+
   c = b - c;
 
   return c;

@@ -81,6 +81,19 @@ fn is_invertable(
                 && (s == BitVector(0) || (!s.odd() || x.mcb(t * s.modinverse().unwrap())))
                 && (s.odd() || (x << s.ctz()).mcb(y(s, t) << s.ctz()))
         }
+        BVOperator::Divu => {
+            if s == BitVector(0) || t == BitVector(0) {
+                return false;
+            }
+            if d == OperandSide::Lhs {
+                (s * t) / s == t
+            } else {
+                if t > s {
+                    return false;
+                }
+                s / (s / t) == t
+            }
+        }
         BVOperator::Sltu => {
             // (x<s) = t
             if d == OperandSide::Lhs {
@@ -121,7 +134,6 @@ fn is_invertable(
             implies(t != BitVector(0), || x.mcb(s))
                 && implies(t == BitVector(0), || (x.hi() != x.lo()) || (x.hi() != s))
         }
-        _ => unimplemented!("can not check invertability for operator: {:?}", op),
     }
 }
 
@@ -141,6 +153,10 @@ fn is_consistent(op: BVOperator, x: TernaryBitVector, t: BitVector, d: OperandSi
                 && implies(t.odd(), || x.hi().lsb() != 0)
                 && implies(!t.odd(), || value_exists(x, t))
         }
+        BVOperator::Divu => {
+            // This is only the case when NOT considering constant bits (see page 5: "Consistency Conditions." in the ternany pop-local-search paper)
+            true
+        }
         BVOperator::Sltu => {
             if d == OperandSide::Lhs {
                 if t == BitVector(1) && x.lo() == BitVector::ones() {
@@ -154,7 +170,6 @@ fn is_consistent(op: BVOperator, x: TernaryBitVector, t: BitVector, d: OperandSi
                 true
             }
         }
-        _ => unimplemented!("can not check consistency for operator: {:?}", op),
     }
 }
 
@@ -304,6 +319,10 @@ fn compute_inverse_value(
                 BitVector(thread_rng().sample(Uniform::new_inclusive(s.0 + 1, x.hi().0)))
             }
         }
+        BVOperator::Divu => match d {
+            OperandSide::Lhs => t * s,
+            OperandSide::Rhs => s / t,
+        },
         BVOperator::BitwiseAnd => {
             let fixed_bit_mask = x.constant_bit_mask() | s;
             let fixed_bits = x.constant_bits() | (s & t);
@@ -322,7 +341,7 @@ fn compute_inverse_value(
                 s
             }
         }
-        _ => unimplemented!("compute inverse value for binary operator: {:?}", op),
+        _ => unreachable!("unkown operator or unary operator: {:?}", op),
     }
 }
 
@@ -354,6 +373,13 @@ fn compute_consistent_value(
                 r as u64
             }
         }),
+        BVOperator::Divu => {
+            let v = BitVector(random::<u64>());
+            match d {
+                OperandSide::Lhs => v / t,
+                OperandSide::Rhs => t * v,
+            }
+        }
         BVOperator::Sltu => {
             if d == OperandSide::Lhs {
                 if t == BitVector(0) {
@@ -378,7 +404,7 @@ fn compute_consistent_value(
         BVOperator::BitwiseAnd => {
             (BitVector(random::<u64>()) & !x.constant_bit_mask()) | x.constant_bits() | t
         }
-        _ => unimplemented!("compute consitent value for binary operator: {:?}", op),
+        _ => unreachable!("unkown operator for consistent value: {:?}", op),
     }
 }
 
@@ -386,7 +412,7 @@ fn compute_consistent_value(
 fn is_invertable_for_unary_op(op: BVOperator, x: TernaryBitVector, t: BitVector) -> bool {
     match op {
         BVOperator::Not => x.mcb(!t),
-        _ => unimplemented!("compute inverse value for unary operator: {:?}", op),
+        _ => unreachable!("not unary operator: {:?}", op),
     }
 }
 
@@ -403,7 +429,7 @@ fn compute_inverse_value_for_unary_op(
                 BitVector(0)
             }
         }
-        _ => unimplemented!("compute consistent value for unary operator: {:?}", op),
+        _ => unreachable!("not unary operator: {:?}", op),
     }
 }
 
@@ -536,6 +562,7 @@ fn propagate_assignment(f: &Formula, ab: &mut Assignment<BitVector>, n: SymbolId
                 BVOperator::Add => update_binary(f, ab, n, "+", |l, r| l + r),
                 BVOperator::Sub => update_binary(f, ab, n, "-", |l, r| l - r),
                 BVOperator::Mul => update_binary(f, ab, n, "*", |l, r| l * r),
+                BVOperator::Divu => update_binary(f, ab, n, "/", |l, r| l / r),
                 BVOperator::BitwiseAnd => update_binary(f, ab, n, "&", |l, r| l & r),
                 BVOperator::Sltu => update_binary(f, ab, n, "<", |l, r| {
                     if l < r {
@@ -558,7 +585,6 @@ fn propagate_assignment(f: &Formula, ab: &mut Assignment<BitVector>, n: SymbolId
                         BitVector(0)
                     }
                 }),
-                _ => unimplemented!("propagation of operator: {:?}", op),
             }
             f.neighbors_directed(n, Direction::Outgoing)
                 .for_each(|n| propagate_assignment(f, ab, n));
@@ -747,7 +773,7 @@ mod tests {
         x: &'static str,
         s: u64,
         t: u64,
-        side: OperandSide,
+        d: OperandSide,
         result: bool,
         msg: &'static str,
     ) {
@@ -755,26 +781,31 @@ mod tests {
         let s = BitVector(s);
         let t = BitVector(t);
 
-        if side == OperandSide::Lhs {
-            assert!(
-                is_invertable(op, x, s, t, side) == result,
-                "{:?} {:?} {:?} == {:?}   {}",
-                x,
-                op,
-                s,
-                t,
-                msg
-            );
-        } else {
-            assert!(
-                is_invertable(op, x, s, t, OperandSide::Rhs) == result,
-                "{:?} {:?} {:?} == {:?}   {}",
-                s,
-                op,
-                x,
-                t,
-                msg
-            );
+        match d {
+            OperandSide::Lhs => {
+                assert_eq!(
+                    is_invertable(op, x, s, t, d),
+                    result,
+                    "{:?} {:?} {:?} == {:?}   {}",
+                    x,
+                    op,
+                    s,
+                    t,
+                    msg
+                );
+            }
+            OperandSide::Rhs => {
+                assert_eq!(
+                    is_invertable(op, x, s, t, d),
+                    result,
+                    "{:?} {:?} {:?} == {:?}   {}",
+                    s,
+                    op,
+                    x,
+                    t,
+                    msg
+                );
+            }
         }
     }
 
@@ -788,8 +819,9 @@ mod tests {
     ) {
         let x = TernaryBitVector::lit(x);
         let t = BitVector(t);
-        assert!(
-            is_consistent(op, x, t, d) == result,
+        assert_eq!(
+            is_consistent(op, x, t, d),
+            result,
             "{:?} {:?} s == {:?}   {}",
             x,
             op,
@@ -815,26 +847,30 @@ mod tests {
         let computed = compute_inverse_value(op, x, s, t, d);
 
         // prove: computed <> s == t        where <> is the binary operator
-        if d == OperandSide::Rhs {
-            assert_eq!(
-                f(s, computed),
-                t,
-                "{:?} {:?} {:?} == {:?}",
-                computed,
-                op,
-                s,
-                t
-            );
-        } else {
-            assert_eq!(
-                f(computed, s),
-                t,
-                "{:?} {:?} {:?} == {:?}",
-                computed,
-                op,
-                s,
-                t
-            );
+
+        match d {
+            OperandSide::Lhs => {
+                assert_eq!(
+                    f(computed, s),
+                    t,
+                    "{:?} {:?} {:?} == {:?}",
+                    computed,
+                    op,
+                    s,
+                    t
+                );
+            }
+            OperandSide::Rhs => {
+                assert_eq!(
+                    f(s, computed),
+                    t,
+                    "{:?} {:?} {:?} == {:?}",
+                    s,
+                    op,
+                    computed,
+                    t
+                );
+            }
         }
     }
 
@@ -865,14 +901,14 @@ mod tests {
                 let x = TernaryBitVector::new(0, u64::max_value());
 
                 assert!(
-                    is_invertable(op, x, computed, t, d.other()),
+                    is_invertable(op, x, computed, t, d),
                     "choose values which are invertable..."
                 );
 
-                compute_inverse_value(op, x, computed, t, d.other())
+                compute_inverse_value(op, x, computed, t, d)
             }
             BVOperator::Sltu => compute_inverse_value(op, x, computed, t, d),
-
+            BVOperator::Divu => compute_inverse_value(op, x, computed, t, d),
             _ => unimplemented!(),
         };
 
@@ -881,9 +917,9 @@ mod tests {
                 f(inverse, computed),
                 t,
                 "{:?} {:?} {:?} == {:?}",
-                computed,
-                op,
                 inverse,
+                op,
+                computed,
                 t
             );
         } else {
@@ -891,9 +927,9 @@ mod tests {
                 f(computed, inverse),
                 t,
                 "{:?} {:?} {:?} == {:?}",
-                inverse,
-                op,
                 computed,
+                op,
+                inverse,
                 t
             );
         }
@@ -904,6 +940,22 @@ mod tests {
 
     const MUL: BVOperator = BVOperator::Mul;
     const SLTU: BVOperator = BVOperator::Sltu;
+    const DIVU: BVOperator = BVOperator::Divu;
+
+    #[test]
+    fn check_invertability_condition_for_divu() {
+        // x doesnt matter
+        test_invertability(DIVU, "1", 0b1, 0b1, OperandSide::Lhs, true, "trivial divu");
+        test_invertability(DIVU, "1", 0b1, 0b1, OperandSide::Rhs, true, "trivial divu");
+
+        test_invertability(DIVU, "1", 3, 2, OperandSide::Lhs, true, "x / 3 = 2");
+        test_invertability(DIVU, "1", 6, 2, OperandSide::Rhs, true, "6 / x = 2");
+
+        test_invertability(DIVU, "1", 0, 2, OperandSide::Lhs, false, "x / 0 = 2");
+        test_invertability(DIVU, "1", 0, 2, OperandSide::Rhs, false, "0 / x = 2");
+
+        test_invertability(DIVU, "1", 5, 6, OperandSide::Rhs, false, "5 / x = 6");
+    }
 
     #[test]
     fn check_invertability_condition_for_mul() {
@@ -955,6 +1007,20 @@ mod tests {
             true,
             "operand with undetermined bits and no inverse value",
         );
+    }
+
+    #[test]
+    fn compute_inverse_values_for_divu() {
+        fn f(l: BitVector, r: BitVector) -> BitVector {
+            l / r
+        }
+
+        // test only for values which are actually invertable
+        test_inverse_value_computation(DIVU, "1", 0b1, 0b1, OperandSide::Lhs, f);
+        test_inverse_value_computation(DIVU, "1", 0b1, 0b1, OperandSide::Rhs, f);
+
+        test_inverse_value_computation(DIVU, "110", 2, 3, OperandSide::Lhs, f);
+        test_inverse_value_computation(DIVU, "11", 6, 2, OperandSide::Rhs, f);
     }
 
     #[test]
@@ -1013,6 +1079,11 @@ mod tests {
         test_inverse_value_computation(MUL, "0*", 0b10, 0b10, side, f);
         test_inverse_value_computation(MUL, "***", 0b100, 0b100, side, f);
         test_inverse_value_computation(MUL, "**0", 0b10, 0b1100, side, f);
+    }
+
+    #[test]
+    fn check_consistency_condition_for_divu() {
+        //always true till constant bits
     }
 
     #[test]
@@ -1075,6 +1146,16 @@ mod tests {
         side = OperandSide::Rhs;
         let condition = "t=0 and x=0 is F";
         test_consistence(SLTU, "0", 1, false, condition, side);
+    }
+
+    #[test]
+    fn compute_consistent_values_for_divu() {
+        fn f(l: BitVector, r: BitVector) -> BitVector {
+            l / r
+        }
+
+        test_consistent_value_computation(DIVU, "110", 3, OperandSide::Lhs, f);
+        test_consistent_value_computation(DIVU, "11", 6, OperandSide::Rhs, f);
     }
 
     #[test]

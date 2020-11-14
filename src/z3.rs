@@ -91,6 +91,7 @@ fn traverse<'ctx>(
                 BVOperator::Add => traverse_binary!(lhs, bvadd, rhs, graph, ctx, bvs),
                 BVOperator::Sub => traverse_binary!(lhs, bvsub, rhs, graph, ctx, bvs),
                 BVOperator::Mul => traverse_binary!(lhs, bvmul, rhs, graph, ctx, bvs),
+                BVOperator::Divu => traverse_binary!(lhs, bvudiv, rhs, graph, ctx, bvs),
                 BVOperator::Equals => traverse_binary!(lhs, _eq, rhs, graph, ctx, bvs),
                 BVOperator::BitwiseAnd => traverse_binary!(lhs, bvand, rhs, graph, ctx, bvs),
                 i => unimplemented!("binary operator: {:?}", i),
