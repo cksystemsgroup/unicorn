@@ -37,8 +37,8 @@ pub fn args() -> App<'static> {
                 .arg(
                     Arg::new("input-file")
                         .about("Source RISC-U binary to be analyzed")
-                        .short('c')
-                        .long("input-file")
+                        .short('f')
+                        .long("file")
                         .takes_value(true)
                         .value_name("FILE")
                         .required(true),
@@ -51,6 +51,12 @@ pub fn args() -> App<'static> {
                         .takes_value(true)
                         .value_name("FILE")
                         .default_value("cfg.dot"),
+                )
+                .arg(
+                    Arg::new("distances")
+                        .about("Compute also shortest path distances from exit")
+                        .short('d')
+                        .long("distances"),
                 ),
         )
         .subcommand(

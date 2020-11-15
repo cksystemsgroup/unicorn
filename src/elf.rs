@@ -149,19 +149,3 @@ pub unsafe fn load(image: &[u8], memory_limit: usize) -> Option<Program> {
         entry_address: header.e_entry,
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::path::Path;
-
-    #[test]
-    fn can_load_elf_binary() {
-        let test_file = Path::new("division-by-zero-3-35.o");
-
-        let _res = load_file(test_file.to_path_buf(), 10);
-
-        // file is not generated in CI pipeline yet
-        // assert!(res.is_some(), "can load ELF file");
-    }
-}

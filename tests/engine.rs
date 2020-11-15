@@ -1,37 +1,40 @@
-use monster::engine;
-use std::path::Path;
-
 mod common;
 
-fn execute_riscu_with_monster(name: &str, solver: engine::Backend) {
-    let result = common::compile(Path::new(name)).unwrap();
+use common::{compile_all_riscu, init};
+use monster::engine;
+use rayon::prelude::*;
 
-    let input = Path::new(&result);
+const TEST_FILES: [&str; 2] = ["/arithmetic.c", "/if-else.c"];
 
-    let result = engine::execute(input, solver);
+fn execute_riscu(names: &[&str], solver: engine::Backend) {
+    init();
+    compile_all_riscu()
+        .1
+        .filter(|(source, _)| names.iter().any(|name| source.ends_with(name)))
+        .for_each(|(source, object)| {
+            let result = engine::execute(object, solver);
 
-    assert!(
-        result.is_ok(),
-        format!("can symbolically execute '{}' without error", name)
-    );
-
-    assert!(std::fs::remove_file(input).is_ok());
+            assert!(
+                result.is_ok(),
+                format!(
+                    "can symbolically execute '{}' without error",
+                    source.to_str().unwrap()
+                )
+            );
+        });
 }
 
 #[test]
 fn execute_riscu_with_monster_solver() {
-    execute_riscu_with_monster("symbolic/arithmetic.c", engine::Backend::Monster);
-    execute_riscu_with_monster("symbolic/if-else.c", engine::Backend::Monster);
+    execute_riscu(&TEST_FILES, engine::Backend::Monster);
 }
 
 #[test]
 fn execute_riscu_with_boolector_solver() {
-    execute_riscu_with_monster("symbolic/arithmetic.c", engine::Backend::Boolector);
-    execute_riscu_with_monster("symbolic/if-else.c", engine::Backend::Boolector);
+    execute_riscu(&TEST_FILES, engine::Backend::Boolector);
 }
 
 #[test]
 fn execute_riscu_with_z3_solver() {
-    execute_riscu_with_monster("symbolic/arithmetic.c", engine::Backend::Z3);
-    execute_riscu_with_monster("symbolic/if-else.c", engine::Backend::Z3);
+    execute_riscu(&TEST_FILES, engine::Backend::Z3);
 }

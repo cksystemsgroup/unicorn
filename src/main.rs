@@ -8,6 +8,7 @@ use monster::{
     cfg::{build_cfg_from_file, write_to_file},
     disassemble::disassemble_riscu,
     engine,
+    exploration_strategy::ShortestPathStrategy,
 };
 
 fn handle_error<R, E, F>(f: F) -> R
@@ -48,10 +49,17 @@ fn main() {
             handle_error(|| -> Result<(), String> {
                 let input = Path::new(cfg_args.value_of("input-file").unwrap());
                 let output = Path::new(cfg_args.value_of("output-file").unwrap());
+                let distances = cfg_args.is_present("distances");
 
-                let ((graph, _), _) = build_cfg_from_file(Path::new(input))?;
+                let ((cfg, _), program) = build_cfg_from_file(Path::new(input))?;
 
-                write_to_file(&graph, output).map_err(|e| e.to_string())?;
+                if distances {
+                    ShortestPathStrategy::new(&cfg, program.entry_address)
+                        .write_cfg_with_distances_to_file(output)
+                        .map_err(|e| e.to_string())?;
+                } else {
+                    write_to_file(&cfg, output).map_err(|e| e.to_string())?;
+                }
 
                 Ok(())
             });

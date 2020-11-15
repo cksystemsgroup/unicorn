@@ -5,6 +5,9 @@ authors = ["Christian Mösl <christian.moesl@live.at>", "Fabian Nedoluha <monste
 edition = "2018"
 description = "Monster is a symbolic execution engine for 64-bit RISC-V code"
 
+[features]
+pictures = [] 
+
 [dependencies]
 goblin = "~0.2.3"
 byteorder = "~1.3.4"
@@ -18,9 +21,11 @@ modinverse = "~0.1.1"
 log = "~0.4.11"
 env_logger = "~0.8.1"
 bytesize = "~1.0.1"
+itertools = "~0.9.0"
 
 [dev-dependencies]
-serial_test = "~0.4.0"
+rayon = "~1.5.0"
+tempfile = "~3.1.0"
 
 [dev-dependencies.cargo-husky]
 version = "1"

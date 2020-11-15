@@ -9,8 +9,8 @@ Input == #b00110001 (== 49 == '1')
 */
 
 // Pull in the system libc library for what crt0.o likely requires.
-use std::process::exit;
 use std::io::{stdin, Read};
+use std::process::exit;
 
 // Entry point for this program.
 #[allow(unconditional_panic)]
@@ -20,7 +20,7 @@ fn main() {
 
     stdin().read(&mut x);
 
-    x[0] = x[0] - 48;
+    x[0] -= 48;
 
     // division by zero if the input was '0' (== 48)
     let mut a = 41 + (1 / x[0]);
@@ -36,4 +36,3 @@ fn main() {
         exit(0);
     }
 }
-

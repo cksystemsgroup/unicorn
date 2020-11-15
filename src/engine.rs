@@ -30,10 +30,13 @@ pub enum Backend {
 }
 
 // TODO: What should the engine return as result?
-pub fn execute(input: &Path, with: Backend) -> Result<(), String> {
-    let ((graph, exit_node), program) = build_cfg_from_file(input)?;
+pub fn execute<P>(input: P, with: Backend) -> Result<(), String>
+where
+    P: AsRef<Path>,
+{
+    let ((graph, _), program) = build_cfg_from_file(input)?;
 
-    let mut strategy = ShortestPathStrategy::new(&graph, exit_node, program.entry_address);
+    let mut strategy = ShortestPathStrategy::new(&graph, program.entry_address);
 
     match with {
         Backend::Monster => {
