@@ -78,6 +78,8 @@ fn traverse<'a>(
                             .and(&traverse(graph, rhs, solver, bvs)),
                         BVOperator::Divu => traverse(graph, lhs, solver, bvs)
                             .udiv(&traverse(graph, rhs, solver, bvs)),
+                        BVOperator::Sltu => traverse(graph, lhs, solver, bvs)
+                            .slt(&traverse(graph, rhs, solver, bvs)),
                         i => unimplemented!("binary operator: {:?}", i),
                     }
                 }
