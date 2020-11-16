@@ -4,7 +4,7 @@ use crate::{
     cfg::build_cfg_from_file,
     elf::Program,
     exploration_strategy::{ExplorationStrategy, ShortestPathStrategy},
-    solver::{MonsterSolver, Solver},
+    solver::{Assignment, MonsterSolver, Solver},
     symbolic_state::{Query, SymbolId, SymbolicState},
     z3::Z3,
 };
@@ -185,6 +185,93 @@ where
         }
     }
 
+    fn handle_solver_result(&self, reason: &str, solver_result: Option<Assignment<BitVector>>) {
+        if let Some(assignment) = solver_result {
+            let printable_assignments = self.symbolic_state.get_input_assignments(&assignment);
+
+            info!("{}: found input assignment", reason);
+            print_assignment(&printable_assignments);
+
+            info!("exiting execution engine");
+            std::process::exit(0);
+        }
+    }
+
+    fn check_for_uninitialized_memory(&mut self, instruction: &str, v1: Value, v2: Value) {
+        trace!("{}: {}, {} => computing reachability", instruction, v1, v2);
+
+        let solver_result = self.symbolic_state.execute_query(Query::Reachable);
+
+        self.handle_solver_result(
+            format!("access to unintialized memory in {}", instruction).as_str(),
+            solver_result,
+        );
+    }
+
+    fn check_for_valid_memory_address(&mut self, instruction: &str, address: u64) -> bool {
+        let is_alignment_ok = address % size_of::<u64>() as u64 == 0;
+        let is_in_vadd_range = address as usize / size_of::<u64>() < self.memory.len();
+
+        if !is_alignment_ok {
+            trace!(
+                "{}: address {:#x} is not double word aligned => computing reachability",
+                instruction,
+                address
+            );
+
+            let solver_result = self.symbolic_state.execute_query(Query::Reachable);
+
+            self.handle_solver_result(
+                format!(
+                    "address {:#x} not double word aligned in {}",
+                    address, instruction
+                )
+                .as_str(),
+                solver_result,
+            );
+
+            trace!(
+                "{}: could not find valid assignment => exiting context",
+                instruction
+            );
+
+            self.is_exited = true;
+
+            false
+        } else if !is_in_vadd_range {
+            trace!(
+                "{}: address {:#x} out of virtual address range (0x0 - {:#x}) => computing reachability",
+                instruction,
+                address,
+                self.memory.len() * 8,
+            );
+
+            let solver_result = self.symbolic_state.execute_query(Query::Reachable);
+
+            self.handle_solver_result(
+                format!(
+                    "address {:#x} out of virtual address range (0x0 - {:#x}) in {}",
+                    address,
+                    self.memory.len() * 8,
+                    instruction,
+                )
+                .as_str(),
+                solver_result,
+            );
+
+            trace!(
+                "{}: could not find valid assignment => exiting context",
+                instruction
+            );
+
+            self.is_exited = true;
+
+            false
+        } else {
+            true
+        }
+    }
+
     fn execute_lui(&mut self, utype: UType) {
         let immediate = u64::from(utype.imm());
 
@@ -203,6 +290,32 @@ where
         }
 
         self.pc += 4;
+    }
+
+    fn execute_divu(&mut self, instruction: Instruction, rtype: RType) {
+        match self.regs[rtype.rs2() as usize] {
+            Value::Symbolic(divisor) => {
+                // TODO: fix this possible exit point when refactoring engine interface
+                trace!("divu: symbolic divisor -> find input for divisor == 0");
+
+                let solver_result = self
+                    .symbolic_state
+                    .execute_query(Query::Equals((divisor, 0)));
+
+                self.handle_solver_result("division by zero in DIVU", solver_result);
+            }
+            Value::Concrete(divisor) if divisor == 0 => {
+                // TODO: fix this possible exit point when refactoring engine interface
+                trace!("divu: divisor == 0 -> compute reachability");
+
+                let solver_result = self.symbolic_state.execute_query(Query::Reachable);
+
+                self.handle_solver_result("division by zero in DIVU", solver_result);
+            }
+            _ => {}
+        }
+
+        self.execute_rtype(instruction, rtype, u64::wrapping_div);
     }
 
     fn execute_itype<Op>(&mut self, instruction: Instruction, itype: IType, op: Op)
@@ -278,8 +391,16 @@ where
             (Value::Symbolic(v1), Value::Symbolic(v2)) => {
                 Value::Symbolic(self.symbolic_state.create_operator(instruction, v1, v2))
             }
-            // TODO: query for reachability and exit if reachable
-            _ => panic!("access to unitialized memory"),
+            (v1, v2) => {
+                // TODO: fix this possible exit point when refactoring engine interface
+                self.check_for_uninitialized_memory(instruction_to_str(instruction), v1, v2);
+
+                trace!("could not find input assignment => exeting this context");
+
+                self.is_exited = true;
+
+                Value::Uninitialized
+            }
         }
     }
 
@@ -434,7 +555,14 @@ where
             (Value::Symbolic(v1), Value::Symbolic(v2)) => {
                 self.execute_beq_branches(true_branch, false_branch, v1, v2)
             }
-            _ => panic!("access to uninitialized memory"),
+            (v1, v2) => {
+                // TODO: fix this possible exit point when refactoring engine interface
+                self.check_for_uninitialized_memory("beq", v1, v2);
+
+                trace!("could not find input assignment => exeting this context");
+
+                self.is_exited = true;
+            }
         }
     }
 
@@ -443,22 +571,12 @@ where
             Value::Symbolic(exit_code) => {
                 trace!("exit: symbolic code -> find input for exit_code != 0");
 
+                // TODO: fix this possible exit point when refactoring engine interface
                 let result = self
                     .symbolic_state
                     .execute_query(Query::NotEquals((exit_code, 0)));
 
-                if let Some(assignment) = result {
-                    let printable_assignments =
-                        self.symbolic_state.get_input_assignments(&assignment);
-
-                    info!("exit: found input assignment");
-                    print_assignment(&printable_assignments);
-
-                    info!("exiting execution engine");
-                    std::process::exit(0);
-                }
-
-                self.is_exited = true;
+                self.handle_solver_result("exit_code > 0", result);
             }
             Value::Concrete(exit_code) => {
                 if exit_code > 0 {
@@ -467,26 +585,18 @@ where
                         exit_code
                     );
 
+                    // TODO: fix this possible exit point when refactoring engine interface
                     let result = self.symbolic_state.execute_query(Query::Reachable);
 
-                    if let Some(assignment) = result {
-                        let printable_assignments =
-                            self.symbolic_state.get_input_assignments(&assignment);
-
-                        info!("exit: found input assignment");
-                        print_assignment(&printable_assignments);
-
-                        info!("exiting execution engine");
-                        std::process::exit(0);
-                    }
+                    self.handle_solver_result("exit_code > 0", result);
                 } else {
                     trace!("exiting context with exit_code 0");
                 }
-
-                self.is_exited = true;
             }
             _ => unimplemented!("exit only implemented for symbolic exit codes"),
         }
+
+        self.is_exited = true;
     }
 
     fn execute_ecall(&mut self) {
@@ -510,57 +620,63 @@ where
         self.pc += 4;
     }
 
-    fn execute_load(&mut self, instruction: Instruction, itype: IType) {
+    fn execute_ld(&mut self, instruction: Instruction, itype: IType) {
         if let Value::Concrete(base_address) = self.regs[itype.rs1() as usize] {
             let immediate = itype.imm() as u64;
 
             let address = base_address.wrapping_add(immediate);
 
-            let value = self.memory[(address / 8) as usize];
+            // TODO: fix this possible exit point when refactoring engine interface
+            if self.check_for_valid_memory_address(instruction_to_str(instruction), address) {
+                let value = self.memory[(address / 8) as usize];
 
-            trace!(
-                "[{:#010x}] {}: {:#x}, {} |- {:?} <- mem[{:#x}]={}",
-                self.pc,
-                instruction_to_str(instruction),
-                base_address,
-                immediate,
-                itype.rd(),
-                address,
-                value,
-            );
+                trace!(
+                    "[{:#010x}] {}: {:#x}, {} |- {:?} <- mem[{:#x}]={}",
+                    self.pc,
+                    instruction_to_str(instruction),
+                    base_address,
+                    immediate,
+                    itype.rd(),
+                    address,
+                    value,
+                );
 
-            if itype.rd() != Register::Zero {
-                self.regs[itype.rd() as usize] = value;
+                if itype.rd() != Register::Zero {
+                    self.regs[itype.rd() as usize] = value;
+                }
             }
         } else {
-            unimplemented!("can not handle symbolic addresses in LD")
+            panic!("can not handle symbolic addresses in LD")
         }
 
         self.pc += 4;
     }
 
-    fn execute_store(&mut self, instruction: Instruction, stype: SType) {
+    fn execute_sd(&mut self, instruction: Instruction, stype: SType) {
         if let Value::Concrete(base_address) = self.regs[stype.rs1() as usize] {
             let immediate = stype.imm();
 
             let address = base_address.wrapping_add(immediate as u64);
 
-            let value = self.regs[stype.rs2() as usize];
+            // TODO: fix this possible exit point when refactoring engine interface
+            if self.check_for_valid_memory_address(instruction_to_str(instruction), address) {
+                let value = self.regs[stype.rs2() as usize];
 
-            trace!(
-                "[{:#010x}] {}: {:#x}, {}, {} |- mem[{:#x}] <- {}",
-                self.pc,
-                instruction_to_str(instruction),
-                base_address,
-                immediate,
-                self.regs[stype.rs2() as usize],
-                address,
-                value,
-            );
+                trace!(
+                    "[{:#010x}] {}: {:#x}, {}, {} |- mem[{:#x}] <- {}",
+                    self.pc,
+                    instruction_to_str(instruction),
+                    base_address,
+                    immediate,
+                    self.regs[stype.rs2() as usize],
+                    address,
+                    value,
+                );
 
-            self.memory[(address / 8) as usize] = value;
+                self.memory[(address / 8) as usize] = value;
+            }
         } else {
-            unimplemented!("can not handle symbolic addresses in SD")
+            panic!("can not handle symbolic addresses in SD")
         }
 
         self.pc += 4;
@@ -636,18 +752,17 @@ where
             Instruction::Add(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_add),
             Instruction::Sub(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_sub),
             Instruction::Mul(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_mul),
-            // TODO: Implement exit for DIVU
-            Instruction::Divu(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_div),
+            Instruction::Divu(rtype) => self.execute_divu(instruction, rtype),
             Instruction::Remu(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_rem),
             Instruction::Sltu(rtype) => {
                 self.execute_rtype(instruction, rtype, |l, r| if l < r { 1 } else { 0 })
             }
-            Instruction::Ld(itype) => self.execute_load(instruction, itype),
-            Instruction::Sd(stype) => self.execute_store(instruction, stype),
+            Instruction::Ld(itype) => self.execute_ld(instruction, itype),
+            Instruction::Sd(stype) => self.execute_sd(instruction, stype),
             Instruction::Jal(jtype) => self.execute_jal(jtype),
             Instruction::Jalr(itype) => self.execute_jalr(itype),
             Instruction::Beq(btype) => self.execute_beq(btype),
-            _ => unimplemented!("can not handle this instruction"),
+            i => unreachable!("can not handle this instruction {:?}", i),
         }
     }
 }

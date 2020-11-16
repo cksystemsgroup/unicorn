@@ -4,7 +4,14 @@ use common::{compile_all_riscu, init};
 use monster::engine;
 use rayon::prelude::*;
 
-const TEST_FILES: [&str; 3] = ["/arithmetic.c", "/if-else.c", "/test-sltu.c"];
+const TEST_FILES: [&str; 6] = [
+    "/arithmetic.c",
+    "/if-else.c",
+    "/invalid-memory-access-2-35.c",
+    "/division-by-zero-3-35.c",
+    "/simple-assignment-1-35.c",
+    "/test-sltu.c",
+];
 
 fn execute_riscu(names: &[&str], solver: engine::Backend) {
     init();

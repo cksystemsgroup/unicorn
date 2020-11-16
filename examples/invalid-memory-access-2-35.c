@@ -20,10 +20,5 @@ uint64_t main() {
     // address outside of virtual address space -> invalid memory access
     *(x + 4294967296) = 0;
 
-  a = *x - 7;
-
-  if (a == 42)
-    return 1;
-  else
-    return 0;
+  return 0;
 }
