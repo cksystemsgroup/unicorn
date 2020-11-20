@@ -36,22 +36,6 @@ pub enum ProcedureCallId {
 
 pub type ControlFlowGraph = Graph<Instruction, Option<ProcedureCallId>>;
 
-static mut PROCEDURE_CALL_ID_SEED: u64 = 0;
-
-fn reset_procedure_call_id_seed() {
-    unsafe {
-        PROCEDURE_CALL_ID_SEED = 0;
-    }
-}
-
-fn allocate_procedure_call_id() -> u64 {
-    unsafe {
-        let id = PROCEDURE_CALL_ID_SEED;
-        PROCEDURE_CALL_ID_SEED += 1;
-        id
-    }
-}
-
 /// Create a `ControlFlowGraph` from an `u8` slice without fixing edges
 fn create_instruction_graph(binary: &[u8]) -> Result<ControlFlowGraph> {
     ensure!(
@@ -139,38 +123,62 @@ fn compute_return_edge_position(graph: &ControlFlowGraph, idx: NodeIndex) -> Nod
     }
 }
 
-/// Fix stateful edges and return a vector containing them
-fn construct_edge_if_stateful(idx: NodeIndex, graph: &ControlFlowGraph) -> Option<Vec<Edge>> {
-    match graph[idx] {
-        Instruction::Jal(jtype) if jtype.rd() != Register::Zero => {
-            // jump and link => function call
-            let jump_dest = NodeIndex::new(
-                (((idx.index() as u64) * 4).wrapping_add(jtype.imm() as u64) / 4) as usize,
-            );
-            let return_dest = NodeIndex::new(idx.index() + 1);
-            let id = allocate_procedure_call_id();
-
-            let call_edge = (idx, jump_dest, Some(ProcedureCallId::Call(id)));
-
-            let return_edge = (
-                compute_return_edge_position(graph, jump_dest),
-                return_dest,
-                Some(ProcedureCallId::Return(id)),
-            );
-
-            Some(vec![call_edge, return_edge])
-        }
-        _ => None,
-    }
+struct StatefulEdgeBuilder {
+    procedure_call_id_seed: u64,
 }
 
-/// Calculate stateful edges and return a vector containing them
-fn compute_stateful_edges(graph: &ControlFlowGraph) -> Vec<Edge> {
-    graph
-        .node_indices()
-        .filter_map(|idx| construct_edge_if_stateful(idx, graph))
-        .flatten()
-        .collect()
+impl StatefulEdgeBuilder {
+    pub fn new() -> Self {
+        Self {
+            procedure_call_id_seed: 0,
+        }
+    }
+
+    /// Calculate stateful edges and return a vector containing them
+    pub fn compute_stateful_edges(&mut self, graph: &ControlFlowGraph) -> Vec<Edge> {
+        graph
+            .node_indices()
+            .filter_map(|idx| self.construct_edge_if_stateful(idx, graph))
+            .flatten()
+            .collect()
+    }
+
+    /// Fix stateful edges and return a vector containing them
+    fn construct_edge_if_stateful(
+        &mut self,
+        idx: NodeIndex,
+        graph: &ControlFlowGraph,
+    ) -> Option<Vec<Edge>> {
+        match graph[idx] {
+            Instruction::Jal(jtype) if jtype.rd() != Register::Zero => {
+                // jump and link => function call
+                let jump_dest = NodeIndex::new(
+                    (((idx.index() as u64) * 4).wrapping_add(jtype.imm() as u64) / 4) as usize,
+                );
+                let return_dest = NodeIndex::new(idx.index() + 1);
+                let id = self.allocate_procedure_call_id();
+
+                let call_edge = (idx, jump_dest, Some(ProcedureCallId::Call(id)));
+
+                let return_edge = (
+                    compute_return_edge_position(graph, jump_dest),
+                    return_dest,
+                    Some(ProcedureCallId::Return(id)),
+                );
+
+                Some(vec![call_edge, return_edge])
+            }
+            _ => None,
+        }
+    }
+
+    fn allocate_procedure_call_id(&mut self) -> u64 {
+        let id = self.procedure_call_id_seed;
+
+        self.procedure_call_id_seed += 1;
+
+        id
+    }
 }
 
 /// Get exit edge if possible
@@ -222,7 +230,7 @@ fn build(binary: &[u8]) -> Result<(ControlFlowGraph, NodeIndex)> {
     let pure_edges = compute_edges(&graph, construct_edge_if_pure);
     add_edges(&mut graph, &pure_edges);
 
-    let jump_edges = compute_stateful_edges(&graph);
+    let jump_edges = StatefulEdgeBuilder::new().compute_stateful_edges(&graph);
     add_edges(&mut graph, &jump_edges);
 
     let exit_node = fix_exit_ecall(&mut graph)?;
@@ -237,8 +245,6 @@ pub fn build_cfg_from_file<P>(file: P) -> Result<((ControlFlowGraph, NodeIndex),
 where
     P: AsRef<Path>,
 {
-    reset_procedure_call_id_seed();
-
     let program = load_object_file(file).context("Failed to load object file")?;
 
     let cfg = time_info!("generate CFG from binary", {
