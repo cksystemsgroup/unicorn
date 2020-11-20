@@ -13,7 +13,6 @@
 //!   - `jal`: when link is used (=> `rd` is `ra`)
 //!   - `jalr`
 
-use crate::elf::{load_file, Program};
 use byteorder::{ByteOrder, LittleEndian};
 use bytesize::ByteSize;
 use log::info;
@@ -23,7 +22,7 @@ use petgraph::{
     visit::EdgeRef,
     Graph,
 };
-use riscv_decode::{decode, Instruction, Register};
+use riscu::{decode, load_object_file, Instruction, Program, Register};
 use std::{fs::File, io::prelude::*, path::Path, process::Command, vec::Vec};
 
 type Edge = (NodeIndex, NodeIndex, Option<ProcedureCallId>);
@@ -226,16 +225,13 @@ where
 {
     reset_procedure_call_id_seed();
 
-    match load_file(file, 1024) {
-        Some(program) => {
-            let cfg = time_info!("generate CFG from binary", {
-                build(program.code_segment.as_slice())
-            });
+    let program = load_object_file(file).map_err(|_| "Cannot load RISC-U ELF file")?;
 
-            Ok((cfg, program))
-        }
-        None => Err("Cannot load RISC-U ELF file"),
-    }
+    let cfg = time_info!("generate CFG from binary", {
+        build(program.code.content.as_slice())
+    });
+
+    Ok((cfg, program))
 }
 
 /// Write ControlFlowGraph `graph` to dot file at `file` Path.

@@ -20,7 +20,7 @@ fn can_build_control_flow_graph_with_distance_from_exit() {
             build_cfg_from_file(object_file.clone()).unwrap()
         });
 
-        let strategy = ShortestPathStrategy::new(&graph, program.entry_address);
+        let strategy = ShortestPathStrategy::new(&graph, program.code.address);
 
         let src_file_name = source_file.file_name().unwrap().to_str().unwrap();
         let dot_file = source_file
@@ -41,7 +41,7 @@ fn can_build_control_flow_graph_with_distance_from_exit() {
             source_file
         );
 
-        let instructions_in_program = program.code_segment.len() / 4;
+        let instructions_in_program = program.code.content.len() / 4;
         let actually = strategy.distances().len() as f64 / instructions_in_program as f64;
 
         assert!(
@@ -69,7 +69,7 @@ fn can_unroll_procedures_in_control_flow_graph() {
                     build_cfg_from_file(object_file.clone()).unwrap()
                 });
 
-            let strategy = ShortestPathStrategy::new(&graph, program.entry_address);
+            let strategy = ShortestPathStrategy::new(&graph, program.code.address);
 
             let dot_file = source_file.with_extension("dot");
 

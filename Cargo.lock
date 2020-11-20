@@ -10,6 +10,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf8dcb5b4bbaa28653b647d8c77bd4ed40183b48882e130c1f1ffb73de069fd7"
+
+[[package]]
 name = "atty"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -335,6 +341,7 @@ dependencies = [
 name = "monster"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "boolector",
  "byteorder",
  "bytesize",
@@ -348,7 +355,7 @@ dependencies = [
  "petgraph",
  "rand",
  "rayon",
- "riscv-decode",
+ "riscu",
  "tempfile",
  "z3",
 ]
@@ -552,9 +559,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "riscv-decode"
-version = "0.2.0"
-source = "git+https://github.com/cksystemsgroup/riscv-decode#f5720e8fd07d2ec7bfa9fc6746b052e908a1f8ac"
+name = "riscu"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db0ea961966db8cd36dec1e2b36af0d747497bdbd94808f227c66403aeea039e"
+dependencies = [
+ "byteorder",
+ "goblin",
+ "thiserror",
+]
 
 [[package]]
 name = "scopeguard"
@@ -629,6 +642,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "203008d98caf094106cfaba70acfed15e18ed3ddb7d94e49baec153a2b462789"
 dependencies = [
  "unicode-width",
+]
+
+[[package]]
+name = "thiserror"
+version = "1.0.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e9ae34b84616eedaaf1e9dd6026dbe00dcafa92aa0c8077cb69df1fcfe5e53e"
+dependencies = [
+ "thiserror-impl",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "1.0.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ba20f23e85b10754cd195504aebf6a27e2e6cbe28c17778a0c930724628dd56"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

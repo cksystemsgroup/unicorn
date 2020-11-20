@@ -9,7 +9,7 @@ fn can_disassemble_risc_u_binary() {
     init();
 
     compile_all_riscu().1.for_each(|(source, object)| {
-        let result = disassemble_riscu(object);
+        let result = disassemble(object);
 
         assert!(
             result.is_ok(),

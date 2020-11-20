@@ -8,7 +8,7 @@ use petgraph::{
     prelude::*,
     visit::{EdgeRef, Reversed},
 };
-use riscv_decode::{Instruction, Register};
+use riscu::{Instruction, Register};
 use std::{collections::HashMap, fs::File, io::Write, path::Path};
 
 pub trait ExplorationStrategy {

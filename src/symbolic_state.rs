@@ -6,7 +6,7 @@ use petgraph::{
     visit::{VisitMap, Visitable},
     Direction, Graph,
 };
-use riscv_decode::Instruction;
+use riscu::Instruction;
 use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
 #[derive(Clone, Debug, Copy, Eq, Hash, PartialEq)]

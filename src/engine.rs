@@ -2,7 +2,6 @@ use crate::{
     bitvec::BitVector,
     boolector::Boolector,
     cfg::build_cfg_from_file,
-    elf::Program,
     exploration_strategy::{ExplorationStrategy, ShortestPathStrategy},
     solver::{Assignment, MonsterSolver, Solver},
     symbolic_state::{Query, SymbolId, SymbolicState},
@@ -11,7 +10,7 @@ use crate::{
 use byteorder::{ByteOrder, LittleEndian};
 use bytesize::ByteSize;
 use log::{debug, info, trace};
-use riscv_decode::{types::*, Instruction, Register};
+use riscu::{decode, types::*, DecodingError, Instruction, Program, ProgramSegment, Register};
 use std::{cell::RefCell, collections::HashMap, fmt, mem::size_of, path::Path, rc::Rc};
 
 #[allow(dead_code)]
@@ -36,7 +35,7 @@ where
 {
     let ((graph, _), program) = build_cfg_from_file(input)?;
 
-    let mut strategy = ShortestPathStrategy::new(&graph, program.entry_address);
+    let mut strategy = ShortestPathStrategy::new(&graph, program.code.address);
 
     match with {
         Backend::Monster => {
@@ -121,26 +120,12 @@ where
         let argc = 0;
         memory[sp as usize / size_of::<u64>()] = Value::Concrete(argc);
 
-        let code_start = (program.entry_address / 8) as usize;
-        let data_start = code_start + (program.code_segment.len() / 8) as usize;
-        let end = data_start + program.data_segment.len() / 8;
+        Self::load_segment(&mut memory, &program.code);
+        Self::load_segment(&mut memory, &program.data);
 
-        program
-            .code_segment
-            .chunks(8)
-            .map(LittleEndian::read_u64)
-            .zip(code_start..data_start)
-            .for_each(|(x, i)| memory[i] = Value::Concrete(x));
+        let pc = program.code.address;
 
-        program
-            .data_segment
-            .chunks(8)
-            .map(LittleEndian::read_u64)
-            .zip(data_start..end)
-            .for_each(|(x, i)| memory[i] = Value::Concrete(x));
-
-        let pc = program.entry_address;
-        let program_break = (end as u64 + 1) * 8;
+        let program_break = program.data.address + program.data.content.len() as u64;
 
         debug!(
             "initializing new execution context with {} of main memory",
@@ -148,13 +133,13 @@ where
         );
         debug!(
             "code segment: start={:#x} length={}",
-            code_start * 8,
-            program.code_segment.len(),
+            program.code.address,
+            program.code.content.len(),
         );
         debug!(
             "data segment: start={:#x} length={}",
-            data_start * 8,
-            program.data_segment.len(),
+            program.data.address,
+            program.data.content.len(),
         );
         debug!(
             "init state: pc={:#x} brk={:#x}, argc={}",
@@ -170,6 +155,18 @@ where
             strategy,
             is_exited: false,
         }
+    }
+
+    fn load_segment(memory: &mut Vec<Value>, segment: &ProgramSegment<u8>) {
+        let start = segment.address as usize / size_of::<u64>();
+        let end = start + segment.content.len() / size_of::<u64>();
+
+        segment
+            .content
+            .chunks(size_of::<u64>())
+            .map(LittleEndian::read_u64)
+            .zip(start..end)
+            .for_each(|(x, i)| memory[i] = Value::Concrete(x));
     }
 
     pub fn run(&mut self) {
@@ -740,8 +737,8 @@ where
         }
     }
 
-    fn decode(&self, raw_instr: u32) -> Result<Instruction, riscv_decode::DecodingError> {
-        riscv_decode::decode(raw_instr)
+    fn decode(&self, raw_instr: u32) -> Result<Instruction, DecodingError> {
+        decode(raw_instr)
     }
 
     fn execute(&mut self, instruction: Instruction) {
@@ -762,7 +759,6 @@ where
             Instruction::Jal(jtype) => self.execute_jal(jtype),
             Instruction::Jalr(itype) => self.execute_jalr(itype),
             Instruction::Beq(btype) => self.execute_beq(btype),
-            i => unreachable!("can not handle this instruction {:?}", i),
         }
     }
 }
@@ -789,6 +785,5 @@ const fn instruction_to_str(i: Instruction) -> &'static str {
         Instruction::Divu(_) => "divu",
         Instruction::Remu(_) => "remu",
         Instruction::Ecall(_) => "ecall",
-        _ => "unknown",
     }
 }

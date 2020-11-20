@@ -6,7 +6,7 @@ mod cli;
 
 use monster::{
     cfg::{build_cfg_from_file, write_to_file},
-    disassemble::disassemble_riscu,
+    disassemble::disassemble,
     engine,
     exploration_strategy::ShortestPathStrategy,
 };
@@ -43,7 +43,7 @@ fn main() {
     match matches.subcommand() {
         Some(("disassemble", disassemble_args)) => handle_error(|| {
             let input = Path::new(disassemble_args.value_of("input-file").unwrap());
-            disassemble_riscu(Path::new(input))
+            disassemble(Path::new(input))
         }),
         Some(("cfg", cfg_args)) => {
             handle_error(|| -> Result<(), String> {
@@ -54,7 +54,7 @@ fn main() {
                 let ((cfg, _), program) = build_cfg_from_file(Path::new(input))?;
 
                 if distances {
-                    ShortestPathStrategy::new(&cfg, program.entry_address)
+                    ShortestPathStrategy::new(&cfg, program.code.address)
                         .write_cfg_with_distances_to_file(output)
                         .map_err(|e| e.to_string())?;
                 } else {

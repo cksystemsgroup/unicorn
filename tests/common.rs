@@ -13,6 +13,13 @@ pub fn init() {
     let _ = env_logger::builder().is_test(true).try_init();
 }
 
+// TODO: use cksystemsteaching/selfie image, once the #arch branch get's
+// merged into the master branch in the selfie repository.
+// Until then, we can use this image, which is a build from the #arch branch.
+// This version of Selfie creates seperate segments for code and data,
+// which is needed by the "riscu" library to work.
+const SELFIE_DOCKER_IMAGE: &str = "christianmoesl/selfie";
+
 pub fn compile<P>(source_file: P, destination_file: P) -> Result<PathBuf, &'static str>
 where
     P: AsRef<Path>,
@@ -37,7 +44,7 @@ where
             "{}:/opt/monster_dst",
             dst_directory.to_str().unwrap()
         ))
-        .arg("cksystemsteaching/selfie")
+        .arg(SELFIE_DOCKER_IMAGE)
         .arg("/opt/selfie/selfie")
         .arg("-c")
         .arg(format!(
