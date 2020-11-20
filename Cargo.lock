@@ -560,9 +560,9 @@ dependencies = [
 
 [[package]]
 name = "riscu"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db0ea961966db8cd36dec1e2b36af0d747497bdbd94808f227c66403aeea039e"
+checksum = "ce9751028e7703cc823c49474fc8b719b0994e451d941b073d0dad457fddfaa0"
 dependencies = [
  "byteorder",
  "goblin",

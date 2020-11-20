@@ -254,14 +254,24 @@ where
                     .detach();
 
                 if op.is_unary() {
-                    let x = operands.next(&self.data_flow).unwrap().1;
+                    let x = operands
+                        .next(&self.data_flow)
+                        .expect("every unary operator must have 1 operand")
+                        .1;
 
                     self.print_recursive(x, visit_map);
 
                     debug!("x{} := {}x{}", n.index(), op, x.index());
                 } else {
-                    let lhs = operands.next(&self.data_flow).unwrap().1;
-                    let rhs = operands.next(&self.data_flow).unwrap().1;
+                    let lhs = operands
+                        .next(&self.data_flow)
+                        .expect("every binary operator must have an lhs operand")
+                        .1;
+
+                    let rhs = operands
+                        .next(&self.data_flow)
+                        .expect("every binary operator must have an rhs operand")
+                        .1;
 
                     self.print_recursive(lhs, visit_map);
                     self.print_recursive(rhs, visit_map);

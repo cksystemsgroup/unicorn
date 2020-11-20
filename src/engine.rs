@@ -7,10 +7,11 @@ use crate::{
     symbolic_state::{Query, SymbolId, SymbolicState},
     z3::Z3,
 };
+use anyhow::Result;
 use byteorder::{ByteOrder, LittleEndian};
 use bytesize::ByteSize;
 use log::{debug, info, trace};
-use riscu::{decode, types::*, DecodingError, Instruction, Program, ProgramSegment, Register};
+use riscu::{decode, types::*, Instruction, Program, ProgramSegment, Register};
 use std::{cell::RefCell, collections::HashMap, fmt, mem::size_of, path::Path, rc::Rc};
 
 #[allow(dead_code)]
@@ -29,7 +30,7 @@ pub enum Backend {
 }
 
 // TODO: What should the engine return as result?
-pub fn execute<P>(input: P, with: Backend) -> Result<(), String>
+pub fn execute<P>(input: P, with: Backend) -> Result<()>
 where
     P: AsRef<Path>,
 {
@@ -44,7 +45,7 @@ where
 
             let mut executor = Engine::new(ByteSize::mib(1), &program, &mut strategy, state);
 
-            executor.run();
+            executor.run()
         }
         Backend::Boolector => {
             let solver = Rc::new(RefCell::new(Boolector::new()));
@@ -52,7 +53,7 @@ where
 
             let mut executor = Engine::new(ByteSize::mib(1), &program, &mut strategy, state);
 
-            executor.run();
+            executor.run()
         }
         Backend::Z3 => {
             let solver = Rc::new(RefCell::new(Z3::new()));
@@ -60,11 +61,9 @@ where
 
             let mut executor = Engine::new(ByteSize::mib(1), &program, &mut strategy, state);
 
-            executor.run();
+            executor.run()
         }
     }
-
-    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -116,7 +115,7 @@ where
         let sp = memory_size.as_u64() - 8;
         regs[Register::Sp as usize] = Value::Concrete(sp);
 
-        // TOOD: Init main function arguments
+        // TODO: Init main function arguments
         let argc = 0;
         memory[sp as usize / size_of::<u64>()] = Value::Concrete(argc);
 
@@ -169,17 +168,16 @@ where
             .for_each(|(x, i)| memory[i] = Value::Concrete(x));
     }
 
-    pub fn run(&mut self) {
+    pub fn run(&mut self) -> Result<()> {
         while !self.is_exited {
             let word = self.fetch();
 
-            // TODO: handle case where decoding fails
-            let instr = self
-                .decode(word)
-                .expect("instructions have to be always decodable");
+            let instr = decode(word)?;
 
-            self.execute(instr);
+            self.execute(instr)?;
         }
+
+        Ok(())
     }
 
     fn handle_solver_result(&self, reason: &str, solver_result: Option<Assignment<BitVector>>) {
@@ -471,7 +469,7 @@ where
         false_branch: u64,
         lhs: SymbolId,
         rhs: SymbolId,
-    ) {
+    ) -> Result<()> {
         let memory_snapshot = self.memory.clone();
         let regs_snapshot = self.regs;
         let graph_snapshot = Box::new((*self.symbolic_state).clone());
@@ -494,7 +492,7 @@ where
         );
 
         self.pc = next_pc;
-        self.run();
+        self.run()?;
 
         self.is_exited = false;
 
@@ -518,9 +516,11 @@ where
         );
 
         self.pc = next_pc;
+
+        Ok(())
     }
 
-    fn execute_beq(&mut self, btype: BType) {
+    fn execute_beq(&mut self, btype: BType) -> Result<()> {
         let lhs = self.regs[btype.rs1() as usize];
         let rhs = self.regs[btype.rs2() as usize];
 
@@ -540,6 +540,8 @@ where
                     rhs,
                     self.pc
                 );
+
+                Ok(())
             }
             (Value::Symbolic(v1), Value::Concrete(v2)) => {
                 let v2 = self.symbolic_state.create_const(v2);
@@ -559,6 +561,8 @@ where
                 trace!("could not find input assignment => exeting this context");
 
                 self.is_exited = true;
+
+                Ok(())
             }
         }
     }
@@ -737,11 +741,7 @@ where
         }
     }
 
-    fn decode(&self, raw_instr: u32) -> Result<Instruction, DecodingError> {
-        decode(raw_instr)
-    }
-
-    fn execute(&mut self, instruction: Instruction) {
+    fn execute(&mut self, instruction: Instruction) -> Result<()> {
         match instruction {
             Instruction::Ecall(_) => self.execute_ecall(),
             Instruction::Lui(utype) => self.execute_lui(utype),
@@ -758,8 +758,10 @@ where
             Instruction::Sd(stype) => self.execute_sd(instruction, stype),
             Instruction::Jal(jtype) => self.execute_jal(jtype),
             Instruction::Jalr(itype) => self.execute_jalr(itype),
-            Instruction::Beq(btype) => self.execute_beq(btype),
+            Instruction::Beq(btype) => self.execute_beq(btype)?,
         }
+
+        Ok(())
     }
 }
 

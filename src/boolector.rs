@@ -45,7 +45,15 @@ impl Solver for Boolector {
             let assignments = graph
                 .node_indices()
                 .filter(|i| matches!(graph[*i], Input(_)))
-                .map(|i| BitVector(bvs.get(&i).unwrap().get_a_solution().as_u64().unwrap()))
+                .map(|i| {
+                    let bv = bvs.get(&i).expect("every input must be part of bvs");
+
+                    BitVector(
+                        bv.get_a_solution()
+                            .as_u64()
+                            .expect("BV always fits in 64 bits for our machine"),
+                    )
+                })
                 .collect();
 
             Some(assignments)

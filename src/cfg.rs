@@ -13,6 +13,7 @@
 //!   - `jal`: when link is used (=> `rd` is `ra`)
 //!   - `jalr`
 
+use anyhow::{ensure, Context, Error, Result};
 use byteorder::{ByteOrder, LittleEndian};
 use bytesize::ByteSize;
 use log::info;
@@ -23,7 +24,7 @@ use petgraph::{
     Graph,
 };
 use riscu::{decode, load_object_file, Instruction, Program, Register};
-use std::{fs::File, io::prelude::*, path::Path, process::Command, vec::Vec};
+use std::{fs::File, io::prelude::*, mem::size_of, path::Path, vec::Vec};
 
 type Edge = (NodeIndex, NodeIndex, Option<ProcedureCallId>);
 
@@ -52,16 +53,25 @@ fn allocate_procedure_call_id() -> u64 {
 }
 
 /// Create a `ControlFlowGraph` from an `u8` slice without fixing edges
-fn create_instruction_graph(binary: &[u8]) -> ControlFlowGraph {
+fn create_instruction_graph(binary: &[u8]) -> Result<ControlFlowGraph> {
+    ensure!(
+        binary.len() % size_of::<u32>() == 0,
+        "RISC-U instructions are 32 bits, so the length of the binary must be a multiple of 4"
+    );
+
+    let mut g = ControlFlowGraph::new();
+
     binary
-        .chunks_exact(4)
+        .chunks_exact(size_of::<u32>())
         .map(LittleEndian::read_u32)
-        .map(decode)
-        .map(Result::unwrap)
-        .fold(ControlFlowGraph::new(), |mut g, i| {
-            g.add_node(i);
-            g
-        })
+        .try_for_each(|raw| {
+            decode(raw).and_then(|i| {
+                g.add_node(i);
+                Ok(())
+            })
+        })?;
+
+    Ok(g)
 }
 
 /// Compute trivial edges
@@ -115,10 +125,17 @@ fn compute_return_edge_position(graph: &ControlFlowGraph, idx: NodeIndex) -> Nod
             graph
                 .edges(idx)
                 .find(|e| e.target().index() != idx.index() + 1)
-                .unwrap()
+                .expect("all BEQ edges are constructed already")
                 .target()
         }),
-        _ => compute_return_edge_position(graph, graph.edges(idx).next().unwrap().target()),
+        _ => compute_return_edge_position(
+            graph,
+            graph
+                .edges(idx)
+                .next()
+                .expect("all trivial edges are constructed already")
+                .target(),
+        ),
     }
 }
 
@@ -174,7 +191,7 @@ fn find_possible_exit_edge(graph: &ControlFlowGraph, idx: NodeIndex) -> Option<E
 }
 
 /// Fix the exit ecall edge
-fn fix_exit_ecall(graph: &mut ControlFlowGraph) -> NodeIndex {
+fn fix_exit_ecall(graph: &mut ControlFlowGraph) -> Result<NodeIndex> {
     graph
         .node_indices()
         .find(|idx| {
@@ -186,12 +203,12 @@ fn fix_exit_ecall(graph: &mut ControlFlowGraph) -> NodeIndex {
             }
             false
         })
-        .unwrap()
+        .ok_or(Error::msg("Could not find exit ecall in binary"))
 }
 
 /// Create a ControlFlowGraph from `u8` slice.
-fn build(binary: &[u8]) -> (ControlFlowGraph, NodeIndex) {
-    let mut graph = create_instruction_graph(binary);
+fn build(binary: &[u8]) -> Result<(ControlFlowGraph, NodeIndex)> {
+    let mut graph = create_instruction_graph(binary)?;
 
     fn add_edges(graph: &mut ControlFlowGraph, edges: &[Edge]) {
         edges.iter().for_each(|e| {
@@ -208,34 +225,32 @@ fn build(binary: &[u8]) -> (ControlFlowGraph, NodeIndex) {
     let jump_edges = compute_stateful_edges(&graph);
     add_edges(&mut graph, &jump_edges);
 
-    let exit_node = fix_exit_ecall(&mut graph);
+    let exit_node = fix_exit_ecall(&mut graph)?;
 
-    (graph, exit_node)
+    Ok((graph, exit_node))
 }
 
 pub type DataSegment = Vec<u8>;
 
 /// Create a ControlFlowGraph from Path `file`.
-// TODO: only tested with Selfie RISC-U file and relies on that ELF format
-pub fn build_cfg_from_file<P>(
-    file: P,
-) -> Result<((ControlFlowGraph, NodeIndex), Program), &'static str>
+pub fn build_cfg_from_file<P>(file: P) -> Result<((ControlFlowGraph, NodeIndex), Program)>
 where
     P: AsRef<Path>,
 {
     reset_procedure_call_id_seed();
 
-    let program = load_object_file(file).map_err(|_| "Cannot load RISC-U ELF file")?;
+    let program = load_object_file(file).context("Failed to load object file")?;
 
     let cfg = time_info!("generate CFG from binary", {
         build(program.code.content.as_slice())
+            .context("Could not build a control flow graph from loaded file")?
     });
 
     Ok((cfg, program))
 }
 
 /// Write ControlFlowGraph `graph` to dot file at `file` Path.
-pub fn write_to_file<P>(graph: &ControlFlowGraph, file_path: P) -> Result<(), std::io::Error>
+pub fn write_to_file<P>(graph: &ControlFlowGraph, file_path: P) -> Result<()>
 where
     P: AsRef<Path>,
 {
@@ -248,22 +263,9 @@ where
 
     info!(
         "{} written to file {}",
-        ByteSize(file.metadata().unwrap().len()),
-        file_path.as_ref().to_str().unwrap(),
+        ByteSize(file.metadata()?.len()),
+        file_path.as_ref().display(),
     );
-
-    Ok(())
-}
-
-/// Convert a dot file into a png file (depends on graphviz)
-pub fn convert_dot_to_png(source: &Path, output: &Path) -> Result<(), &'static str> {
-    Command::new("dot")
-        .arg("-Tpng")
-        .arg(source.to_path_buf())
-        .arg("-o")
-        .arg(output.to_path_buf())
-        .output()
-        .map_err(|_| "Cannot convert CFG to png file (is graphviz installed?)")?;
 
     Ok(())
 }

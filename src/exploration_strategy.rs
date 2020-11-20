@@ -1,4 +1,5 @@
 use crate::cfg::{ControlFlowGraph, ProcedureCallId};
+use anyhow::{Context as AnyhowContext, Result};
 use itertools::Itertools;
 use log::trace;
 use petgraph::{
@@ -32,15 +33,13 @@ impl<'a> ShortestPathStrategy<'a> {
         })
     }
 
-    pub fn write_cfg_with_distances_to_file<P>(&self, path: P) -> Result<(), std::io::Error>
+    pub fn write_cfg_with_distances_to_file<P>(&self, path: P) -> Result<()>
     where
         P: AsRef<Path>,
     {
-        let mut f = File::create(path)?;
-
-        write!(f, "{:?}", self)?;
-
-        f.sync_all()?;
+        File::create(path)
+            .and_then(|mut f| write!(f, "{:?}", self).and_then(|_| f.sync_all()))
+            .context("Failed to write control flow graph to file")?;
 
         Ok(())
     }
@@ -94,7 +93,7 @@ pub fn compute_distances(cfg: &ControlFlowGraph) -> HashMap<NodeIndex, u64> {
     let exit_node = unrolled
         .node_indices()
         .find(|i| unrolled.edges_directed(*i, Direction::Outgoing).count() == 0)
-        .unwrap();
+        .expect("every valid CFG has to to have on exit node");
 
     time_info!("computing distances from exit on unrolled CFG", {
         let distances = dijkstra(unrolled_reversed, exit_node, None, |_| 1_u64);
@@ -112,7 +111,7 @@ pub fn compute_distances(cfg: &ControlFlowGraph) -> HashMap<NodeIndex, u64> {
 
         distances_for_idx
             .into_iter()
-            .map(|(k, v)| (k, v.into_iter().min().unwrap()))
+            .filter_map(|(k, v)| v.into_iter().min().map(|min| (k, min)))
             .collect::<HashMap<NodeIndex, u64>>()
     })
 }
@@ -178,11 +177,14 @@ impl<'a> Context<'a> {
         self.cfg
             .neighbors_directed(self.idx, Direction::Outgoing)
             .next()
-            .unwrap()
+            .expect("instruction has a followup instruction")
     }
 
     fn visit_unsafe(&mut self, idx: NodeIndex, n: NodeIndex, g: &mut UnrolledCfg) {
-        let runtime_location = *self.visited.get(&self.idx).unwrap();
+        let runtime_location = *self
+            .visited
+            .get(&self.idx)
+            .expect("current instruction has an runtime location at this point");
 
         g.update_edge(runtime_location, n, ());
 
@@ -239,7 +241,7 @@ impl<'a> Context<'a> {
                         .cfg
                         .edges_directed(self.idx, Direction::Outgoing)
                         .next()
-                        .unwrap()
+                        .expect("A procedure call (jal) always has to have an outgoing edge")
                         .weight()
                     {
                         if let Some(proc_entry_node) =
@@ -257,9 +259,14 @@ impl<'a> Context<'a> {
                             other.caller = self;
 
                             other.visited = HashMap::new();
-                            other
-                                .visited
-                                .insert(other.idx, *self.visited.get(&self.idx).unwrap());
+                            other.visited.insert(
+                                other.idx,
+                                *self
+                                    .visited
+                                    .get(&self.idx)
+                                    .expect("has been visited already"),
+                            );
+
                             other.visit(jump_idx, g);
                             other.traverse(g);
 
@@ -268,8 +275,12 @@ impl<'a> Context<'a> {
                             match other.exit_reason {
                                 Some(ExitReason::ProcedureReturn) => {
                                     self.idx = other.idx;
-                                    self.visited
-                                        .insert(self.idx, *other.visited.get(&other.idx).unwrap());
+                                    self.visited.insert(
+                                        self.idx,
+                                        *other.visited.get(&other.idx).expect(
+                                            "instruction (return) has to have an runtime location",
+                                        ),
+                                    );
                                 }
                                 Some(_) => {
                                     self.idx = other.idx;
@@ -312,8 +323,8 @@ impl<'a> Context<'a> {
                 Instruction::Beq(_) => {
                     let mut neighbors = self.cfg.neighbors_directed(self.idx, Direction::Outgoing);
 
-                    let first = neighbors.next().unwrap();
-                    let second = neighbors.next().unwrap();
+                    let first = neighbors.next().expect("BEQ creates 2 branches");
+                    let second = neighbors.next().expect("BEQ creates 2 branches");
 
                     let mut other = self.clone();
 

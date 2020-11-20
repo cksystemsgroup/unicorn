@@ -39,20 +39,35 @@ impl Solver for Z3 {
 
         let solver = Z3Solver::new(&ctx);
 
-        solver.assert(&bv.as_bool().unwrap());
+        solver.assert(
+            &bv.as_bool()
+                .expect("The root of a formula has to has a boolean as result"),
+        );
 
         match solver.check() {
             SatResult::Sat => {
-                let m = solver.get_model().unwrap();
+                let m = solver
+                    .get_model()
+                    .expect("has an result after calling check()");
 
                 Some(
                     graph
                         .node_indices()
                         .filter(|i| matches!(graph[*i], Input(_)))
                         .map(|i| {
-                            let input_bv = bvs.get(&i).unwrap().as_bv().unwrap();
-                            let result_bv = m.eval(&input_bv).unwrap();
-                            let result_value = result_bv.as_u64().unwrap();
+                            let input_bv = bvs
+                                .get(&i)
+                                .expect("input BV must be always assigned something once solved")
+                                .as_bv()
+                                .expect("only inputs of type BV are allowed");
+
+                            let result_bv = m
+                                .eval(&input_bv)
+                                .expect("will always get a result because the formula is SAT");
+
+                            let result_value = result_bv.as_u64().expect(
+                                "inputs are BV, so the assignment of this BV has to be a BV also",
+                            );
 
                             BitVector(result_value)
                         })

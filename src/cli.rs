@@ -1,7 +1,13 @@
+use clap::ArgMatches;
 use clap::{crate_authors, crate_description, crate_name, crate_version, App, AppSettings, Arg};
 
 pub const LOGGING_LEVELS: [&str; 5] = ["trace", "debug", "info", "warn", "error"];
 pub const SOLVER: [&str; 3] = ["monster", "boolector", "z3"];
+
+pub fn expect_arg<'a>(m: &'a ArgMatches, arg: &str) -> &'a str {
+    m.value_of(arg)
+        .expect(format!("argument \"{}\" has to be set in CLI at all times", arg).as_str())
+}
 
 pub fn args() -> App<'static> {
     App::new(crate_name!())

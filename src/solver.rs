@@ -65,6 +65,11 @@ fn is_invertable(
     t: BitVector,
     d: OperandSide,
 ) -> bool {
+    fn compute_modinverse(s: BitVector) -> BitVector {
+        s.modinverse()
+            .expect("a modular inverse value has to exist at this point")
+    }
+
     match op {
         BVOperator::Add => x.mcb(t - s),
         BVOperator::Sub => match d {
@@ -74,11 +79,11 @@ fn is_invertable(
         BVOperator::Mul => {
             fn y(s: BitVector, t: BitVector) -> BitVector {
                 let c = s.ctz();
-                (t >> c) * (s >> c).modinverse().unwrap()
+                (t >> c) * compute_modinverse(s >> c)
             }
 
             ((-s | s) & t == t)
-                && (s == BitVector(0) || (!s.odd() || x.mcb(t * s.modinverse().unwrap())))
+                && (s == BitVector(0) || (!s.odd() || x.mcb(t * compute_modinverse(s))))
                 && (s.odd() || (x << s.ctz()).mcb(y(s, t) << s.ctz()))
         }
         BVOperator::Divu => {
@@ -276,7 +281,9 @@ fn compute_inverse_value(
         BVOperator::Mul => {
             let y = s >> s.ctz();
 
-            let y_inv = y.modinverse().unwrap();
+            let y_inv = y
+                .modinverse()
+                .expect("a modular inverse has to exist iff operator is invertable");
 
             let result = (t >> s.ctz()) * y_inv;
 
@@ -494,7 +501,7 @@ fn is_essential(
 fn get_operand(f: &Formula, n: SymbolId) -> SymbolId {
     f.edges_directed(n, Direction::Incoming)
         .next()
-        .unwrap()
+        .expect("every unary operator must have an operand")
         .source()
 }
 
