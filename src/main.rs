@@ -47,6 +47,9 @@ fn main() -> Result<()> {
         Some(("execute", args)) => {
             let input = Path::new(expect_arg(&args, "input-file"));
             let solver = expect_arg(&args, "solver");
+            let depth = args
+                .value_of_t::<u64>("max-execution-depth")
+                .expect("value is validated already");
 
             engine::execute(
                 input,
@@ -56,6 +59,7 @@ fn main() -> Result<()> {
                     "z3" => engine::Backend::Z3,
                     _ => unreachable!(),
                 },
+                depth,
             )
         }
         _ => unreachable!(),

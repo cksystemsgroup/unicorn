@@ -102,7 +102,9 @@ where
     result
 }
 
-pub fn compile_all_riscu() -> (
+pub fn compile_riscu(
+    filter: Option<&'static [&str]>,
+) -> (
     Arc<TempDir>,
     impl ParallelIterator<Item = (PathBuf, PathBuf)>,
 ) {
@@ -113,9 +115,13 @@ pub fn compile_all_riscu() -> (
         .unwrap()
         .par_bridge()
         .map(|dir_entry| dir_entry.unwrap().path())
-        .filter(|path| {
+        .filter(move |path| {
             if let Some(extension) = path.extension() {
-                extension == "c"
+                if let Some(names) = filter {
+                    names.iter().any(|name| path.ends_with(name))
+                } else {
+                    extension == "c"
+                }
             } else {
                 false
             }
@@ -126,7 +132,7 @@ pub fn compile_all_riscu() -> (
                 .join(source_file.with_extension("o").file_name().unwrap());
 
             let result_path = time(
-                format!("compile: {}", source_file.to_str().unwrap()).as_str(),
+                format!("compile: {}", source_file.display()).as_str(),
                 || compile(source_file.clone(), dst_file_path.clone()).unwrap(),
             );
 

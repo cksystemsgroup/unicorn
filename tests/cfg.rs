@@ -1,6 +1,6 @@
 mod common;
 
-use common::{compile_all_riscu, convert_dot_to_png_and_check, init, time};
+use common::{compile_riscu, convert_dot_to_png_and_check, init, time};
 use monster::cfg::*;
 use petgraph::dot::Dot;
 use rayon::prelude::*;
@@ -10,7 +10,7 @@ use std::{fs::File, io::prelude::*};
 fn can_build_control_flow_graph() {
     init();
 
-    compile_all_riscu().1.for_each(|(source, object)| {
+    compile_riscu(None).1.for_each(|(source, object)| {
         let ((graph, _), _) = time(format!("compute cfg: {:?}", source).as_str(), || {
             build_cfg_from_file(object.clone()).unwrap()
         });

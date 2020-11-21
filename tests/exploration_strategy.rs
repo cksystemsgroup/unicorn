@@ -1,6 +1,6 @@
 mod common;
 
-use common::{compile_all_riscu, convert_dot_to_png_and_check, init, time};
+use common::{compile_riscu, convert_dot_to_png_and_check, init, time};
 use monster::cfg::build_cfg_from_file;
 use monster::exploration_strategy::*;
 use petgraph::dot::Dot;
@@ -14,7 +14,7 @@ use std::{
 fn can_build_control_flow_graph_with_distance_from_exit() {
     init();
 
-    compile_all_riscu().1
+    compile_riscu(None).1
         .for_each(|(source_file, object_file)| {
         let ((graph, _), program) = time(format!("compute cfg: {:?}", source_file).as_str(), || {
             build_cfg_from_file(object_file.clone()).unwrap()
@@ -44,12 +44,14 @@ fn can_build_control_flow_graph_with_distance_from_exit() {
         let instructions_in_program = program.code.content.len() / 4;
         let actually = strategy.distances().len() as f64 / instructions_in_program as f64;
 
-        assert!(
-            actually > 0.75,
-            "at least 75% (actually: {:.1}%) of the instructions are reachable and have a distance assigned for: {:?}",
-            actually * 100.0,
-            source_file
-            );
+        if !source_file.ends_with("endless-loop.c") {
+            assert!(
+                actually > 0.75,
+                "at least 75% (actually: {:.1}%) of the instructions are reachable and have a distance assigned for: {:?}",
+                actually * 100.0,
+                source_file
+                );
+        }
 
         if cfg!(feature = "pictures") {
             convert_dot_to_png_and_check(dot_file).unwrap();
@@ -61,7 +63,7 @@ fn can_build_control_flow_graph_with_distance_from_exit() {
 fn can_unroll_procedures_in_control_flow_graph() {
     init();
 
-    compile_all_riscu()
+    compile_riscu(None)
         .1
         .for_each(|(source_file, object_file)| {
             let ((graph, _), program) =

@@ -30,7 +30,7 @@ pub enum Backend {
 }
 
 // TODO: What should the engine return as result?
-pub fn execute<P>(input: P, with: Backend) -> Result<()>
+pub fn execute<P>(input: P, with: Backend, max_exection_depth: u64) -> Result<()>
 where
     P: AsRef<Path>,
 {
@@ -43,7 +43,13 @@ where
             let solver = Rc::new(RefCell::new(MonsterSolver::new()));
             let state = Box::new(SymbolicState::new(solver));
 
-            let mut executor = Engine::new(ByteSize::mib(1), &program, &mut strategy, state);
+            let mut executor = Engine::new(
+                ByteSize::mib(1),
+                max_exection_depth,
+                &program,
+                &mut strategy,
+                state,
+            );
 
             executor.run()
         }
@@ -51,7 +57,13 @@ where
             let solver = Rc::new(RefCell::new(Boolector::new()));
             let state = Box::new(SymbolicState::new(solver));
 
-            let mut executor = Engine::new(ByteSize::mib(1), &program, &mut strategy, state);
+            let mut executor = Engine::new(
+                ByteSize::mib(1),
+                max_exection_depth,
+                &program,
+                &mut strategy,
+                state,
+            );
 
             executor.run()
         }
@@ -59,7 +71,13 @@ where
             let solver = Rc::new(RefCell::new(Z3::new()));
             let state = Box::new(SymbolicState::new(solver));
 
-            let mut executor = Engine::new(ByteSize::mib(1), &program, &mut strategy, state);
+            let mut executor = Engine::new(
+                ByteSize::mib(1),
+                max_exection_depth,
+                &program,
+                &mut strategy,
+                state,
+            );
 
             executor.run()
         }
@@ -94,6 +112,8 @@ where
     regs: [Value; 32],
     memory: Vec<Value>,
     strategy: &'a mut E,
+    execution_depth: u64,
+    max_exection_depth: u64,
     is_exited: bool,
 }
 
@@ -105,6 +125,7 @@ where
     // creates a machine state with a specific memory size
     pub fn new(
         memory_size: ByteSize,
+        max_exection_depth: u64,
         program: &Program,
         strategy: &'a mut E,
         symbolic_state: Box<SymbolicState<S>>,
@@ -152,6 +173,8 @@ where
             regs,
             memory,
             strategy,
+            execution_depth: 0,
+            max_exection_depth,
             is_exited: false,
         }
     }
@@ -170,6 +193,16 @@ where
 
     pub fn run(&mut self) -> Result<()> {
         while !self.is_exited {
+            if self.execution_depth >= self.max_exection_depth {
+                trace!("maximum execution depth reached => exiting this context");
+
+                self.is_exited = true;
+
+                break;
+            }
+
+            self.execution_depth += 1;
+
             let word = self.fetch();
 
             let instr = decode(word)?;

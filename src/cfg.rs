@@ -49,9 +49,8 @@ fn create_instruction_graph(binary: &[u8]) -> Result<ControlFlowGraph> {
         .chunks_exact(size_of::<u32>())
         .map(LittleEndian::read_u32)
         .try_for_each(|raw| {
-            decode(raw).and_then(|i| {
+            decode(raw).map(|i| {
                 g.add_node(i);
-                Ok(())
             })
         })?;
 
@@ -211,7 +210,7 @@ fn fix_exit_ecall(graph: &mut ControlFlowGraph) -> Result<NodeIndex> {
             }
             false
         })
-        .ok_or(Error::msg("Could not find exit ecall in binary"))
+        .ok_or_else(|| Error::msg("Could not find exit ecall in binary"))
 }
 
 /// Create a ControlFlowGraph from `u8` slice.

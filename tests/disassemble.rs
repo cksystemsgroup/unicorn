@@ -1,6 +1,6 @@
 mod common;
 
-use common::{compile_all_riscu, init};
+use common::{compile_riscu, init};
 use monster::disassemble::*;
 use rayon::prelude::*;
 
@@ -8,7 +8,7 @@ use rayon::prelude::*;
 fn can_disassemble_risc_u_binary() {
     init();
 
-    compile_all_riscu().1.for_each(|(source, object)| {
+    compile_riscu(None).1.for_each(|(source, object)| {
         let result = disassemble(object);
 
         assert!(

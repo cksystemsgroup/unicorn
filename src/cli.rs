@@ -6,7 +6,11 @@ pub const SOLVER: [&str; 3] = ["monster", "boolector", "z3"];
 
 pub fn expect_arg<'a>(m: &'a ArgMatches, arg: &str) -> &'a str {
     m.value_of(arg)
-        .expect(format!("argument \"{}\" has to be set in CLI at all times", arg).as_str())
+        .unwrap_or_else(|| panic!("argument \"{}\" has to be set in CLI at all times", arg))
+}
+
+fn is_u64(v: &str) -> Result<(), String> {
+    v.parse::<u64>().map(|_| ()).map_err(|e| e.to_string())
 }
 
 pub fn args() -> App<'static> {
@@ -22,15 +26,14 @@ pub fn args() -> App<'static> {
                 .takes_value(true)
                 .value_name("LEVEL")
                 .possible_values(&LOGGING_LEVELS)
-                .default_value(LOGGING_LEVELS[2]),
+                .default_value(LOGGING_LEVELS[2])
+                .global(true),
         )
         .subcommand(
             App::new("disassemble")
                 .about("Disassemble a RISC-V ELF binary")
                 .arg(
                     Arg::new("input-file")
-                        .short('c')
-                        .long("disassemble")
                         .value_name("FILE")
                         .about("Binary file to be disassembled")
                         .takes_value(true)
@@ -43,8 +46,6 @@ pub fn args() -> App<'static> {
                 .arg(
                     Arg::new("input-file")
                         .about("Source RISC-U binary to be analyzed")
-                        .short('f')
-                        .long("file")
                         .takes_value(true)
                         .value_name("FILE")
                         .required(true),
@@ -71,8 +72,6 @@ pub fn args() -> App<'static> {
                 .arg(
                     Arg::new("input-file")
                         .about("RISC-U ELF binary to be executed")
-                        .short('f')
-                        .long("file")
                         .takes_value(true)
                         .value_name("FILE")
                         .required(true),
@@ -83,8 +82,18 @@ pub fn args() -> App<'static> {
                         .short('s')
                         .long("solver")
                         .takes_value(true)
+                        .value_name("SOLVER")
                         .possible_values(&SOLVER)
                         .default_value(SOLVER[0]),
+                )
+                .arg(
+                    Arg::new("max-execution-depth")
+                        .about("Number of instructions, where the path execution will be aborted")
+                        .short('d')
+                        .long("execution-depth")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .validator(is_u64),
                 ),
         )
         .setting(AppSettings::SubcommandRequiredElseHelp)
