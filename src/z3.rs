@@ -30,7 +30,7 @@ impl Solver for Z3 {
         "Z3"
     }
 
-    fn solve_impl(&mut self, graph: &Formula, root: SymbolId) -> Option<Assignment<BitVector>> {
+    fn solve_impl(&self, graph: &Formula, root: SymbolId) -> Option<Assignment<BitVector>> {
         let config = Config::default();
         let ctx = Context::new(&config);
 

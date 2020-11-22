@@ -31,7 +31,7 @@ impl Solver for Boolector {
         "Boolector"
     }
 
-    fn solve_impl(&mut self, graph: &Formula, root: SymbolId) -> Option<Assignment<BitVector>> {
+    fn solve_impl(&self, graph: &Formula, root: SymbolId) -> Option<Assignment<BitVector>> {
         let solver = Rc::new(Btor::new());
         solver.set_opt(BtorOption::ModelGen(ModelGen::All));
         solver.set_opt(BtorOption::Incremental(true));

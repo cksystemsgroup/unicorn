@@ -9,10 +9,10 @@ use rand::{distributions::Uniform, random, thread_rng, Rng};
 
 pub type Assignment<T> = Vec<T>;
 
-pub trait Solver {
+pub trait Solver: Default {
     fn name() -> &'static str;
 
-    fn solve(&mut self, formula: &Formula, root: SymbolId) -> Option<Assignment<BitVector>> {
+    fn solve(&self, formula: &Formula, root: SymbolId) -> Option<Assignment<BitVector>> {
         debug!("try to solve with {} solver", Self::name());
 
         time_debug!("finished solving formula", {
@@ -20,7 +20,7 @@ pub trait Solver {
         })
     }
 
-    fn solve_impl(&mut self, formula: &Formula, root: SymbolId) -> Option<Assignment<BitVector>>;
+    fn solve_impl(&self, formula: &Formula, root: SymbolId) -> Option<Assignment<BitVector>>;
 }
 
 pub struct MonsterSolver {}
@@ -42,7 +42,7 @@ impl Solver for MonsterSolver {
         "Monster"
     }
 
-    fn solve_impl(&mut self, formula: &Formula, root: SymbolId) -> Option<Assignment<BitVector>> {
+    fn solve_impl(&self, formula: &Formula, root: SymbolId) -> Option<Assignment<BitVector>> {
         let ab = initialize_ab(formula);
         let at = compute_at(formula);
 
@@ -738,7 +738,7 @@ mod tests {
 
         let root = add_equals_constrain(&mut formula, input_idx, OperandSide::Lhs, 10);
 
-        let mut solver = MonsterSolver::default();
+        let solver = MonsterSolver::default();
         let result = solver.solve(&formula, root);
 
         assert!(result.is_some(), "has result for trivial equals constrain");
@@ -764,7 +764,7 @@ mod tests {
 
         let root = add_equals_constrain(&mut formula, instr_idx, OperandSide::Lhs, 10);
 
-        let mut solver = MonsterSolver::default();
+        let solver = MonsterSolver::default();
         let result = solver.solve(&formula, root);
 
         assert!(result.is_some(), "has result for trivial add op");

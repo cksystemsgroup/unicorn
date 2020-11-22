@@ -1,6 +1,7 @@
 mod cli;
 
 use anyhow::Result;
+use bytesize::ByteSize;
 use cli::expect_arg;
 use env_logger::{Env, TimestampPrecision};
 use monster::{
@@ -47,8 +48,13 @@ fn main() -> Result<()> {
         Some(("execute", args)) => {
             let input = Path::new(expect_arg(&args, "input-file"));
             let solver = expect_arg(&args, "solver");
+
             let depth = args
                 .value_of_t::<u64>("max-execution-depth")
+                .expect("value is validated already");
+
+            let megabytes = args
+                .value_of_t::<u64>("memory")
                 .expect("value is validated already");
 
             engine::execute(
@@ -60,6 +66,7 @@ fn main() -> Result<()> {
                     _ => unreachable!(),
                 },
                 depth,
+                ByteSize::mb(megabytes),
             )
         }
         _ => unreachable!(),
