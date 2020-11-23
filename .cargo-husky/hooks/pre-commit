@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 set -e
 
@@ -9,3 +9,4 @@ find . -name '*.rs' | xargs touch
 cargo clippy --all-targets --all-features -- -D warnings
 echo '+cargo fmt -- --check'
 cargo fmt -- --check
+
