@@ -338,8 +338,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "monster"
-version = "0.1.0"
+name = "monster-rs"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "boolector",

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use clap::{app_from_crate, App, AppSettings, Arg, ArgMatches};
+use clap::{crate_authors, crate_description, crate_version, App, AppSettings, Arg, ArgMatches};
 
 pub const LOGGING_LEVELS: [&str; 5] = ["trace", "debug", "info", "warn", "error"];
 pub const SOLVER: [&str; 3] = ["monster", "boolector", "z3"];
@@ -28,7 +28,10 @@ fn is_valid_memory_size(v: &str) -> Result<(), String> {
 }
 
 pub fn args() -> App<'static> {
-    app_from_crate!(", ")
+    App::new("Monster")
+        .version(crate_version!())
+        .author(crate_authors!(", "))
+        .about(crate_description!())
         .arg(
             Arg::new("verbose")
                 .short('v')

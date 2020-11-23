@@ -9,6 +9,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
 
 # TODO: docker is not supported for Github MacOs virtual environments.
 # This is a problem, because "cross" needs docker to cross compile rust code
@@ -18,8 +19,20 @@ jobs:
     name: Build and Test on Linux
     runs-on: ubuntu-20.04
     steps:
-      - uses: actions/checkout@v2
-       
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+            fetch-depth: 0
+            persist-credentials: false
+
+      - name: Install Rust Stable
+        uses: actions-rs/toolchain@v1
+        with:
+            profile: minimal
+            toolchain: stable
+            components: rustfmt, clippy
+            override: true
+
       - name: Cache Cargo Dependencies
         uses: actions/cache@v2
         env:
@@ -42,11 +55,35 @@ jobs:
           cargo install cross || true
           rustup target add riscv64gc-unknown-linux-gnu
 
+      - name: Check Format
+        uses: actions-rs/cargo@v1
+        with:
+            command: fmt
+            args: -- --check
+
+      - name: Clippy
+        uses: actions-rs/clippy-check@v1
+        with:
+            token: ${{ secrets.GITHUB_TOKEN }}
+            args: --all-targets --all-features -- -D warnings
+
       - name: Build
-        run: cargo build --locked
+        uses: actions-rs/cargo@v1
+        with:
+            command: build
+            args: --locked
+
+      - name: Doc
+        uses: actions-rs/cargo@v1
+        with:
+            command: doc
 
       - name: Test
-        run: cargo test --locked
+        uses: actions-rs/cargo@v1
+        with:
+            command: test
+            args: --locked
+
 
   security-scan:
     name: Security Scan of Dependencies
