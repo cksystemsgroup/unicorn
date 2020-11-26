@@ -1,6 +1,6 @@
 mod cli;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use bytesize::ByteSize;
 use cli::expect_arg;
 use env_logger::{Env, TimestampPrecision};
@@ -10,21 +10,17 @@ use monster::{
     engine,
     exploration_strategy::ShortestPathStrategy,
 };
-use std::path::Path;
+use std::{env, io::Write, path::Path};
 
 fn main() -> Result<()> {
     let matches = cli::args().get_matches();
 
+    // process global flags
     let log_level = expect_arg(&matches, "verbose");
 
-    let env = Env::new()
-        .filter_or("MONSTER_LOG", log_level)
-        .write_style_or("MONSTER_LOG_STYLE", "always");
+    init_logger(log_level)?;
 
-    env_logger::Builder::from_env(env)
-        .format_timestamp(Some(TimestampPrecision::Millis))
-        .init();
-
+    // process subcommands
     match matches.subcommand() {
         Some(("disassemble", args)) => {
             let input = Path::new(expect_arg(&args, "input-file"));
@@ -71,4 +67,22 @@ fn main() -> Result<()> {
         }
         _ => unreachable!(),
     }
+}
+
+fn init_logger(cli_log_level: &str) -> Result<()> {
+    let env = Env::new()
+        .filter_or("MONSTER_LOG", cli_log_level)
+        .write_style_or("MONSTER_LOG_STYLE", "always");
+
+    let mut builder = env_logger::Builder::from_env(env);
+
+    builder.format_timestamp(Some(TimestampPrecision::Millis));
+
+    let level = env::var("MONSTER_LOG").unwrap_or_else(|_| cli_log_level.to_owned());
+
+    if level == "info" {
+        builder.format(|buf, record| writeln!(buf, "{}", record.args()));
+    }
+
+    builder.try_init().context("Failed to initialize logger")
 }
