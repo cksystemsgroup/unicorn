@@ -98,6 +98,29 @@ fn main() -> Result<()> {
 
             Ok(())
         }
+        Some(("rarity", args)) => {
+            let input = Path::new(expect_arg(&args, "input-file"));
+            let output = Path::new(expect_arg(&args, "output-dir"));
+
+            let megabytes = args
+                .value_of_t::<u64>("memory")
+                .expect("value is validated already");
+
+            let cycles = args
+                .value_of_t::<u64>("cycles")
+                .expect("value is validated already");
+
+            let rounds = args
+                .value_of_t::<u64>("rounds")
+                .expect("value is validated already");
+
+            println!(
+                "input={:?}, output={:?}, mb={}, cycles={}, rounds={}",
+                input, output, megabytes, cycles, rounds
+            );
+
+            Ok(())
+        }
         _ => unreachable!(),
     }
 }

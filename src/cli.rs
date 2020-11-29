@@ -123,6 +123,56 @@ pub fn args() -> App<'static> {
                         .validator(is_valid_memory_size),
                 ),
         )
+        .subcommand(
+            App::new("rarity")
+                .about("Performs rarity simulation on a RISC-U ELF binary")
+                .arg(
+                    Arg::new("input-file")
+                        .about("Source RISC-U binary to be analyzed")
+                        .takes_value(true)
+                        .value_name("FILE")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("output-dir")
+                        .about("Output directory to write round states to")
+                        .short('o')
+                        .long("output-dir")
+                        .takes_value(true)
+                        .value_name("DIR")
+                        .default_value("states"),
+                )
+                .arg(
+                    Arg::new("memory")
+                        .about("Amount of memory to be used per execution context in megabytes [possible_values: 1 .. 1024]")
+                        .short('m')
+                        .long("memory")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .default_value("1")
+                        .validator(is_valid_memory_size),
+                )
+                .arg(
+                    Arg::new("cycles")
+                        .about("Instructions to be executed for each round")
+                        .short('c')
+                        .long("cycles")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .default_value("1000")
+                        .validator(is_u64),
+                )
+                .arg(
+                    Arg::new("rounds")
+                        .about("Number of distinct runs")
+                        .short('r')
+                        .long("rounds")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .default_value("10")
+                        .validator(is_u64),
+                ),
+        )
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .global_setting(AppSettings::GlobalVersion)
 }
