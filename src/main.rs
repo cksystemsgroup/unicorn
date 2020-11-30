@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use bytesize::ByteSize;
 use cli::expect_arg;
 use env_logger::{Env, TimestampPrecision};
+use log::info;
 use monster::{
     cfg::{build_cfg_from_file, write_to_file},
     disassemble::disassemble,
@@ -53,7 +54,7 @@ fn main() -> Result<()> {
                 .value_of_t::<u64>("memory")
                 .expect("value is validated already");
 
-            engine::execute(
+            if let Some(bug) = engine::execute(
                 input,
                 match solver {
                     "monster" => engine::Backend::Monster,
@@ -63,7 +64,13 @@ fn main() -> Result<()> {
                 },
                 depth,
                 ByteSize::mb(megabytes),
-            )
+            )? {
+                info!("bug found:\n{}", bug);
+            } else {
+                info!("no bug found in binary");
+            }
+
+            Ok(())
         }
         _ => unreachable!(),
     }

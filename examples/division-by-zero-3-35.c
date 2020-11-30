@@ -14,6 +14,8 @@ uint64_t main() {
 
   x = malloc(8);
 
+  *x = 0;
+
   read(0, x, 1);
 
   *x = *x - 48;

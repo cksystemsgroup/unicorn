@@ -65,7 +65,11 @@ impl<'a> ExplorationStrategy for ShortestPathStrategy<'a> {
         let distance1 = self.distance.get(&self.address_to_cfg_idx(branch1));
         let distance2 = self.distance.get(&self.address_to_cfg_idx(branch2));
 
-        trace!("branch distance: d1={:?}, d2={:?}", distance1, distance2);
+        trace!(
+            "branch distance: d1={:?}, d2={:?} |- choose smallest",
+            distance1,
+            distance2
+        );
 
         match (distance1, distance2) {
             (Some(distance1), Some(distance2)) => {

@@ -11,6 +11,7 @@ uint64_t main() {
   uint64_t* v;
 
   x = malloc(8);
+  *x = 0;
 
   // access code segment by reaching over _bump variable, no --check-block-access required
 

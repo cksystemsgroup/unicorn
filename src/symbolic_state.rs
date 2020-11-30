@@ -1,13 +1,10 @@
-use crate::bitvec::BitVector;
-use crate::solver::Solver;
+use crate::{bitvec::BitVector, bug::Witness, solver::Solver};
 use log::{debug, trace, Level};
 pub use petgraph::graph::{EdgeIndex, NodeIndex};
-use petgraph::{
-    visit::{VisitMap, Visitable},
-    Direction, Graph,
-};
+use petgraph::{Direction, Graph};
 use riscu::Instruction;
 use std::{collections::HashMap, fmt, rc::Rc};
+use thiserror::Error;
 
 #[derive(Clone, Debug, Copy, Eq, Hash, PartialEq)]
 pub enum OperandSide {
@@ -107,6 +104,12 @@ pub fn get_operands(graph: &Formula, sym: SymbolId) -> (SymbolId, Option<SymbolI
     (lhs, rhs)
 }
 
+#[derive(Debug, Error)]
+pub enum QueryError {
+    #[error("failed to solve query")]
+    SolverError,
+}
+
 #[derive(Debug)]
 pub struct SymbolicState<S>
 where
@@ -152,13 +155,18 @@ where
         i
     }
 
-    pub fn create_operator(
+    pub fn create_instruction(
         &mut self,
         instruction: Instruction,
         lhs: SymbolId,
         rhs: SymbolId,
     ) -> SymbolId {
         let op = instruction_to_bv_operator(instruction);
+
+        self.create_operator(op, lhs, rhs)
+    }
+
+    pub fn create_operator(&mut self, op: BVOperator, lhs: SymbolId, rhs: SymbolId) -> SymbolId {
         let n = Node::Operator(op);
         let n_idx = self.data_flow.add_node(n);
 
@@ -183,6 +191,66 @@ where
         trace!("new input: x{} := {:?}", idx.index(), name);
 
         idx
+    }
+
+    pub fn create_beq_path_condition(&mut self, decision: bool, lhs: SymbolId, rhs: SymbolId) {
+        let mut pc_idx = self.create_operator(BVOperator::Equals, lhs, rhs);
+
+        if !decision {
+            let not_idx = self.data_flow.add_node(Node::Operator(BVOperator::Not));
+
+            self.data_flow.add_edge(pc_idx, not_idx, OperandSide::Lhs);
+
+            pc_idx = not_idx;
+        }
+
+        if let Some(old_pc_idx) = self.path_condition {
+            pc_idx = self.create_operator(BVOperator::BitwiseAnd, old_pc_idx, pc_idx)
+        }
+
+        self.path_condition = Some(pc_idx);
+    }
+    pub fn execute_query(&mut self, query: Query) -> Result<Option<Witness>, QueryError> {
+        // prepare graph for query
+        let (root, cleanup_nodes, cleanup_edges) = match query {
+            Query::Equals(_) | Query::NotEquals(_) => self.prepare_query(query),
+            Query::Reachable => {
+                if let Some(pc_idx) = self.path_condition {
+                    (pc_idx, vec![], vec![])
+                } else {
+                    // a path without a condition is always reachable
+                    debug!("path has no conditon and is therefore reachable");
+
+                    return Ok(Some(self.build_trivial_witness()));
+                }
+            }
+        };
+
+        if log::log_enabled!(Level::Debug) {
+            debug!("query to solve:");
+
+            let root_id = self.print_recursive(root);
+
+            debug!("assert x{} is 1", root_id);
+        }
+
+        let solver_result = self.solver.solve(&self.data_flow, root);
+
+        let result = if let Some(ref assignment) = solver_result {
+            Ok(Some(self.build_witness(root, assignment)))
+        } else {
+            // TODO: insert solver error here
+            Err(QueryError::SolverError)
+        };
+
+        cleanup_edges.iter().for_each(|e| {
+            self.data_flow.remove_edge(*e);
+        });
+        cleanup_nodes.iter().for_each(|n| {
+            self.data_flow.remove_node(*n);
+        });
+
+        result
     }
 
     fn append_path_condition(
@@ -224,7 +292,7 @@ where
                     let not_edge_idx = self.data_flow.add_edge(root_idx, not_idx, OperandSide::Lhs);
 
                     self.append_path_condition(
-                        root_idx,
+                        not_idx,
                         vec![root_idx, const_idx, not_idx],
                         vec![const_edge_idx, sym_edge_idx, not_edge_idx],
                     )
@@ -236,86 +304,8 @@ where
                     )
                 }
             }
-            Query::Reachable => panic!("nothing to be built for that query"),
+            Query::Reachable => panic!("nothing to be prepeared for that query"),
         }
-    }
-
-    fn print_recursive<M: VisitMap<SymbolId>>(&self, n: NodeIndex, visit_map: &mut M) {
-        if visit_map.is_visited(&n) {
-            return;
-        }
-        visit_map.visit(n);
-
-        match &self.data_flow[n] {
-            Node::Operator(op) => {
-                let mut operands = self
-                    .data_flow
-                    .neighbors_directed(n, Direction::Incoming)
-                    .detach();
-
-                if op.is_unary() {
-                    let x = operands
-                        .next(&self.data_flow)
-                        .expect("every unary operator must have 1 operand")
-                        .1;
-
-                    self.print_recursive(x, visit_map);
-
-                    debug!("x{} := {}x{}", n.index(), op, x.index());
-                } else {
-                    let lhs = operands
-                        .next(&self.data_flow)
-                        .expect("every binary operator must have an lhs operand")
-                        .1;
-
-                    let rhs = operands
-                        .next(&self.data_flow)
-                        .expect("every binary operator must have an rhs operand")
-                        .1;
-
-                    self.print_recursive(lhs, visit_map);
-                    self.print_recursive(rhs, visit_map);
-
-                    debug!("x{} := x{} {} x{}", n.index(), lhs.index(), op, rhs.index(),)
-                }
-            }
-            Node::Constant(c) => debug!("x{} := {}", n.index(), c),
-            Node::Input(name) => debug!("x{} := {:?}", n.index(), name),
-        }
-    }
-
-    pub fn execute_query(&mut self, query: Query) -> Option<Vec<BitVector>> {
-        // prepare graph for query
-        let (root, cleanup_nodes, cleanup_edges) = match query {
-            Query::Equals(_) | Query::NotEquals(_) => self.prepare_query(query),
-            Query::Reachable => {
-                if let Some(pc_idx) = self.path_condition {
-                    (pc_idx, vec![], vec![])
-                } else {
-                    // a path without a condition is always reachable
-                    debug!("path has no conditon and is therefore reachable");
-                    return Some(vec![]);
-                }
-            }
-        };
-
-        if log::log_enabled!(Level::Debug) {
-            debug!("query to solve:");
-            let mut visited = self.data_flow.visit_map();
-            self.print_recursive(root, &mut visited);
-            debug!("assert x{} is 1", root.index());
-        }
-
-        let result = self.solver.solve(&self.data_flow, root);
-
-        cleanup_edges.iter().for_each(|e| {
-            self.data_flow.remove_edge(*e);
-        });
-        cleanup_nodes.iter().for_each(|n| {
-            self.data_flow.remove_node(*n);
-        });
-
-        result
     }
 
     fn connect_operator(
@@ -332,40 +322,147 @@ where
         )
     }
 
-    pub fn create_beq_path_condition(&mut self, decision: bool, lhs: SymbolId, rhs: SymbolId) {
-        let node = Node::Operator(BVOperator::Equals);
-        let mut pc_idx = self.data_flow.add_node(node);
+    fn print_recursive(&self, root: NodeIndex) -> u64 {
+        let mut visited = HashMap::<NodeIndex, u64>::new();
+        let mut printer = Printer { id: 0 };
 
-        self.connect_operator(lhs, rhs, pc_idx);
-
-        if !decision {
-            let not_idx = self.data_flow.add_node(Node::Operator(BVOperator::Not));
-
-            self.data_flow.add_edge(pc_idx, not_idx, OperandSide::Lhs);
-
-            pc_idx = not_idx;
-        }
-
-        if let Some(old_pc_idx) = self.path_condition {
-            let con_idx = self
-                .data_flow
-                .add_node(Node::Operator(BVOperator::BitwiseAnd));
-
-            self.connect_operator(old_pc_idx, pc_idx, con_idx);
-
-            pc_idx = con_idx;
-        }
-
-        self.path_condition = Some(pc_idx);
+        self.traverse(root, &mut visited, &mut printer)
     }
 
-    pub fn get_input_assignments(&self, assignment: &[BitVector]) -> HashMap<String, BitVector> {
-        self.data_flow
-            .node_indices()
-            .filter_map(|idx| match self.data_flow[idx].clone() {
-                Node::Input(name) => Some((name, assignment[idx.index()])),
-                _ => None,
-            })
-            .collect()
+    fn build_trivial_witness(&self) -> Witness {
+        let mut witness = Witness::new();
+
+        self.data_flow.node_indices().for_each(|idx| {
+            if let Node::Input(name) = &self.data_flow[idx] {
+                witness.add_variable(name.as_str(), BitVector(0));
+            }
+        });
+
+        witness
+    }
+
+    fn build_witness(&self, root: NodeIndex, assignment: &[BitVector]) -> Witness {
+        let mut visited = HashMap::<NodeIndex, usize>::new();
+
+        trace!("root={}", root.index());
+        trace!("assignment.len()={}", assignment.len());
+
+        let mut witness = Witness::new();
+        let mut builder = WitnessBuilder {
+            witness: &mut witness,
+            assignment,
+        };
+
+        self.traverse(root, &mut visited, &mut builder);
+
+        witness
+    }
+
+    fn traverse<V, R>(&self, n: NodeIndex, visit_map: &mut HashMap<NodeIndex, R>, v: &mut V) -> R
+    where
+        V: Visitor<R>,
+        R: Copy,
+    {
+        if let Some(result) = visit_map.get(&n) {
+            return *result;
+        }
+
+        let result = match &self.data_flow[n] {
+            Node::Operator(op) => {
+                let mut operands = self
+                    .data_flow
+                    .neighbors_directed(n, Direction::Incoming)
+                    .detach();
+
+                if op.is_unary() {
+                    let x = operands
+                        .next(&self.data_flow)
+                        .expect("every unary operator must have 1 operand")
+                        .1;
+
+                    let x = self.traverse(x, visit_map, v);
+
+                    v.unary(n, *op, x)
+                } else {
+                    let lhs = operands
+                        .next(&self.data_flow)
+                        .expect("every binary operator must have an lhs operand")
+                        .1;
+
+                    let rhs = operands
+                        .next(&self.data_flow)
+                        .expect("every binary operator must have an rhs operand")
+                        .1;
+
+                    let lhs = self.traverse(lhs, visit_map, v);
+                    let rhs = self.traverse(rhs, visit_map, v);
+
+                    v.binary(n, *op, lhs, rhs)
+                }
+            }
+            Node::Constant(c) => v.constant(n, BitVector(*c)),
+            Node::Input(name) => v.input(n, name),
+        };
+
+        visit_map.insert(n, result);
+
+        result
+    }
+}
+
+trait Visitor<T> {
+    fn input(&mut self, idx: NodeIndex, name: &str) -> T;
+    fn constant(&mut self, idx: NodeIndex, v: BitVector) -> T;
+    fn unary(&mut self, idx: NodeIndex, op: BVOperator, v: T) -> T;
+    fn binary(&mut self, idx: NodeIndex, op: BVOperator, lhs: T, rhs: T) -> T;
+}
+
+struct Printer {
+    id: u64,
+}
+
+impl Printer {
+    fn with_id<F: Fn(u64)>(&mut self, f: F) -> u64 {
+        let id = self.id;
+        f(id);
+        self.id += 1;
+        id
+    }
+}
+
+impl Visitor<u64> for Printer {
+    fn input(&mut self, _idx: NodeIndex, name: &str) -> u64 {
+        self.with_id(|id| debug!("x{} := {:?}", id, name))
+    }
+    fn constant(&mut self, _idx: NodeIndex, v: BitVector) -> u64 {
+        self.with_id(|id| debug!("x{} := {}", id, v.0))
+    }
+    fn unary(&mut self, _idx: NodeIndex, op: BVOperator, v: u64) -> u64 {
+        self.with_id(|id| debug!("x{} := {}x{}", id, op, v))
+    }
+    fn binary(&mut self, _idx: NodeIndex, op: BVOperator, lhs: u64, rhs: u64) -> u64 {
+        self.with_id(|id| debug!("x{} := x{} {} x{}", id, lhs, op, rhs))
+    }
+}
+
+struct WitnessBuilder<'a> {
+    witness: &'a mut Witness,
+    assignment: &'a [BitVector],
+}
+
+impl<'a> Visitor<usize> for WitnessBuilder<'a> {
+    fn input(&mut self, idx: NodeIndex, name: &str) -> usize {
+        self.witness
+            .add_variable(name, self.assignment[idx.index()])
+    }
+    fn constant(&mut self, _idx: NodeIndex, v: BitVector) -> usize {
+        self.witness.add_constant(v)
+    }
+    fn unary(&mut self, idx: NodeIndex, op: BVOperator, v: usize) -> usize {
+        self.witness.add_unary(op, v, self.assignment[idx.index()])
+    }
+    fn binary(&mut self, idx: NodeIndex, op: BVOperator, lhs: usize, rhs: usize) -> usize {
+        self.witness
+            .add_binary(lhs, op, rhs, self.assignment[idx.index()])
     }
 }

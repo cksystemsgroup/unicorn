@@ -15,6 +15,8 @@ uint64_t main() {
   a = 0;
   x = malloc(8);
 
+  *x = 0;
+
   read(0, x, 1);
 
   *x = *x - 49;

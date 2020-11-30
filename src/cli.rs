@@ -124,3 +124,53 @@ pub fn args() -> App<'static> {
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .global_setting(AppSettings::GlobalVersion)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn with_matches<F>(a: Vec<&str>, f: F)
+    where
+        F: Fn(&ArgMatches),
+    {
+        let matches = args().try_get_matches_from(a.clone()).unwrap();
+
+        f(matches.subcommand_matches(a[1]).unwrap())
+    }
+
+    #[test]
+    fn test_execute_defaults_are_set() {
+        with_matches(vec!["monster", "execute", "file.o"], |m| {
+            assert!(m.is_present("memory"), "Default memory size is set");
+            assert!(
+                m.is_present("max-execution-depth"),
+                "Default execution depth is set"
+            );
+            assert!(m.is_present("solver"), "Default solver is set");
+        });
+    }
+
+    #[test]
+    fn test_execute_memory_size_argument() {
+        assert!(
+            args()
+                .try_get_matches_from(vec!["monster", "execute", "-m", "0", "file.o"])
+                .is_err(),
+            "Memory size 0 is invalid"
+        );
+
+        assert!(
+            args()
+                .try_get_matches_from(vec!["monster", "execute", "-m", "-23424", "file.o"])
+                .is_err(),
+            "Negative memory size is invalid"
+        );
+
+        assert!(
+            args()
+                .try_get_matches_from(vec!["monster", "execute", "-m", "23424", "file.o"])
+                .is_err(),
+            "memory size is invalid (out of range)"
+        );
+    }
+}

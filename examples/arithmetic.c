@@ -10,7 +10,9 @@ uint64_t main() {
   c = 432;
   x = malloc(8);
 
-  read(0, x, 8);
+  *x = 0;
+
+  read(0, x, 1);
 
   a = a * *x;
 

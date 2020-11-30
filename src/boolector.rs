@@ -44,7 +44,7 @@ impl Solver for Boolector {
         if let SolverResult::Sat = solver.sat() {
             let assignments = graph
                 .node_indices()
-                .filter(|i| matches!(graph[*i], Input(_)))
+                //.filter(|i| matches!(graph[*i], Input(_)))
                 .map(|i| {
                     let bv = bvs.get(&i).expect("every input must be part of bvs");
 
@@ -87,7 +87,11 @@ fn traverse<'a>(
                         BVOperator::Divu => traverse(graph, lhs, solver, bvs)
                             .udiv(&traverse(graph, rhs, solver, bvs)),
                         BVOperator::Sltu => traverse(graph, lhs, solver, bvs)
-                            .slt(&traverse(graph, rhs, solver, bvs)),
+                            .slt(&traverse(graph, rhs, solver, bvs))
+                            .cond_bv(
+                                &BV::from_u64(solver.clone(), 1, 64),
+                                &BV::from_u64(solver.clone(), 0, 64),
+                            ),
                         i => unimplemented!("binary operator: {:?}", i),
                     }
                 }

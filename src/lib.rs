@@ -3,6 +3,7 @@ pub mod util;
 
 pub mod bitvec;
 pub mod boolector;
+pub mod bug;
 pub mod cfg;
 pub mod disassemble;
 pub mod engine;

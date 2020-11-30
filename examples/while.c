@@ -5,6 +5,8 @@ uint64_t main() {
   i = 0;
   x = malloc(8);
 
+  *x = 0;
+
   read(0, x, 1);
 
   while (*x) {

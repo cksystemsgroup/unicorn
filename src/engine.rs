@@ -1,18 +1,23 @@
 use crate::{
-    bitvec::BitVector,
     boolector::Boolector,
+    bug::{BasicInfo, Bug},
     cfg::build_cfg_from_file,
     exploration_strategy::{ExplorationStrategy, ShortestPathStrategy},
-    solver::{Assignment, MonsterSolver, Solver},
-    symbolic_state::{Query, SymbolId, SymbolicState},
+    solver::{MonsterSolver, Solver},
+    symbolic_state::{BVOperator, Query, QueryError, SymbolId, SymbolicState},
     z3::Z3,
 };
-use anyhow::Result;
 use byteorder::{ByteOrder, LittleEndian};
 use bytesize::ByteSize;
-use log::{debug, info, trace};
-use riscu::{decode, types::*, Instruction, Program, ProgramSegment, Register};
-use std::{collections::HashMap, fmt, mem::size_of, path::Path, rc::Rc};
+use log::{debug, trace};
+use riscu::{
+    decode, types::*, DecodingError, Instruction, Program, ProgramSegment, Register,
+    INSTRUCTION_SIZE as INSTR_SIZE,
+};
+use std::{fmt, mem::size_of, path::Path, rc::Rc};
+use thiserror::Error;
+
+const INSTRUCTION_SIZE: u64 = INSTR_SIZE as u64;
 
 #[allow(dead_code)]
 pub enum SyscallId {
@@ -29,17 +34,16 @@ pub enum Backend {
     Z3,
 }
 
-// TODO: What should the engine return as result?
 pub fn execute<P>(
     input: P,
     with: Backend,
     max_exection_depth: u64,
     memory_size: ByteSize,
-) -> Result<()>
+) -> Result<Option<Bug>, EngineError>
 where
     P: AsRef<Path>,
 {
-    let ((graph, _), program) = build_cfg_from_file(input)?;
+    let ((graph, _), program) = build_cfg_from_file(input).map_err(EngineError::IoError)?;
 
     let strategy = ShortestPathStrategy::new(&graph, program.code.address);
 
@@ -61,7 +65,7 @@ fn create_and_run<E, S>(
     strategy: &E,
     max_exection_depth: u64,
     memory_size: ByteSize,
-) -> Result<()>
+) -> Result<Option<Bug>, EngineError>
 where
     E: ExplorationStrategy,
     S: Solver + Default,
@@ -89,6 +93,24 @@ impl fmt::Display for Value {
     }
 }
 
+#[derive(Debug, Error)]
+pub enum EngineError {
+    #[error("failed to load binary")]
+    IoError(anyhow::Error),
+
+    #[error("engine does not support {0}")]
+    NotSupported(String),
+
+    #[error("has reached the maximum execution depth of {0}")]
+    ExecutionDepthReached(u64),
+
+    #[error("failed to decode instruction at PC: {0:#010x}")]
+    InvalidInstructionEncoding(u64, DecodingError),
+
+    #[error("failed to compute satisfyability for formula")]
+    SatUnknown(QueryError),
+}
+
 pub struct Engine<'a, E, S>
 where
     E: ExplorationStrategy,
@@ -102,7 +124,7 @@ where
     strategy: &'a E,
     execution_depth: u64,
     max_exection_depth: u64,
-    is_exited: bool,
+    is_running: bool,
 }
 
 impl<'a, E, S> Engine<'a, E, S>
@@ -118,11 +140,12 @@ where
         strategy: &'a E,
         symbolic_state: Box<SymbolicState<S>>,
     ) -> Self {
-        let mut regs = [Value::Concrete(0); 32];
+        let mut regs = [Value::Uninitialized; 32];
         let mut memory = vec![Value::Uninitialized; memory_size.as_u64() as usize / 8];
 
         let sp = memory_size.as_u64() - 8;
         regs[Register::Sp as usize] = Value::Concrete(sp);
+        regs[Register::Zero as usize] = Value::Concrete(0);
 
         // TODO: Init main function arguments
         let argc = 0;
@@ -163,58 +186,92 @@ where
             strategy,
             execution_depth: 0,
             max_exection_depth,
-            is_exited: false,
+            is_running: false,
         }
     }
 
-    pub fn run(&mut self) -> Result<()> {
-        while !self.is_exited {
+    fn decode(&self, raw: u32) -> Result<Instruction, EngineError> {
+        decode(raw).map_err(|e| EngineError::InvalidInstructionEncoding(self.pc, e))
+    }
+
+    pub fn run(&mut self) -> Result<Option<Bug>, EngineError> {
+        self.is_running = true;
+
+        loop {
             if self.execution_depth >= self.max_exection_depth {
                 trace!("maximum execution depth reached => exiting this context");
 
-                self.is_exited = true;
+                self.is_running = false;
 
-                break;
+                return Err(EngineError::ExecutionDepthReached(self.execution_depth));
             }
 
             self.execution_depth += 1;
 
-            let word = self.fetch();
+            let bug = self
+                .fetch()
+                .and_then(|raw| self.decode(raw))
+                .and_then(|instr| self.execute(instr))?;
 
-            let instr = decode(word)?;
-
-            self.execute(instr)?;
-        }
-
-        Ok(())
-    }
-
-    fn handle_solver_result(&self, reason: &str, solver_result: Option<Assignment<BitVector>>) {
-        if let Some(assignment) = solver_result {
-            let printable_assignments = self.symbolic_state.get_input_assignments(&assignment);
-
-            info!("{}: found input assignment", reason);
-            print_assignment(&printable_assignments);
-
-            info!("exiting execution engine");
-            std::process::exit(0);
+            if bug.is_some() || !self.is_running {
+                return Ok(bug);
+            }
         }
     }
 
-    fn check_for_uninitialized_memory(&mut self, instruction: &str, v1: Value, v2: Value) {
-        trace!("{}: {}, {} => computing reachability", instruction, v1, v2);
+    fn execute_query<F>(
+        &mut self,
+        query: Query,
+        basic_info_to_bug: F,
+    ) -> Result<Option<Bug>, EngineError>
+    where
+        F: Fn(BasicInfo) -> Bug,
+    {
+        Ok(self
+            .symbolic_state
+            .execute_query(query)
+            // TODO: differenciate between unsat, timeout and error
+            //.map_err(|e| EngineError::SatUnknown(e))
+            .map_or(None, |result| {
+                result.map(|witness| {
+                    basic_info_to_bug(BasicInfo {
+                        witness,
+                        pc: self.pc,
+                    })
+                })
+            }))
+    }
 
-        let solver_result = self.symbolic_state.execute_query(Query::Reachable);
-
-        self.handle_solver_result(
-            format!("access to unintialized memory in {}", instruction).as_str(),
-            solver_result,
+    fn check_for_uninitialized_memory(
+        &mut self,
+        instruction: Instruction,
+        v1: Value,
+        v2: Value,
+    ) -> Result<Option<Bug>, EngineError> {
+        trace!(
+            "{}: {}, {} => computing reachability",
+            instruction_to_str(instruction),
+            v1,
+            v2
         );
+
+        self.execute_query(Query::Reachable, |info| Bug::AccessToUnitializedMemory {
+            info,
+            instruction,
+            operands: vec![v1, v2],
+        })
     }
 
-    fn check_for_valid_memory_address(&mut self, instruction: &str, address: u64) -> bool {
+    fn is_in_vaddr_range(&self, vaddr: u64) -> bool {
+        vaddr as usize / size_of::<u64>() < self.memory.len()
+    }
+
+    fn check_for_valid_memory_address(
+        &mut self,
+        instruction: &str,
+        address: u64,
+    ) -> Result<Option<Bug>, EngineError> {
         let is_alignment_ok = address % size_of::<u64>() as u64 == 0;
-        let is_in_vadd_range = address as usize / size_of::<u64>() < self.memory.len();
 
         if !is_alignment_ok {
             trace!(
@@ -223,26 +280,13 @@ where
                 address
             );
 
-            let solver_result = self.symbolic_state.execute_query(Query::Reachable);
+            self.is_running = false;
 
-            self.handle_solver_result(
-                format!(
-                    "address {:#x} not double word aligned in {}",
-                    address, instruction
-                )
-                .as_str(),
-                solver_result,
-            );
-
-            trace!(
-                "{}: could not find valid assignment => exiting context",
-                instruction
-            );
-
-            self.is_exited = true;
-
-            false
-        } else if !is_in_vadd_range {
+            self.execute_query(Query::Reachable, |info| Bug::AccessToUnalignedAddress {
+                info,
+                address,
+            })
+        } else if !self.is_in_vaddr_range(address) {
             trace!(
                 "{}: address {:#x} out of virtual address range (0x0 - {:#x}) => computing reachability",
                 instruction,
@@ -250,34 +294,18 @@ where
                 self.memory.len() * 8,
             );
 
-            let solver_result = self.symbolic_state.execute_query(Query::Reachable);
+            self.is_running = false;
 
-            self.handle_solver_result(
-                format!(
-                    "address {:#x} out of virtual address range (0x0 - {:#x}) in {}",
-                    address,
-                    self.memory.len() * 8,
-                    instruction,
-                )
-                .as_str(),
-                solver_result,
-            );
-
-            trace!(
-                "{}: could not find valid assignment => exiting context",
-                instruction
-            );
-
-            self.is_exited = true;
-
-            false
+            self.execute_query(Query::Reachable, |info| Bug::AccessToOutOfRangeAddress {
+                info,
+            })
         } else {
-            true
+            Ok(None)
         }
     }
 
     fn execute_lui(&mut self, utype: UType) {
-        let immediate = u64::from(utype.imm());
+        let immediate = u64::from(utype.imm()) << 12;
 
         let result = Value::Concrete(immediate);
 
@@ -289,85 +317,67 @@ where
             result,
         );
 
-        if utype.rd() != Register::Zero {
-            self.regs[utype.rd() as usize] = result;
-        }
+        self.assign_rd(utype.rd(), result);
 
-        self.pc += 4;
+        self.pc += INSTRUCTION_SIZE;
     }
 
-    fn execute_divu(&mut self, instruction: Instruction, rtype: RType) {
-        match self.regs[rtype.rs2() as usize] {
+    fn execute_divu(
+        &mut self,
+        instruction: Instruction,
+        rtype: RType,
+    ) -> Result<Option<Bug>, EngineError> {
+        let bug = match self.regs[rtype.rs2() as usize] {
             Value::Symbolic(divisor) => {
-                // TODO: fix this possible exit point when refactoring engine interface
                 trace!("divu: symbolic divisor -> find input for divisor == 0");
 
-                let solver_result = self
-                    .symbolic_state
-                    .execute_query(Query::Equals((divisor, 0)));
-
-                self.handle_solver_result("division by zero in DIVU", solver_result);
+                self.execute_query(Query::Equals((divisor, 0)), |info| Bug::DivisionByZero {
+                    info,
+                })?
             }
             Value::Concrete(divisor) if divisor == 0 => {
-                // TODO: fix this possible exit point when refactoring engine interface
                 trace!("divu: divisor == 0 -> compute reachability");
 
-                let solver_result = self.symbolic_state.execute_query(Query::Reachable);
-
-                self.handle_solver_result("division by zero in DIVU", solver_result);
+                self.execute_query(Query::Reachable, |info| Bug::DivisionByZero { info })?
             }
-            _ => {}
-        }
+            _ => None,
+        };
 
-        self.execute_rtype(instruction, rtype, u64::wrapping_div);
+        if bug.is_none() {
+            self.execute_rtype(instruction, rtype, u64::wrapping_div)
+        } else {
+            Ok(bug)
+        }
     }
 
-    fn execute_itype<Op>(&mut self, instruction: Instruction, itype: IType, op: Op)
+    fn execute_itype<Op>(
+        &mut self,
+        instruction: Instruction,
+        itype: IType,
+        op: Op,
+    ) -> Result<Option<Bug>, EngineError>
     where
         Op: FnOnce(u64, u64) -> u64,
     {
         let rs1_value = self.regs[itype.rs1() as usize];
         let imm_value = Value::Concrete(itype.imm() as u64);
 
-        let result = self.execute_binary_op(instruction, rs1_value, imm_value, op);
-
-        trace!(
-            "[{:#010x}] {}: {}, {} |- {:?} <- {}",
-            self.pc - 4,
-            instruction_to_str(instruction),
-            rs1_value,
-            imm_value,
-            itype.rd(),
-            result,
-        );
-
-        if itype.rd() != Register::Zero {
-            self.regs[itype.rd() as usize] = result;
-        }
+        self.execute_binary_op(instruction, rs1_value, imm_value, itype.rd(), op)
     }
 
-    fn execute_rtype<Op>(&mut self, instruction: Instruction, rtype: RType, op: Op)
+    fn execute_rtype<Op>(
+        &mut self,
+        instruction: Instruction,
+        rtype: RType,
+        op: Op,
+    ) -> Result<Option<Bug>, EngineError>
     where
         Op: FnOnce(u64, u64) -> u64,
     {
         let rs1_value = self.regs[rtype.rs1() as usize];
         let rs2_value = self.regs[rtype.rs2() as usize];
 
-        let result = self.execute_binary_op(instruction, rs1_value, rs2_value, op);
-
-        trace!(
-            "[{:#010x}] {}:  {}, {} |- {:?} <- {}",
-            self.pc - 4,
-            instruction_to_str(instruction),
-            rs1_value,
-            rs2_value,
-            rtype.rd(),
-            result,
-        );
-
-        if rtype.rd() != Register::Zero {
-            self.regs[rtype.rd() as usize] = result;
-        }
+        self.execute_binary_op(instruction, rs1_value, rs2_value, rtype.rd(), op)
     }
 
     fn execute_binary_op<Op>(
@@ -375,45 +385,59 @@ where
         instruction: Instruction,
         lhs: Value,
         rhs: Value,
+        rd: Register,
         op: Op,
-    ) -> Value
+    ) -> Result<Option<Bug>, EngineError>
     where
         Op: FnOnce(u64, u64) -> u64,
     {
-        self.pc += 4;
-
-        match (lhs, rhs) {
+        let result = match (lhs, rhs) {
             (Value::Concrete(v1), Value::Concrete(v2)) => Value::Concrete(op(v1, v2)),
             (Value::Symbolic(v1), Value::Concrete(v2)) => {
                 let v2 = self.symbolic_state.create_const(v2);
-                Value::Symbolic(self.symbolic_state.create_operator(instruction, v1, v2))
+                Value::Symbolic(self.symbolic_state.create_instruction(instruction, v1, v2))
             }
             (Value::Concrete(v1), Value::Symbolic(v2)) => {
                 let v1 = self.symbolic_state.create_const(v1);
-                Value::Symbolic(self.symbolic_state.create_operator(instruction, v1, v2))
+                Value::Symbolic(self.symbolic_state.create_instruction(instruction, v1, v2))
             }
             (Value::Symbolic(v1), Value::Symbolic(v2)) => {
-                Value::Symbolic(self.symbolic_state.create_operator(instruction, v1, v2))
+                Value::Symbolic(self.symbolic_state.create_instruction(instruction, v1, v2))
             }
-            (v1, v2) => {
-                // TODO: fix this possible exit point when refactoring engine interface
-                self.check_for_uninitialized_memory(instruction_to_str(instruction), v1, v2);
+            _ => {
+                let bug = self.check_for_uninitialized_memory(instruction, lhs, rhs)?;
 
                 trace!("could not find input assignment => exeting this context");
 
-                self.is_exited = true;
+                self.is_running = false;
 
-                Value::Uninitialized
+                return Ok(bug);
             }
-        }
+        };
+
+        trace!(
+            "[{:#010x}] {}:  {}, {} |- {:?} <- {}",
+            self.pc,
+            instruction_to_str(instruction),
+            lhs,
+            rhs,
+            rd,
+            result,
+        );
+
+        self.assign_rd(rd, result);
+
+        self.pc += INSTRUCTION_SIZE;
+
+        Ok(None)
     }
 
-    fn execute_brk(&mut self) {
+    fn execute_brk(&mut self) -> Result<Option<Bug>, EngineError> {
         if let Value::Concrete(new_program_break) = self.regs[Register::A0 as usize] {
-            // TODO: handle cases where program break can not be modified
             let old_program_break = self.program_break;
 
-            if new_program_break < self.program_break {
+            if new_program_break < self.program_break || !self.is_in_vaddr_range(new_program_break)
+            {
                 self.regs[Register::A0 as usize] = Value::Concrete(self.program_break);
             } else {
                 self.program_break = new_program_break;
@@ -424,52 +448,141 @@ where
                 old_program_break,
                 new_program_break
             );
+
+            Ok(None)
         } else {
-            unimplemented!("can not handle symbolic or uninitialized program break")
+            not_supported("can not handle symbolic or uninitialized program break")
         }
     }
 
-    fn execute_read(&mut self) {
-        if let Value::Concrete(fd) = self.regs[Register::A0 as usize] {
-            if fd == 0 {
-                if let Value::Concrete(buffer) = self.regs[Register::A1 as usize] {
-                    if let Value::Concrete(size) = self.regs[Register::A2 as usize] {
-                        // TODO: round up to word width.. not the best idea, right???
+    fn bytewise_combine(
+        &mut self,
+        old_idx: SymbolId,
+        n_lower_bytes: u32,
+        new_idx: SymbolId,
+    ) -> SymbolId {
+        let bits_in_a_byte = 8;
+        let low_shift_factor = 2_u64.pow(n_lower_bytes * bits_in_a_byte);
+        let high_shift_factor =
+            2_u64.pow((size_of::<u64>() as u32 - n_lower_bytes) * bits_in_a_byte);
 
-                        let to_add = if size % 8 == 0 { 0 } else { 8 - (size % 8) };
-                        let words_read = (size + to_add) / 8;
+        let low_shift_factor_idx = self.symbolic_state.create_const(low_shift_factor);
 
-                        for i in 0..words_read {
-                            let name = format!("read({}, {}, {})", 0, buffer, size);
+        let old_idx =
+            self.symbolic_state
+                .create_operator(BVOperator::Divu, old_idx, low_shift_factor_idx);
 
-                            let node_idx = self.symbolic_state.create_input(&name);
+        let old_idx =
+            self.symbolic_state
+                .create_operator(BVOperator::Mul, old_idx, low_shift_factor_idx);
 
-                            self.memory[((buffer / 8) + i) as usize] = Value::Symbolic(node_idx);
-                        }
+        let high_shift_factor_idx = self.symbolic_state.create_const(high_shift_factor);
 
-                        trace!(
-                            "read: fd={} buffer={:#x} size={} -> {} symbolic double words read",
-                            fd,
-                            buffer,
-                            size,
-                            words_read,
-                        );
-                    } else {
-                        unimplemented!(
-                            "can not handle symbolic or uinitialized size in read syscall"
-                        )
-                    }
-                } else {
-                    unimplemented!(
-                        "can not handle symbolic or uninitialized buffer address in read syscall"
-                    )
-                }
-            } else {
-                unimplemented!("can not handle other fd than stdin in read syscall")
-            }
-        } else {
-            unimplemented!("can not handle symbolic or uninitialized fd in read syscall")
+        let new_idx =
+            self.symbolic_state
+                .create_operator(BVOperator::Mul, new_idx, high_shift_factor_idx);
+
+        let new_idx =
+            self.symbolic_state
+                .create_operator(BVOperator::Divu, new_idx, high_shift_factor_idx);
+
+        self.symbolic_state
+            .create_operator(BVOperator::Add, old_idx, new_idx)
+    }
+
+    fn execute_read(&mut self) -> Result<Option<Bug>, EngineError> {
+        if !matches!(self.regs[Register::A0 as usize], Value::Concrete(0)) {
+            return not_supported("can not handle other fd than stdin in read syscall");
         }
+
+        let buffer = if let Value::Concrete(b) = self.regs[Register::A1 as usize] {
+            b
+        } else {
+            return not_supported(
+                "can not handle symbolic or uninitialized buffer address in read syscall",
+            );
+        };
+
+        let size = if let Value::Concrete(s) = self.regs[Register::A2 as usize] {
+            s
+        } else {
+            return not_supported("can not handle symbolic or uinitialized size in read syscall");
+        };
+
+        trace!("read: fd={} buffer={:#x} size={}", 0, buffer, size,);
+
+        if !self.is_in_vaddr_range(buffer) || !self.is_in_vaddr_range(buffer + size) {
+            return not_supported("read syscall failed to");
+        }
+
+        let size_of_u64 = size_of::<u64>() as u64;
+
+        let round_up = if size % size_of_u64 == 0 {
+            0
+        } else {
+            size_of_u64 - size % size_of_u64
+        };
+
+        let mut bytes_to_read = size;
+        let words_to_read = (bytes_to_read + round_up) / size_of_u64;
+
+        trace!(
+            "bytes_to_read={} words_to_read={}",
+            bytes_to_read,
+            words_to_read
+        );
+
+        let start = buffer / size_of_u64;
+
+        trace!("start={}", start);
+
+        for word_count in 0..words_to_read {
+            let start_byte = word_count * size_of_u64;
+            let end_byte = start_byte
+                + if bytes_to_read < size_of_u64 {
+                    bytes_to_read
+                } else {
+                    8
+                };
+
+            let name = format!(
+                "read({}, {}, {})[{} - {}]",
+                0, buffer, size, start_byte, end_byte,
+            );
+
+            let input_idx = self.symbolic_state.create_input(&name);
+
+            let result_idx = if bytes_to_read >= size_of_u64 {
+                bytes_to_read -= size_of_u64;
+
+                input_idx
+            } else {
+                trace!("reading {} bytes", bytes_to_read);
+                match self.memory[(start + word_count) as usize] {
+                    Value::Uninitialized => {
+                        // we do not partially overwrite words with concrete values
+                        // if at least one byte in a word is uninitialized, the whole word is uninitialized
+                        return Ok(None);
+                    }
+                    Value::Symbolic(old_idx) => {
+                        trace!("prev symbolic");
+                        self.bytewise_combine(old_idx, bytes_to_read as u32, input_idx)
+                    }
+                    Value::Concrete(c) => {
+                        trace!("prev concrete");
+                        let old_idx = self.symbolic_state.create_const(c);
+
+                        self.bytewise_combine(old_idx, bytes_to_read as u32, input_idx)
+                    }
+                }
+            };
+
+            self.memory[(start + word_count) as usize] = Value::Symbolic(result_idx);
+        }
+
+        self.regs[Register::A0 as usize] = Value::Concrete(size);
+
+        Ok(None)
     }
 
     fn execute_beq_branches(
@@ -478,11 +591,12 @@ where
         false_branch: u64,
         lhs: SymbolId,
         rhs: SymbolId,
-    ) -> Result<()> {
+    ) -> Result<Option<Bug>, EngineError> {
         let memory_snapshot = self.memory.clone();
         let regs_snapshot = self.regs;
         let graph_snapshot = Box::new((*self.symbolic_state).clone());
         let brk_snapshot = self.program_break;
+        let execution_depth_snapshot = self.execution_depth;
 
         let next_pc = self.strategy.choose_path(true_branch, false_branch);
 
@@ -501,14 +615,20 @@ where
         );
 
         self.pc = next_pc;
-        self.run()?;
 
-        self.is_exited = false;
+        let result = self.run();
+
+        if !matches!(result, Err(EngineError::ExecutionDepthReached(_)) | Ok(None)) {
+            return result;
+        }
+
+        self.is_running = true;
 
         self.memory = memory_snapshot;
         self.regs = regs_snapshot;
         self.symbolic_state = graph_snapshot;
         self.program_break = brk_snapshot;
+        self.execution_depth = execution_depth_snapshot;
 
         let next_pc = if decision { false_branch } else { true_branch };
 
@@ -526,10 +646,10 @@ where
 
         self.pc = next_pc;
 
-        Ok(())
+        Ok(None)
     }
 
-    fn execute_beq(&mut self, btype: BType) -> Result<()> {
+    fn execute_beq(&mut self, btype: BType) -> Result<Option<Bug>, EngineError> {
         let lhs = self.regs[btype.rs1() as usize];
         let rhs = self.regs[btype.rs2() as usize];
 
@@ -550,7 +670,7 @@ where
                     self.pc
                 );
 
-                Ok(())
+                Ok(None)
             }
             (Value::Symbolic(v1), Value::Concrete(v2)) => {
                 let v2 = self.symbolic_state.create_const(v2);
@@ -564,29 +684,27 @@ where
                 self.execute_beq_branches(true_branch, false_branch, v1, v2)
             }
             (v1, v2) => {
-                // TODO: fix this possible exit point when refactoring engine interface
-                self.check_for_uninitialized_memory("beq", v1, v2);
+                self.is_running = false;
 
-                trace!("could not find input assignment => exeting this context");
+                let result = self.check_for_uninitialized_memory(Instruction::Beq(btype), v1, v2);
 
-                self.is_exited = true;
+                trace!("access to uninitialized memory => exeting this context");
 
-                Ok(())
+                result
             }
         }
     }
 
-    fn execute_exit(&mut self) {
+    fn execute_exit(&mut self) -> Result<Option<Bug>, EngineError> {
+        self.is_running = false;
+
         match self.regs[Register::A0 as usize] {
             Value::Symbolic(exit_code) => {
                 trace!("exit: symbolic code -> find input for exit_code != 0");
 
-                // TODO: fix this possible exit point when refactoring engine interface
-                let result = self
-                    .symbolic_state
-                    .execute_query(Query::NotEquals((exit_code, 0)));
-
-                self.handle_solver_result("exit_code > 0", result);
+                self.execute_query(Query::NotEquals((exit_code, 0)), |info| {
+                    Bug::ExitCodeGreaterZero { info }
+                })
             }
             Value::Concrete(exit_code) => {
                 if exit_code > 0 {
@@ -595,24 +713,21 @@ where
                         exit_code
                     );
 
-                    // TODO: fix this possible exit point when refactoring engine interface
-                    let result = self.symbolic_state.execute_query(Query::Reachable);
-
-                    self.handle_solver_result("exit_code > 0", result);
+                    self.execute_query(Query::Reachable, |info| Bug::ExitCodeGreaterZero { info })
                 } else {
                     trace!("exiting context with exit_code 0");
+
+                    Ok(None)
                 }
             }
-            _ => unimplemented!("exit only implemented for symbolic exit codes"),
+            _ => not_supported("exit only implemented for symbolic exit codes"),
         }
-
-        self.is_exited = true;
     }
 
-    fn execute_ecall(&mut self) {
-        trace!("[{:#010x}] ecall", self.pc,);
+    fn execute_ecall(&mut self) -> Result<Option<Bug>, EngineError> {
+        trace!("[{:#010x}] ecall", self.pc);
 
-        match self.regs[Register::A7 as usize] {
+        let result = match self.regs[Register::A7 as usize] {
             Value::Concrete(syscall_id) if syscall_id == (SyscallId::Brk as u64) => {
                 self.execute_brk()
             }
@@ -622,22 +737,31 @@ where
             Value::Concrete(syscall_id) if syscall_id == (SyscallId::Exit as u64) => {
                 self.execute_exit()
             }
-            Value::Concrete(x) => unimplemented!("this syscall ({}) is not implemented yet", x),
-            Value::Uninitialized => unimplemented!("ecall with uninitialized syscall id"),
-            Value::Symbolic(_) => unimplemented!("ecall with symbolic syscall id not implemented"),
-        }
+            id => Err(EngineError::NotSupported(format!(
+                "syscall with id ({}) is not supported",
+                id
+            ))),
+        };
 
-        self.pc += 4;
+        self.pc += INSTRUCTION_SIZE;
+
+        result
     }
 
-    fn execute_ld(&mut self, instruction: Instruction, itype: IType) {
+    fn execute_ld(
+        &mut self,
+        instruction: Instruction,
+        itype: IType,
+    ) -> Result<Option<Bug>, EngineError> {
         if let Value::Concrete(base_address) = self.regs[itype.rs1() as usize] {
             let immediate = itype.imm() as u64;
 
             let address = base_address.wrapping_add(immediate);
 
-            // TODO: fix this possible exit point when refactoring engine interface
-            if self.check_for_valid_memory_address(instruction_to_str(instruction), address) {
+            let bug =
+                self.check_for_valid_memory_address(instruction_to_str(instruction), address)?;
+
+            if bug.is_none() {
                 let value = self.memory[(address / 8) as usize];
 
                 trace!(
@@ -651,25 +775,31 @@ where
                     value,
                 );
 
-                if itype.rd() != Register::Zero {
-                    self.regs[itype.rd() as usize] = value;
-                }
-            }
-        } else {
-            panic!("can not handle symbolic addresses in LD")
-        }
+                self.assign_rd(itype.rd(), value);
 
-        self.pc += 4;
+                self.pc += INSTRUCTION_SIZE;
+            }
+
+            Ok(bug)
+        } else {
+            not_supported("can not handle symbolic addresses in LD")
+        }
     }
 
-    fn execute_sd(&mut self, instruction: Instruction, stype: SType) {
+    fn execute_sd(
+        &mut self,
+        instruction: Instruction,
+        stype: SType,
+    ) -> Result<Option<Bug>, EngineError> {
         if let Value::Concrete(base_address) = self.regs[stype.rs1() as usize] {
             let immediate = stype.imm();
 
             let address = base_address.wrapping_add(immediate as u64);
 
-            // TODO: fix this possible exit point when refactoring engine interface
-            if self.check_for_valid_memory_address(instruction_to_str(instruction), address) {
+            let bug =
+                self.check_for_valid_memory_address(instruction_to_str(instruction), address)?;
+
+            if bug.is_none() {
                 let value = self.regs[stype.rs2() as usize];
 
                 trace!(
@@ -684,16 +814,18 @@ where
                 );
 
                 self.memory[(address / 8) as usize] = value;
-            }
-        } else {
-            panic!("can not handle symbolic addresses in SD")
-        }
 
-        self.pc += 4;
+                self.pc += INSTRUCTION_SIZE;
+            }
+
+            Ok(bug)
+        } else {
+            not_supported("can not handle symbolic addresses in SD")
+        }
     }
 
     fn execute_jal(&mut self, jtype: JType) {
-        let link = self.pc + 4;
+        let link = self.pc + INSTRUCTION_SIZE;
 
         let new_pc = self.pc.wrapping_add(jtype.imm() as u64);
 
@@ -707,15 +839,19 @@ where
 
         self.pc = new_pc;
 
-        if jtype.rd() != Register::Zero {
-            self.regs[jtype.rd() as usize] = Value::Concrete(link);
+        self.assign_rd(jtype.rd(), Value::Concrete(link));
+    }
+
+    fn assign_rd(&mut self, rd: Register, v: Value) {
+        if rd != Register::Zero {
+            self.regs[rd as usize] = v;
         }
     }
 
-    fn execute_jalr(&mut self, itype: IType) {
-        let link = self.pc + 4;
-
+    fn execute_jalr(&mut self, itype: IType) -> Result<Option<Bug>, EngineError> {
         if let Value::Concrete(dest) = self.regs[itype.rs1() as usize] {
+            let link = self.pc + INSTRUCTION_SIZE;
+
             let new_pc = dest.wrapping_add(itype.imm() as u64);
 
             trace!(
@@ -728,32 +864,38 @@ where
                 link
             );
 
-            self.pc = new_pc;
-        } else {
-            panic!("can only handle concrete addresses in JALR")
-        }
+            self.assign_rd(itype.rd(), Value::Concrete(link));
 
-        if itype.rd() != Register::Zero {
-            self.regs[itype.rd() as usize] = Value::Concrete(link);
+            self.pc = new_pc;
+
+            Ok(None)
+        } else {
+            not_supported("can only handle concrete addresses in JALR")
         }
     }
 
-    fn fetch(&self) -> u32 {
-        if let Value::Concrete(dword) = self.memory[(self.pc / 8) as usize] {
-            if self.pc % 8 == 0 {
-                dword as u32
+    fn fetch(&self) -> Result<u32, EngineError> {
+        if let Value::Concrete(dword) = self.memory[(self.pc as usize / size_of::<u64>()) as usize]
+        {
+            if self.pc % size_of::<u64>() as u64 == 0 {
+                Ok(dword as u32)
             } else {
-                (dword >> 32) as u32
+                Ok((dword >> 32) as u32)
             }
         } else {
-            panic!("tried to fetch none concrete instruction")
+            Err(EngineError::NotSupported(String::from(
+                "tried to fetch none concrete instruction",
+            )))
         }
     }
 
-    fn execute(&mut self, instruction: Instruction) -> Result<()> {
+    fn execute(&mut self, instruction: Instruction) -> Result<Option<Bug>, EngineError> {
         match instruction {
             Instruction::Ecall(_) => self.execute_ecall(),
-            Instruction::Lui(utype) => self.execute_lui(utype),
+            Instruction::Lui(utype) => {
+                self.execute_lui(utype);
+                Ok(None)
+            }
             Instruction::Addi(itype) => self.execute_itype(instruction, itype, u64::wrapping_add),
             Instruction::Add(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_add),
             Instruction::Sub(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_sub),
@@ -765,12 +907,13 @@ where
             }
             Instruction::Ld(itype) => self.execute_ld(instruction, itype),
             Instruction::Sd(stype) => self.execute_sd(instruction, stype),
-            Instruction::Jal(jtype) => self.execute_jal(jtype),
+            Instruction::Jal(jtype) => {
+                self.execute_jal(jtype);
+                Ok(None)
+            }
             Instruction::Jalr(itype) => self.execute_jalr(itype),
-            Instruction::Beq(btype) => self.execute_beq(btype)?,
+            Instruction::Beq(btype) => self.execute_beq(btype),
         }
-
-        Ok(())
     }
 }
 
@@ -786,13 +929,11 @@ fn load_segment(memory: &mut Vec<Value>, segment: &ProgramSegment<u8>) {
         .for_each(|(x, i)| memory[i] = Value::Concrete(x));
 }
 
-fn print_assignment(assignment: &HashMap<String, BitVector>) {
-    assignment.iter().for_each(|(name, value)| {
-        info!("{} = {:?} ({})", name, value, value.0);
-    });
+fn not_supported(s: &str) -> Result<Option<Bug>, EngineError> {
+    Err(EngineError::NotSupported(s.to_owned()))
 }
 
-const fn instruction_to_str(i: Instruction) -> &'static str {
+pub const fn instruction_to_str(i: Instruction) -> &'static str {
     match i {
         Instruction::Lui(_) => "lui",
         Instruction::Jal(_) => "jal",
