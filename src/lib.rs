@@ -4,6 +4,7 @@ pub mod util;
 pub mod disassemble;
 pub mod engine;
 pub mod path_exploration;
+pub mod rarity;
 pub mod solver;
 
 use engine::{Bug, Engine, EngineError, EngineOptions};

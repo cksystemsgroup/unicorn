@@ -10,7 +10,7 @@ use monster::{
     engine::{self, EngineOptions},
     execute_elf_with,
     path_exploration::{ControlFlowGraph, ShortestPathStrategy},
-    solver,
+    rarity, solver,
 };
 use riscu::load_object_file;
 use std::{env, fmt::Display, fs::File, io::Write, path::Path};
@@ -119,7 +119,7 @@ fn main() -> Result<()> {
                 input, output, megabytes, cycles, rounds
             );
 
-            Ok(())
+            rarity::execute(input, output, ByteSize::mb(megabytes), rounds, cycles)
         }
         _ => unreachable!(),
     }
