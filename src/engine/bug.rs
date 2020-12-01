@@ -6,32 +6,35 @@ use riscu::Instruction;
 use std::fmt;
 
 #[derive(Debug, Clone)]
-pub enum Bug {
+pub enum Bug<T: fmt::Display + fmt::Debug + Clone> {
     DivisionByZero {
-        info: BasicInfo,
+        info: T,
     },
 
     AccessToUnitializedMemory {
-        info: BasicInfo,
+        info: T,
         instruction: Instruction,
         operands: Vec<Value>,
     },
 
     AccessToUnalignedAddress {
-        info: BasicInfo,
+        info: T,
         address: u64,
     },
 
     AccessToOutOfRangeAddress {
-        info: BasicInfo,
+        info: T,
     },
 
     ExitCodeGreaterZero {
-        info: BasicInfo,
+        info: T,
     },
 }
 
-impl fmt::Display for Bug {
+impl<T> fmt::Display for Bug<T>
+where
+    T: fmt::Display + fmt::Debug + Clone,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Bug::DivisionByZero { info } => write!(f, "reason: division by zero\n{}", info),

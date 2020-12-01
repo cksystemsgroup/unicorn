@@ -119,7 +119,15 @@ fn main() -> Result<()> {
                 input, output, megabytes, cycles, rounds
             );
 
-            rarity::execute(input, output, ByteSize::mb(megabytes), rounds, cycles)
+            if let Some(bug) =
+                rarity::execute(input, output, ByteSize::mb(megabytes), rounds, cycles)?
+            {
+                info!("bug found:\n{}", bug);
+            } else {
+                info!("no bug found in binary");
+            }
+
+            Ok(())
         }
         _ => unreachable!(),
     }
