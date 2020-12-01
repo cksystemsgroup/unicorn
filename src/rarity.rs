@@ -4,7 +4,7 @@ use crate::{
 };
 use byteorder::{ByteOrder, LittleEndian};
 use bytesize::ByteSize;
-use log::{debug, info, trace};
+use log::{debug, info, trace, warn};
 use riscu::{
     decode, load_object_file, types::*, DecodingError, Instruction, Program, ProgramSegment,
     Register, RiscuError, INSTRUCTION_SIZE as INSTR_SIZE,
@@ -526,6 +526,12 @@ impl Engine {
             } else {
                 // we do not partially overwrite words with concrete values
                 // if at least one byte in a word is uninitialized, the whole word is uninitialized
+
+                warn!(
+                    "read: Ignoring partial read on uninitialized word at {:#016x}",
+                    start + word_count
+                );
+
                 break;
             };
 
