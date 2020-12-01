@@ -92,14 +92,14 @@ fn traverse<'a>(
                                 &BV::from_u64(solver.clone(), 1, 64),
                                 &BV::from_u64(solver.clone(), 0, 64),
                             ),
-                        i => unimplemented!("binary operator: {:?}", i),
+                        i => unreachable!("binary operator: {:?}", i),
                     }
                 }
                 (lhs, None) => match op {
                     BVOperator::Not => {
                         traverse(graph, lhs, solver, bvs)._eq(&BV::from_u64(solver.clone(), 0, 1))
                     }
-                    i => unimplemented!("unary operator: {:?}", i),
+                    i => unreachable!("unary operator: {:?}", i),
                 },
             },
             Input(name) => {

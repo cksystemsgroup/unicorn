@@ -304,7 +304,7 @@ where
         }
     }
 
-    fn execute_lui(&mut self, utype: UType) {
+    fn execute_lui(&mut self, utype: UType) -> Result<Option<Bug>, EngineError> {
         let immediate = u64::from(utype.imm()) << 12;
 
         let result = Value::Concrete(immediate);
@@ -320,6 +320,8 @@ where
         self.assign_rd(utype.rd(), result);
 
         self.pc += INSTRUCTION_SIZE;
+
+        Ok(None)
     }
 
     fn execute_divu(
@@ -526,15 +528,7 @@ where
         let mut bytes_to_read = size;
         let words_to_read = (bytes_to_read + round_up) / size_of_u64;
 
-        trace!(
-            "bytes_to_read={} words_to_read={}",
-            bytes_to_read,
-            words_to_read
-        );
-
         let start = buffer / size_of_u64;
-
-        trace!("start={}", start);
 
         for word_count in 0..words_to_read {
             let start_byte = word_count * size_of_u64;
@@ -557,19 +551,16 @@ where
 
                 input_idx
             } else {
-                trace!("reading {} bytes", bytes_to_read);
                 match self.memory[(start + word_count) as usize] {
                     Value::Uninitialized => {
                         // we do not partially overwrite words with concrete values
                         // if at least one byte in a word is uninitialized, the whole word is uninitialized
-                        return Ok(None);
+                        break;
                     }
                     Value::Symbolic(old_idx) => {
-                        trace!("prev symbolic");
                         self.bytewise_combine(old_idx, bytes_to_read as u32, input_idx)
                     }
                     Value::Concrete(c) => {
-                        trace!("prev concrete");
                         let old_idx = self.symbolic_state.create_const(c);
 
                         self.bytewise_combine(old_idx, bytes_to_read as u32, input_idx)
@@ -824,7 +815,7 @@ where
         }
     }
 
-    fn execute_jal(&mut self, jtype: JType) {
+    fn execute_jal(&mut self, jtype: JType) -> Result<Option<Bug>, EngineError> {
         let link = self.pc + INSTRUCTION_SIZE;
 
         let new_pc = self.pc.wrapping_add(jtype.imm() as u64);
@@ -840,6 +831,8 @@ where
         self.pc = new_pc;
 
         self.assign_rd(jtype.rd(), Value::Concrete(link));
+
+        Ok(None)
     }
 
     fn assign_rd(&mut self, rd: Register, v: Value) {
@@ -892,10 +885,7 @@ where
     fn execute(&mut self, instruction: Instruction) -> Result<Option<Bug>, EngineError> {
         match instruction {
             Instruction::Ecall(_) => self.execute_ecall(),
-            Instruction::Lui(utype) => {
-                self.execute_lui(utype);
-                Ok(None)
-            }
+            Instruction::Lui(utype) => self.execute_lui(utype),
             Instruction::Addi(itype) => self.execute_itype(instruction, itype, u64::wrapping_add),
             Instruction::Add(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_add),
             Instruction::Sub(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_sub),
@@ -907,10 +897,7 @@ where
             }
             Instruction::Ld(itype) => self.execute_ld(instruction, itype),
             Instruction::Sd(stype) => self.execute_sd(instruction, stype),
-            Instruction::Jal(jtype) => {
-                self.execute_jal(jtype);
-                Ok(None)
-            }
+            Instruction::Jal(jtype) => self.execute_jal(jtype),
             Instruction::Jalr(itype) => self.execute_jalr(itype),
             Instruction::Beq(btype) => self.execute_beq(btype),
         }

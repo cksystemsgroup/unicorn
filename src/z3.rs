@@ -8,7 +8,7 @@ use crate::symbolic_state::{
 use std::collections::HashMap;
 use z3::{
     ast::{Ast, Bool, Dynamic, BV},
-    Config, Context, SatResult, Solver as Z3Solver,
+    Config, Context, Model, SatResult, Solver as Z3Solver,
 };
 
 pub struct Z3 {}
@@ -44,49 +44,53 @@ impl Solver for Z3 {
 
         match solver.check() {
             SatResult::Sat => {
-                let m = solver
+                let model = solver
                     .get_model()
                     .expect("has an result after calling check()");
 
                 Some(
                     graph
                         .node_indices()
-                        .map(|i| {
-                            let ast_node = translation
-                                .get(&i)
-                                .expect("input BV must be always assigned something once solved");
-
-                            if let Some(bv) = ast_node.as_bv() {
-                                let concrete_bv = m
-                                    .eval(&bv)
-                                    .expect("will always get a result because the formula is SAT");
-
-                                let result_value =
-                                    concrete_bv.as_u64().expect("type already checked here");
-
-                                BitVector(result_value)
-                            } else if let Some(b) = ast_node.as_bool() {
-                                let concrete_bool = m
-                                    .eval(&b)
-                                    .expect("will always get a result because the formula is SAT");
-
-                                let result_value =
-                                    concrete_bool.as_bool().expect("type already checked here");
-
-                                if result_value {
-                                    BitVector(1)
-                                } else {
-                                    BitVector(0)
-                                }
-                            } else {
-                                panic!("only inputs of type BV and Bool are allowed");
-                            }
-                        })
+                        .map(|i| bv_for_node_idx(i, translation, &model))
                         .collect(),
                 )
             }
             _ => None,
         }
+    }
+}
+
+fn bv_for_node_idx<'ctx>(
+    i: SymbolId,
+    translation: &HashMap<SymbolId, Dynamic<'ctx>>,
+    m: &Model,
+) -> BitVector {
+    let ast_node = translation
+        .get(&i)
+        .expect("input BV must be always assigned something once solved");
+
+    if let Some(bv) = ast_node.as_bv() {
+        let concrete_bv = m
+            .eval(&bv)
+            .expect("will always get a result because the formula is SAT");
+
+        let result_value = concrete_bv.as_u64().expect("type already checked here");
+
+        BitVector(result_value)
+    } else if let Some(b) = ast_node.as_bool() {
+        let concrete_bool = m
+            .eval(&b)
+            .expect("will always get a result because the formula is SAT");
+
+        let result_value = concrete_bool.as_bool().expect("type already checked here");
+
+        if result_value {
+            BitVector(1)
+        } else {
+            BitVector(0)
+        }
+    } else {
+        panic!("only inputs of type BV and Bool are allowed");
     }
 }
 
@@ -121,7 +125,7 @@ impl<'a, 'ctx> Z3Translator<'a, 'ctx> {
             ctx: into,
             bvs: HashMap::new(),
             zero: Dynamic::from(BV::from_u64(into, 0, 64)),
-            one: Dynamic::from(BV::from_u64(into, 0, 64)),
+            one: Dynamic::from(BV::from_u64(into, 1, 64)),
         }
     }
 
@@ -158,7 +162,7 @@ impl<'a, 'ctx> Z3Translator<'a, 'ctx> {
                     BVOperator::Not => self
                         .traverse(lhs)
                         ._eq(&self.zero)
-                        .ite(&self.zero, &self.one),
+                        .ite(&self.one, &self.zero),
                     i => unreachable!("unary operator: {:?}", i),
                 },
             },
