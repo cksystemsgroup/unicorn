@@ -23,29 +23,30 @@ pub enum SyscallId {
 pub struct State {
     pc: u64,
     regs: [Value; 32],
+    #[allow(dead_code)]
     memory: Vec<Value>,
 }
+
 impl State {
-    fn write<P>(&self, path: P) -> Result<()>
+    fn write_to_file<P>(&self, path: P) -> Result<(), std::io::Error>
     where
         P: AsRef<Path>,
     {
         let mut file = File::create(path)?;
 
-        writeln!(&mut file, "PC: 0x{:x}", self.pc)?;
-        writeln!(&mut file, "Register:")?;
+        write!(file, "{}", self)
+    }
+}
+
+impl fmt::Display for State {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "PC: 0x{:x}", self.pc)?;
+        writeln!(f, "Register:")?;
         for (idx, val) in self.regs.iter().enumerate() {
-            writeln!(&mut file, "{:x}: {:#}", idx, val)?;
+            writeln!(f, "{:x}: {:#}", idx, val)?;
         }
 
-        writeln!(&mut file, "Memory:")?;
-        for (addr, val) in self.memory.iter().enumerate() {
-            if let Value::Concrete(concrete) = val {
-                writeln!(&mut file, "0x{:016x}: 0x{:x}", addr * 8, concrete)?;
-            }
-        }
-
-        Ok(())
+        writeln!(f, "Memory:")
     }
 }
 
@@ -102,7 +103,7 @@ where
     for (idx, state) in states.iter().enumerate() {
         let state_file = output_dir.as_ref().join(format!("dump_{}.out", idx));
 
-        state.write(&state_file)?;
+        state.write_to_file(&state_file)?;
     }
     info!("  done! State dumps written into {:?}", output_dir.as_ref());
 
