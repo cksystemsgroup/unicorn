@@ -98,11 +98,7 @@ where
         match result {
             // TODO: Ok(None) is a state which successfully exited, should we really dump that???
             Err(EngineError::ExecutionDepthReached(_)) | Ok(None) => {
-                states.push(State {
-                    memory: engine.memory.clone(),
-                    regs: engine.regs,
-                    pc: engine.pc,
-                });
+                states.push(engine.state);
             }
             Err(_) | Ok(Some(_)) => return result,
         }
@@ -136,9 +132,7 @@ impl fmt::Display for Value {
 
 pub struct Engine {
     program_break: u64,
-    pc: u64,
-    regs: [Value; 32],
-    memory: Vec<Value>,
+    state: State,
     execution_depth: u64,
     max_exection_depth: u64,
     concrete_inputs: Vec<u64>,
@@ -187,9 +181,7 @@ impl Engine {
 
         Self {
             program_break,
-            pc,
-            regs,
-            memory,
+            state: State { pc, regs, memory },
             execution_depth: 0,
             max_exection_depth,
             concrete_inputs: Vec::new(),
@@ -224,9 +216,10 @@ impl Engine {
     }
 
     fn fetch(&self) -> Result<u32, EngineError> {
-        if let Value::Concrete(dword) = self.memory[(self.pc as usize / size_of::<u64>()) as usize]
+        if let Value::Concrete(dword) =
+            self.state.memory[(self.state.pc as usize / size_of::<u64>()) as usize]
         {
-            if self.pc % size_of::<u64>() as u64 == 0 {
+            if self.state.pc % size_of::<u64>() as u64 == 0 {
                 Ok(dword as u32)
             } else {
                 Ok((dword >> 32) as u32)
@@ -239,7 +232,7 @@ impl Engine {
     }
 
     fn decode(&self, raw: u32) -> Result<Instruction, EngineError> {
-        decode(raw).map_err(|e| EngineError::InvalidInstructionEncoding(self.pc, e))
+        decode(raw).map_err(|e| EngineError::InvalidInstructionEncoding(self.state.pc, e))
     }
 
     fn execute(&mut self, instruction: Instruction) -> Result<Option<Bug>, EngineError> {
@@ -279,7 +272,7 @@ impl Engine {
         Ok(Some(Bug::AccessToUnitializedMemory {
             info: RarityBugInfo {
                 witness: self.concrete_inputs.clone(),
-                pc: self.pc,
+                pc: self.state.pc,
             },
             instruction,
             // TODO: fix operands
@@ -288,7 +281,7 @@ impl Engine {
     }
 
     fn is_in_vaddr_range(&self, vaddr: u64) -> bool {
-        vaddr as usize / size_of::<u64>() < self.memory.len()
+        vaddr as usize / size_of::<u64>() < self.state.memory.len()
     }
 
     fn check_for_valid_memory_address(
@@ -310,7 +303,7 @@ impl Engine {
             Ok(Some(Bug::AccessToUnalignedAddress {
                 info: RarityBugInfo {
                     witness: self.concrete_inputs.clone(),
-                    pc: self.pc,
+                    pc: self.state.pc,
                 },
                 address,
             }))
@@ -319,7 +312,7 @@ impl Engine {
                 "{}: address {:#x} out of virtual address range (0x0 - {:#x}) => computing reachability",
                 instruction,
                 address,
-                self.memory.len() * 8,
+                self.state.memory.len() * 8,
             );
 
             self.is_running = false;
@@ -327,7 +320,7 @@ impl Engine {
             Ok(Some(Bug::AccessToOutOfRangeAddress {
                 info: RarityBugInfo {
                     witness: self.concrete_inputs.clone(),
-                    pc: self.pc,
+                    pc: self.state.pc,
                 },
             }))
         } else {
@@ -342,7 +335,7 @@ impl Engine {
 
         trace!(
             "[{:#010x}] {}: {:?} <- {}",
-            self.pc,
+            self.state.pc,
             instruction_to_str(Instruction::Lui(utype)),
             utype.rd(),
             result,
@@ -350,7 +343,7 @@ impl Engine {
 
         self.assign_rd(utype.rd(), result);
 
-        self.pc += INSTRUCTION_SIZE;
+        self.state.pc += INSTRUCTION_SIZE;
 
         Ok(None)
     }
@@ -360,14 +353,14 @@ impl Engine {
         instruction: Instruction,
         rtype: RType,
     ) -> Result<Option<Bug>, EngineError> {
-        match self.regs[rtype.rs2() as usize] {
+        match self.state.regs[rtype.rs2() as usize] {
             Value::Concrete(divisor) if divisor == 0 => {
                 trace!("divu: divisor == 0 -> compute reachability");
 
                 Ok(Some(Bug::DivisionByZero {
                     info: RarityBugInfo {
                         witness: self.concrete_inputs.clone(),
-                        pc: self.pc,
+                        pc: self.state.pc,
                     },
                 }))
             }
@@ -384,7 +377,7 @@ impl Engine {
     where
         Op: FnOnce(u64, u64) -> u64,
     {
-        let rs1_value = self.regs[itype.rs1() as usize];
+        let rs1_value = self.state.regs[itype.rs1() as usize];
         let imm_value = Value::Concrete(itype.imm() as u64);
 
         self.execute_binary_op(instruction, rs1_value, imm_value, itype.rd(), op)
@@ -399,8 +392,8 @@ impl Engine {
     where
         Op: FnOnce(u64, u64) -> u64,
     {
-        let rs1_value = self.regs[rtype.rs1() as usize];
-        let rs2_value = self.regs[rtype.rs2() as usize];
+        let rs1_value = self.state.regs[rtype.rs1() as usize];
+        let rs2_value = self.state.regs[rtype.rs2() as usize];
 
         self.execute_binary_op(instruction, rs1_value, rs2_value, rtype.rd(), op)
     }
@@ -431,7 +424,7 @@ impl Engine {
 
         trace!(
             "[{:#010x}] {}:  {}, {} |- {:?} <- {}",
-            self.pc,
+            self.state.pc,
             instruction_to_str(instruction),
             lhs,
             rhs,
@@ -441,18 +434,18 @@ impl Engine {
 
         self.assign_rd(rd, result);
 
-        self.pc += INSTRUCTION_SIZE;
+        self.state.pc += INSTRUCTION_SIZE;
 
         Ok(None)
     }
 
     fn execute_brk(&mut self) -> Result<Option<Bug>, EngineError> {
-        if let Value::Concrete(new_program_break) = self.regs[Register::A0 as usize] {
+        if let Value::Concrete(new_program_break) = self.state.regs[Register::A0 as usize] {
             let old_program_break = self.program_break;
 
             if new_program_break < self.program_break || !self.is_in_vaddr_range(new_program_break)
             {
-                self.regs[Register::A0 as usize] = Value::Concrete(self.program_break);
+                self.state.regs[Register::A0 as usize] = Value::Concrete(self.program_break);
             } else {
                 self.program_break = new_program_break;
             }
@@ -470,11 +463,11 @@ impl Engine {
     }
 
     fn execute_read(&mut self) -> Result<Option<Bug>, EngineError> {
-        if !matches!(self.regs[Register::A0 as usize], Value::Concrete(0)) {
+        if !matches!(self.state.regs[Register::A0 as usize], Value::Concrete(0)) {
             return not_supported("can not handle other fd than stdin in read syscall");
         }
 
-        let buffer = if let Value::Concrete(b) = self.regs[Register::A1 as usize] {
+        let buffer = if let Value::Concrete(b) = self.state.regs[Register::A1 as usize] {
             b
         } else {
             return not_supported(
@@ -482,7 +475,7 @@ impl Engine {
             );
         };
 
-        let size = if let Value::Concrete(s) = self.regs[Register::A2 as usize] {
+        let size = if let Value::Concrete(s) = self.state.regs[Register::A2 as usize] {
             s
         } else {
             return not_supported("can not handle symbolic or uinitialized size in read syscall");
@@ -516,7 +509,7 @@ impl Engine {
                 self.concrete_inputs.push(new);
 
                 new
-            } else if let Value::Concrete(c) = self.memory[(start + word_count) as usize] {
+            } else if let Value::Concrete(c) = self.state.memory[(start + word_count) as usize] {
                 let bits_in_a_byte = 8;
 
                 let low_shift_factor = 2_u64.pow(bytes_to_read as u32 * bits_in_a_byte);
@@ -536,33 +529,33 @@ impl Engine {
                 break;
             };
 
-            self.memory[(start + word_count) as usize] = Value::Concrete(result);
+            self.state.memory[(start + word_count) as usize] = Value::Concrete(result);
         }
 
-        self.regs[Register::A0 as usize] = Value::Concrete(size);
+        self.state.regs[Register::A0 as usize] = Value::Concrete(size);
 
         Ok(None)
     }
 
     fn execute_beq(&mut self, btype: BType) -> Result<Option<Bug>, EngineError> {
-        let lhs = self.regs[btype.rs1() as usize];
-        let rhs = self.regs[btype.rs2() as usize];
+        let lhs = self.state.regs[btype.rs1() as usize];
+        let rhs = self.state.regs[btype.rs2() as usize];
 
-        let true_branch = self.pc.wrapping_add(btype.imm() as u64);
-        let false_branch = self.pc.wrapping_add(INSTRUCTION_SIZE as u64);
+        let true_branch = self.state.pc.wrapping_add(btype.imm() as u64);
+        let false_branch = self.state.pc.wrapping_add(INSTRUCTION_SIZE as u64);
 
         match (lhs, rhs) {
             (Value::Concrete(v1), Value::Concrete(v2)) => {
-                let old_pc = self.pc;
+                let old_pc = self.state.pc;
 
-                self.pc = if v1 == v2 { true_branch } else { false_branch };
+                self.state.pc = if v1 == v2 { true_branch } else { false_branch };
 
                 trace!(
                     "[{:#010x}] beq: {}, {} |- pc <- {:#x}",
                     old_pc,
                     lhs,
                     rhs,
-                    self.pc
+                    self.state.pc
                 );
 
                 Ok(None)
@@ -582,7 +575,7 @@ impl Engine {
     fn execute_exit(&mut self) -> Result<Option<Bug>, EngineError> {
         self.is_running = false;
 
-        match self.regs[Register::A0 as usize] {
+        match self.state.regs[Register::A0 as usize] {
             Value::Concrete(exit_code) => {
                 if exit_code > 0 {
                     trace!(
@@ -593,7 +586,7 @@ impl Engine {
                     Ok(Some(Bug::ExitCodeGreaterZero {
                         info: RarityBugInfo {
                             witness: self.concrete_inputs.clone(),
-                            pc: self.pc,
+                            pc: self.state.pc,
                         },
                     }))
                 } else {
@@ -607,9 +600,9 @@ impl Engine {
     }
 
     fn execute_ecall(&mut self) -> Result<Option<Bug>, EngineError> {
-        trace!("[{:#010x}] ecall", self.pc);
+        trace!("[{:#010x}] ecall", self.state.pc);
 
-        let result = match self.regs[Register::A7 as usize] {
+        let result = match self.state.regs[Register::A7 as usize] {
             Value::Concrete(syscall_id) if syscall_id == (SyscallId::Brk as u64) => {
                 self.execute_brk()
             }
@@ -625,7 +618,7 @@ impl Engine {
             ))),
         };
 
-        self.pc += INSTRUCTION_SIZE;
+        self.state.pc += INSTRUCTION_SIZE;
 
         result
     }
@@ -635,7 +628,7 @@ impl Engine {
         instruction: Instruction,
         itype: IType,
     ) -> Result<Option<Bug>, EngineError> {
-        if let Value::Concrete(base_address) = self.regs[itype.rs1() as usize] {
+        if let Value::Concrete(base_address) = self.state.regs[itype.rs1() as usize] {
             let immediate = itype.imm() as u64;
 
             let address = base_address.wrapping_add(immediate);
@@ -644,11 +637,11 @@ impl Engine {
                 self.check_for_valid_memory_address(instruction_to_str(instruction), address)?;
 
             if bug.is_none() {
-                let value = self.memory[(address / 8) as usize];
+                let value = self.state.memory[(address / 8) as usize];
 
                 trace!(
                     "[{:#010x}] {}: {:#x}, {} |- {:?} <- mem[{:#x}]={}",
-                    self.pc,
+                    self.state.pc,
                     instruction_to_str(instruction),
                     base_address,
                     immediate,
@@ -659,7 +652,7 @@ impl Engine {
 
                 self.assign_rd(itype.rd(), value);
 
-                self.pc += INSTRUCTION_SIZE;
+                self.state.pc += INSTRUCTION_SIZE;
             }
 
             Ok(bug)
@@ -673,7 +666,7 @@ impl Engine {
         instruction: Instruction,
         stype: SType,
     ) -> Result<Option<Bug>, EngineError> {
-        if let Value::Concrete(base_address) = self.regs[stype.rs1() as usize] {
+        if let Value::Concrete(base_address) = self.state.regs[stype.rs1() as usize] {
             let immediate = stype.imm();
 
             let address = base_address.wrapping_add(immediate as u64);
@@ -682,22 +675,22 @@ impl Engine {
                 self.check_for_valid_memory_address(instruction_to_str(instruction), address)?;
 
             if bug.is_none() {
-                let value = self.regs[stype.rs2() as usize];
+                let value = self.state.regs[stype.rs2() as usize];
 
                 trace!(
                     "[{:#010x}] {}: {:#x}, {}, {} |- mem[{:#x}] <- {}",
-                    self.pc,
+                    self.state.pc,
                     instruction_to_str(instruction),
                     base_address,
                     immediate,
-                    self.regs[stype.rs2() as usize],
+                    self.state.regs[stype.rs2() as usize],
                     address,
                     value,
                 );
 
-                self.memory[(address / 8) as usize] = value;
+                self.state.memory[(address / 8) as usize] = value;
 
-                self.pc += INSTRUCTION_SIZE;
+                self.state.pc += INSTRUCTION_SIZE;
             }
 
             Ok(bug)
@@ -707,19 +700,19 @@ impl Engine {
     }
 
     fn execute_jal(&mut self, jtype: JType) -> Result<Option<Bug>, EngineError> {
-        let link = self.pc + INSTRUCTION_SIZE;
+        let link = self.state.pc + INSTRUCTION_SIZE;
 
-        let new_pc = self.pc.wrapping_add(jtype.imm() as u64);
+        let new_pc = self.state.pc.wrapping_add(jtype.imm() as u64);
 
         trace!(
             "[{:#010x}] jal: pc <- {:#x}, {:?} <- {:#x}",
-            self.pc,
+            self.state.pc,
             new_pc,
             jtype.rd(),
             link,
         );
 
-        self.pc = new_pc;
+        self.state.pc = new_pc;
 
         self.assign_rd(jtype.rd(), Value::Concrete(link));
 
@@ -728,19 +721,19 @@ impl Engine {
 
     fn assign_rd(&mut self, rd: Register, v: Value) {
         if rd != Register::Zero {
-            self.regs[rd as usize] = v;
+            self.state.regs[rd as usize] = v;
         }
     }
 
     fn execute_jalr(&mut self, itype: IType) -> Result<Option<Bug>, EngineError> {
-        if let Value::Concrete(dest) = self.regs[itype.rs1() as usize] {
-            let link = self.pc + INSTRUCTION_SIZE;
+        if let Value::Concrete(dest) = self.state.regs[itype.rs1() as usize] {
+            let link = self.state.pc + INSTRUCTION_SIZE;
 
             let new_pc = dest.wrapping_add(itype.imm() as u64);
 
             trace!(
                 "[{:#010x}] jalr: {:#x}, {} |- pc <- {:#x}, {:?} <- {:#x}",
-                self.pc,
+                self.state.pc,
                 dest,
                 itype.imm(),
                 new_pc,
@@ -750,7 +743,7 @@ impl Engine {
 
             self.assign_rd(itype.rd(), Value::Concrete(link));
 
-            self.pc = new_pc;
+            self.state.pc = new_pc;
 
             Ok(None)
         } else {
