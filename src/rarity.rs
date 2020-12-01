@@ -511,7 +511,11 @@ impl Engine {
             let result = if bytes_to_read >= size_of_u64 {
                 bytes_to_read -= size_of_u64;
 
-                rand::random()
+                let new = rand::random();
+
+                self.concrete_inputs.push(new);
+
+                new
             } else if let Value::Concrete(c) = self.memory[(start + word_count) as usize] {
                 let bits_in_a_byte = 8;
 
@@ -523,14 +527,14 @@ impl Engine {
                 let prev = c / low_shift_factor * low_shift_factor;
                 let new = rand::random::<u64>().wrapping_mul(high_shift_factor) / high_shift_factor;
 
+                self.concrete_inputs.push(new);
+
                 prev + new
             } else {
                 // we do not partially overwrite words with concrete values
                 // if at least one byte in a word is uninitialized, the whole word is uninitialized
                 break;
             };
-
-            self.concrete_inputs.push(result);
 
             self.memory[(start + word_count) as usize] = Value::Concrete(result);
         }
