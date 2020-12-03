@@ -114,11 +114,6 @@ fn main() -> Result<()> {
                 .value_of_t::<u64>("rounds")
                 .expect("value is validated already");
 
-            println!(
-                "input={:?}, output={:?}, mb={}, cycles={}, rounds={}",
-                input, output, megabytes, cycles, rounds
-            );
-
             if let Some(bug) =
                 rarity::execute(input, output, ByteSize::mb(megabytes), rounds, cycles)?
             {
