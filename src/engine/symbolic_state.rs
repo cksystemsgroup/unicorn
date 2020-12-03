@@ -7,11 +7,12 @@ use log::{debug, trace, Level};
 pub use petgraph::graph::{EdgeIndex, NodeIndex};
 use petgraph::visit::EdgeRef;
 use petgraph::{
+    dot::Dot,
     graph::{Neighbors, NodeIndices},
     Direction,
 };
 use riscu::Instruction;
-use std::{collections::HashMap, ops::Index};
+use std::{collections::HashMap, fmt, ops::Index};
 
 pub enum Query {
     Equals((SymbolicValue, u64)),
@@ -306,6 +307,14 @@ where
         });
 
         witness
+    }
+}
+
+impl<'a, S: Solver> fmt::Display for SymbolicState<'a, S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let dot_graph = Dot::with_config(&self.data_flow, &[]);
+
+        write!(f, "{:?}", dot_graph)
     }
 }
 

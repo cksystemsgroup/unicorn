@@ -193,3 +193,11 @@ fn execute_riscu<S: Solver>(source: PathBuf, object: PathBuf, solver: &S) {
         file_name
     );
 }
+
+#[test]
+fn single_stupid() {
+    init();
+    let mut source =
+        PathBuf::from(r"/home/lex/Documents/IdeaProjects/monster/bench_examples/sum01-1.o");
+    execute(source, Backend::Monster, 50000, ByteSize(400000));
+}
