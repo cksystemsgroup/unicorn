@@ -39,7 +39,7 @@ impl Solver for Boolector {
 
         let mut bvs = HashMap::new();
         let bv = traverse(graph, root, &solver, &mut bvs);
-        bv.assert();
+        bv.slice(0, 0).assert();
 
         if let SolverResult::Sat = solver.sat() {
             let assignments = graph
@@ -71,9 +71,9 @@ fn traverse<'a>(
 ) -> BV<Rc<Btor>> {
     let bv =
         match &graph[node] {
-            Operator(op) => match get_operands(graph, node) {
-                (lhs, Some(rhs)) => {
-                    match op {
+            Operator(op) => {
+                match get_operands(graph, node) {
+                    (lhs, Some(rhs)) => match op {
                         BVOperator::Add => traverse(graph, lhs, solver, bvs)
                             .add(&traverse(graph, rhs, solver, bvs)),
                         BVOperator::Sub => traverse(graph, lhs, solver, bvs)
@@ -81,27 +81,25 @@ fn traverse<'a>(
                         BVOperator::Mul => traverse(graph, lhs, solver, bvs)
                             .mul(&traverse(graph, rhs, solver, bvs)),
                         BVOperator::Equals => traverse(graph, lhs, solver, bvs)
-                            ._eq(&traverse(graph, rhs, solver, bvs)),
+                            ._eq(&traverse(graph, rhs, solver, bvs))
+                            .uext(63),
                         BVOperator::BitwiseAnd => traverse(graph, lhs, solver, bvs)
                             .and(&traverse(graph, rhs, solver, bvs)),
                         BVOperator::Divu => traverse(graph, lhs, solver, bvs)
                             .udiv(&traverse(graph, rhs, solver, bvs)),
                         BVOperator::Sltu => traverse(graph, lhs, solver, bvs)
-                            .slt(&traverse(graph, rhs, solver, bvs))
-                            .cond_bv(
-                                &BV::from_u64(solver.clone(), 1, 64),
-                                &BV::from_u64(solver.clone(), 0, 64),
-                            ),
+                            .ult(&traverse(graph, rhs, solver, bvs))
+                            .uext(63),
                         i => unreachable!("binary operator: {:?}", i),
-                    }
+                    },
+                    (lhs, None) => match op {
+                        BVOperator::Not => traverse(graph, lhs, solver, bvs)
+                            ._eq(&BV::from_u64(solver.clone(), 0, 64))
+                            .uext(63),
+                        i => unreachable!("unary operator: {:?}", i),
+                    },
                 }
-                (lhs, None) => match op {
-                    BVOperator::Not => {
-                        traverse(graph, lhs, solver, bvs)._eq(&BV::from_u64(solver.clone(), 0, 1))
-                    }
-                    i => unreachable!("unary operator: {:?}", i),
-                },
-            },
+            }
             Input(name) => {
                 if let Some(value) = bvs.get(&node) {
                     value.clone()

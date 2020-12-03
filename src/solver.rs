@@ -15,9 +15,15 @@ pub trait Solver: Default {
     fn solve(&self, formula: &Formula, root: SymbolId) -> Option<Assignment<BitVector>> {
         debug!("try to solve with {} solver", Self::name());
 
-        time_debug!("finished solving formula", {
+        let result = time_debug!("finished solving formula", {
             self.solve_impl(formula, root)
-        })
+        });
+
+        if result.is_some() {
+            debug!("found satisfying assignment");
+        }
+
+        result
     }
 
     fn solve_impl(&self, formula: &Formula, root: SymbolId) -> Option<Assignment<BitVector>>;

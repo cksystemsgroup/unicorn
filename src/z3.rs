@@ -152,7 +152,7 @@ impl<'a, 'ctx> Z3Translator<'a, 'ctx> {
                     BVOperator::BitwiseAnd => {
                         traverse_binary!(self, lhs, bvand, rhs)
                     }
-                    BVOperator::Sltu => traverse_binary!(self, lhs, bvslt, rhs)
+                    BVOperator::Sltu => traverse_binary!(self, lhs, bvult, rhs)
                         .as_bool()
                         .expect("has to be bool after bvslt")
                         .ite(&self.one, &self.zero),
