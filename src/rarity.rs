@@ -45,10 +45,16 @@ impl fmt::Display for State {
         writeln!(f, "PC: 0x{:x}", self.pc)?;
         writeln!(f, "Register:")?;
         for (idx, val) in self.regs.iter().enumerate() {
-            writeln!(f, "{:x}: {:#}", idx, val)?;
+            writeln!(f, "{:x}: {:?}", idx, val)?;
         }
 
-        writeln!(f, "Memory:")
+        /*
+        writeln!(f, "Memory:")?;
+        for (idx, val) in self.memory.iter().enumerate() {
+            writeln!(f, "{:#016x}: {:?}", idx, val)?;
+        }
+        */
+        Ok(())
     }
 }
 
