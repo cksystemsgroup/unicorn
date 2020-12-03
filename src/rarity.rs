@@ -29,6 +29,69 @@ pub struct State {
     memory: Vec<Value>,
 }
 
+trait StateComparator {
+    fn score_states(&self, first: &State, second: &State) -> u64;
+    fn score_states_pairwise(&self, states: &[State]) -> Vec<u64> {
+        let mut scores = vec![0u64; states.len()];
+
+        for (i, state) in states.iter().enumerate() {
+            let mut sum: u64 = 0;
+            for (j, other) in states.iter().enumerate() {
+                if i == j {
+                    continue;
+                }
+
+                sum += self.score_states(state, other);
+            }
+            scores[i] = sum;
+        }
+
+        scores
+    }
+}
+
+struct BytewiseStateComparator {}
+
+impl BytewiseStateComparator {
+    fn score_word(&self, first: u64, second: u64) -> u64 {
+        u64::to_ne_bytes(first)
+            .iter()
+            .zip(u64::to_ne_bytes(second).iter())
+            .filter(|(val1, val2)| val1 != val2)
+            .count() as u64
+    }
+    fn score_value(&self, first: &Value, second: &Value) -> u64 {
+        match (first, second) {
+            (Value::Concrete(val1), Value::Concrete(val2)) => self.score_word(*val1, *val2),
+            (Value::Uninitialized, Value::Uninitialized) => 0,
+            _ => 8, // One is initialized, the other not -> all bytes differ
+        }
+    }
+}
+impl StateComparator for BytewiseStateComparator {
+    fn score_states(&self, first: &State, second: &State) -> u64 {
+        let mut score: u64 = 0;
+
+        score += self.score_word(first.pc, second.pc);
+        score += first
+            .regs
+            .iter()
+            .zip(second.regs.iter())
+            .fold(0u64, |accu, tuple| {
+                accu + self.score_value(tuple.0, tuple.1)
+            });
+        score += first
+            .memory
+            .iter()
+            .zip(second.memory.iter())
+            .fold(0u64, |accu, tuple| {
+                accu + self.score_value(tuple.0, tuple.1)
+            });
+
+        score
+    }
+}
+
 impl State {
     fn write_to_file<P>(&self, path: P) -> Result<(), EngineError>
     where
@@ -117,6 +180,9 @@ where
         state.write_to_file(&state_file)?;
     }
     info!("  done! State dumps written into {:?}", output_dir.as_ref());
+
+    let cmp = BytewiseStateComparator {};
+    info!("  scored states: {:?}", cmp.score_states_pairwise(&states));
 
     Ok(None)
 }
