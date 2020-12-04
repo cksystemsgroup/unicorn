@@ -236,7 +236,7 @@ where
 
         let solver_result = self.solver.solve(&self.data_flow, root);
 
-        let result = if let Some(ref assignment) = solver_result {
+        let result = if let Some(ref assignment) = solver_result.unwrap() {
             Ok(Some(self.build_witness(root, assignment)))
         } else {
             // TODO: insert solver error here

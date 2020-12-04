@@ -109,6 +109,9 @@ pub enum EngineError {
 
     #[error("failed to compute satisfyability for formula")]
     SatUnknown(QueryError),
+
+    #[error("could not find a satisfiable assignment before timing out")]
+    SatTimeout(),
 }
 
 pub struct Engine<'a, E, S>

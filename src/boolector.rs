@@ -1,4 +1,5 @@
 use crate::bitvec::BitVector;
+use crate::engine::EngineError;
 use crate::solver::{Assignment, Solver};
 use crate::symbolic_state::{
     get_operands, BVOperator, Formula,
@@ -31,7 +32,11 @@ impl Solver for Boolector {
         "Boolector"
     }
 
-    fn solve_impl(&self, graph: &Formula, root: SymbolId) -> Option<Assignment<BitVector>> {
+    fn solve_impl(
+        &self,
+        graph: &Formula,
+        root: SymbolId,
+    ) -> Result<Option<Assignment<BitVector>>, EngineError> {
         let solver = Rc::new(Btor::new());
         solver.set_opt(BtorOption::ModelGen(ModelGen::All));
         solver.set_opt(BtorOption::Incremental(true));
@@ -41,24 +46,26 @@ impl Solver for Boolector {
         let bv = traverse(graph, root, &solver, &mut bvs);
         bv.slice(0, 0).assert();
 
-        if let SolverResult::Sat = solver.sat() {
-            let assignments = graph
-                .node_indices()
-                //.filter(|i| matches!(graph[*i], Input(_)))
-                .map(|i| {
-                    let bv = bvs.get(&i).expect("every input must be part of bvs");
+        match solver.sat() {
+            SolverResult::Sat => {
+                let assignments = graph
+                    .node_indices()
+                    //.filter(|i| matches!(graph[*i], Input(_)))
+                    .map(|i| {
+                        let bv = bvs.get(&i).expect("every input must be part of bvs");
 
-                    BitVector(
-                        bv.get_a_solution()
-                            .as_u64()
-                            .expect("BV always fits in 64 bits for our machine"),
-                    )
-                })
-                .collect();
+                        BitVector(
+                            bv.get_a_solution()
+                                .as_u64()
+                                .expect("BV always fits in 64 bits for our machine"),
+                        )
+                    })
+                    .collect();
 
-            Some(assignments)
-        } else {
-            None
+                Ok(Some(assignments))
+            }
+            SolverResult::Unsat => Ok(None),
+            SolverResult::Unknown => Ok(None),
         }
     }
 }

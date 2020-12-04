@@ -1,32 +1,36 @@
 #![allow(clippy::many_single_char_names)]
 
 use crate::bitvec::*;
+use crate::engine::EngineError;
 use crate::symbolic_state::{get_operands, BVOperator, Formula, Node, OperandSide, SymbolId};
 use crate::ternary::*;
 use log::{debug, log_enabled, trace, Level};
 use petgraph::{visit::EdgeRef, Direction};
 use rand::{distributions::Uniform, random, thread_rng, Rng};
+use std::time::{Duration, Instant};
 
 pub type Assignment<T> = Vec<T>;
 
 pub trait Solver: Default {
     fn name() -> &'static str;
 
-    fn solve(&self, formula: &Formula, root: SymbolId) -> Option<Assignment<BitVector>> {
+    fn solve(
+        &self,
+        formula: &Formula,
+        root: SymbolId,
+    ) -> Result<Option<Assignment<BitVector>>, EngineError> {
         debug!("try to solve with {} solver", Self::name());
 
-        let result = time_debug!("finished solving formula", {
+        time_debug!("finished solving formula", {
             self.solve_impl(formula, root)
-        });
-
-        if result.is_some() {
-            debug!("found satisfying assignment");
-        }
-
-        result
+        })
     }
 
-    fn solve_impl(&self, formula: &Formula, root: SymbolId) -> Option<Assignment<BitVector>>;
+    fn solve_impl(
+        &self,
+        formula: &Formula,
+        root: SymbolId,
+    ) -> Result<Option<Assignment<BitVector>>, EngineError>;
 }
 
 pub struct MonsterSolver {}
@@ -48,13 +52,17 @@ impl Solver for MonsterSolver {
         "Monster"
     }
 
-    fn solve_impl(&self, formula: &Formula, root: SymbolId) -> Option<Assignment<BitVector>> {
+    fn solve_impl(
+        &self,
+        formula: &Formula,
+        root: SymbolId,
+    ) -> Result<Option<Assignment<BitVector>>, EngineError> {
         let ab = initialize_ab(formula);
         let at = compute_at(formula);
 
-        let result = sat(formula, root, at, ab);
+        let timeout_time = Duration::new(20, 0);
 
-        Some(result)
+        sat(formula, root, at, ab, timeout_time)
     }
 }
 
@@ -612,8 +620,11 @@ fn sat(
     root: SymbolId,
     at: Assignment<TernaryBitVector>,
     mut ab: Assignment<BitVector>,
-) -> Assignment<BitVector> {
+    timeout_time: Duration,
+) -> Result<Option<Assignment<BitVector>>, EngineError> {
     let mut iterations = 0;
+
+    let start_time = Instant::now();
 
     while ab[root.index()] != BitVector(1) {
         let mut n = root;
@@ -623,6 +634,9 @@ fn sat(
         trace!("search {}: x{} <- 0x1", iterations, root.index());
 
         while !is_leaf(formula, n) {
+            if start_time.elapsed() > timeout_time {
+                return Err(EngineError::SatTimeout());
+            }
             let (v, nx) = match formula[n] {
                 Node::Operator(op) => {
                     if op.is_unary() {
@@ -703,7 +717,7 @@ fn sat(
         }
     }
 
-    ab
+    Ok(Some(ab))
 }
 
 #[cfg(test)]
@@ -747,9 +761,15 @@ mod tests {
         let solver = MonsterSolver::default();
         let result = solver.solve(&formula, root);
 
-        assert!(result.is_some(), "has result for trivial equals constrain");
+        assert!(result.is_ok(), "solver did not time out");
+        let unwrapped_result = result.unwrap();
+
+        assert!(
+            unwrapped_result.is_some(),
+            "has result for trivial equals constrain"
+        );
         assert_eq!(
-            result.unwrap()[input_idx.index()],
+            unwrapped_result.unwrap()[input_idx.index()],
             BitVector(10),
             "solver result of trivial equal constrain has right value"
         );
@@ -773,9 +793,12 @@ mod tests {
         let solver = MonsterSolver::default();
         let result = solver.solve(&formula, root);
 
-        assert!(result.is_some(), "has result for trivial add op");
+        assert!(result.is_ok(), "solver did not time out");
+        let unwrapped_result = result.unwrap();
+
+        assert!(unwrapped_result.is_some(), "has result for trivial add op");
         assert_eq!(
-            result.unwrap()[input_idx.index()],
+            unwrapped_result.unwrap()[input_idx.index()],
             BitVector(7),
             "solver result of trivial add op has right value"
         );
