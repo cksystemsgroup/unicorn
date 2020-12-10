@@ -1,17 +1,17 @@
-use crate::bitvec::BitVector;
-use crate::engine::EngineError;
-use crate::solver::{Assignment, Solver};
-use crate::symbolic_state::{
-    get_operands, BVOperator, Formula,
-    Node::{Constant, Input, Operator},
-    SymbolId,
+use crate::{
+    bitvec::BitVector,
+    solver::{Assignment, Solver, SolverError},
+    symbolic_state::{
+        get_operands, BVOperator, Formula,
+        Node::{Constant, Input, Operator},
+        SymbolId,
+    },
 };
 use boolector::{
     option::{BtorOption, ModelGen, OutputFileFormat},
     Btor, SolverResult, BV,
 };
-use std::collections::HashMap;
-use std::rc::Rc;
+use std::{collections::HashMap, rc::Rc};
 
 pub struct Boolector {}
 
@@ -36,7 +36,7 @@ impl Solver for Boolector {
         &self,
         graph: &Formula,
         root: SymbolId,
-    ) -> Result<Option<Assignment<BitVector>>, EngineError> {
+    ) -> Result<Option<Assignment<BitVector>>, SolverError> {
         let solver = Rc::new(Btor::new());
         solver.set_opt(BtorOption::ModelGen(ModelGen::All));
         solver.set_opt(BtorOption::Incremental(true));
@@ -50,7 +50,6 @@ impl Solver for Boolector {
             SolverResult::Sat => {
                 let assignments = graph
                     .node_indices()
-                    //.filter(|i| matches!(graph[*i], Input(_)))
                     .map(|i| {
                         let bv = bvs.get(&i).expect("every input must be part of bvs");
 
@@ -65,7 +64,7 @@ impl Solver for Boolector {
                 Ok(Some(assignments))
             }
             SolverResult::Unsat => Ok(None),
-            SolverResult::Unknown => Ok(None),
+            SolverResult::Unknown => Err(SolverError::SatUnknown),
         }
     }
 }

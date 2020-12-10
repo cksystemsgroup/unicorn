@@ -1,13 +1,15 @@
 #![allow(clippy::many_single_char_names)]
 
-use crate::bitvec::*;
-use crate::engine::EngineError;
-use crate::symbolic_state::{get_operands, BVOperator, Formula, Node, OperandSide, SymbolId};
-use crate::ternary::*;
+use crate::{
+    bitvec::*,
+    symbolic_state::{get_operands, BVOperator, Formula, Node, OperandSide, SymbolId},
+    ternary::*,
+};
 use log::{debug, log_enabled, trace, Level};
 use petgraph::{visit::EdgeRef, Direction};
 use rand::{distributions::Uniform, random, thread_rng, Rng};
 use std::time::{Duration, Instant};
+use thiserror::Error;
 
 pub type Assignment<T> = Vec<T>;
 
@@ -18,7 +20,7 @@ pub trait Solver: Default {
         &self,
         formula: &Formula,
         root: SymbolId,
-    ) -> Result<Option<Assignment<BitVector>>, EngineError> {
+    ) -> Result<Option<Assignment<BitVector>>, SolverError> {
         debug!("try to solve with {} solver", Self::name());
 
         time_debug!("finished solving formula", {
@@ -30,7 +32,16 @@ pub trait Solver: Default {
         &self,
         formula: &Formula,
         root: SymbolId,
-    ) -> Result<Option<Assignment<BitVector>>, EngineError>;
+    ) -> Result<Option<Assignment<BitVector>>, SolverError>;
+}
+
+#[derive(Debug, Error)]
+pub enum SolverError {
+    #[error("failed to compute satisfiability within the given limits")]
+    SatUnknown,
+
+    #[error("could not find a satisfiable assignment before timing out")]
+    Timeout,
 }
 
 pub struct MonsterSolver {}
@@ -56,11 +67,11 @@ impl Solver for MonsterSolver {
         &self,
         formula: &Formula,
         root: SymbolId,
-    ) -> Result<Option<Assignment<BitVector>>, EngineError> {
+    ) -> Result<Option<Assignment<BitVector>>, SolverError> {
         let ab = initialize_ab(formula);
         let at = compute_at(formula);
 
-        let timeout_time = Duration::new(20, 0);
+        let timeout_time = Duration::new(3, 0);
 
         sat(formula, root, at, ab, timeout_time)
     }
@@ -522,6 +533,11 @@ fn get_operand(f: &Formula, n: SymbolId) -> SymbolId {
 fn update_assignment(f: &Formula, ab: &mut Assignment<BitVector>, n: SymbolId, v: BitVector) {
     ab[n.index()] = v;
 
+    assert!(
+        matches!(f[n], Node::Input(_)),
+        "only inputs can be assigned"
+    );
+
     trace!("update: x{} <- {:#x}", n.index(), v.0);
 
     f.neighbors_directed(n, Direction::Outgoing)
@@ -621,7 +637,7 @@ fn sat(
     at: Assignment<TernaryBitVector>,
     mut ab: Assignment<BitVector>,
     timeout_time: Duration,
-) -> Result<Option<Assignment<BitVector>>, EngineError> {
+) -> Result<Option<Assignment<BitVector>>, SolverError> {
     let mut iterations = 0;
 
     let start_time = Instant::now();
@@ -635,7 +651,7 @@ fn sat(
 
         while !is_leaf(formula, n) {
             if start_time.elapsed() > timeout_time {
-                return Err(EngineError::SatTimeout());
+                return Err(SolverError::Timeout);
             }
             let (v, nx) = match formula[n] {
                 Node::Operator(op) => {

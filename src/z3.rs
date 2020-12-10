@@ -1,10 +1,11 @@
-use crate::bitvec::BitVector;
-use crate::engine::EngineError;
-use crate::solver::{Assignment, Solver};
-use crate::symbolic_state::{
-    get_operands, BVOperator, Formula,
-    Node::{Constant, Input, Operator},
-    SymbolId,
+use crate::{
+    bitvec::BitVector,
+    solver::{Assignment, Solver, SolverError},
+    symbolic_state::{
+        get_operands, BVOperator, Formula,
+        Node::{Constant, Input, Operator},
+        SymbolId,
+    },
 };
 use std::collections::HashMap;
 use z3::{
@@ -35,7 +36,7 @@ impl Solver for Z3 {
         &self,
         graph: &Formula,
         root: SymbolId,
-    ) -> Result<Option<Assignment<BitVector>>, EngineError> {
+    ) -> Result<Option<Assignment<BitVector>>, SolverError> {
         let config = Config::default();
         let ctx = Context::new(&config);
 
@@ -60,7 +61,8 @@ impl Solver for Z3 {
                         .collect(),
                 ))
             }
-            _ => Ok(None),
+            SatResult::Unsat => Ok(None),
+            SatResult::Unknown => Err(SolverError::SatUnknown),
         }
     }
 }

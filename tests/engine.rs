@@ -6,9 +6,7 @@ use log::trace;
 use monster::{self, bug::Bug, engine::*};
 use rayon::prelude::*;
 
-// TODO: Test if the execution engine delivers the right assignments,
-// instead of just testing if it crashes.
-const TEST_FILES: [&str; 13] = [
+const TEST_FILES: [&str; 14] = [
     "arithmetic.c",
     "if-else.c", // needs timeout
     "invalid-memory-access-2-35.c",
@@ -18,7 +16,7 @@ const TEST_FILES: [&str; 13] = [
     //"memory-access-1-35.c",
     "nested-if-else-reverse-1-35",
     "nested-recursion-1-35.c",
-    //"recursive-ackermann-1-35.c",
+    "recursive-ackermann-1-35.c",
     "recursive-factorial-1-35.c",
     "recursive-fibonacci-1-10.c",
     "simple-if-else-1-35.c",
@@ -70,7 +68,7 @@ fn execute_riscu(names: &'static [&str], solver: Backend) {
                 //("memory-access-1-35.c", Bug::
                 ("nested-if-else-reverse-1-35", Bug::ExitCodeGreaterZero { .. }) => true,
                 ("nested-recursion-1-35.c", Bug::ExitCodeGreaterZero { .. }) => true,
-                ////"recursive-ackermann-1-35.c",
+                ("recursive-ackermann-1-35.c", Bug::ExitCodeGreaterZero { .. }) => true,
                 ("recursive-factorial-1-35.c", Bug::ExitCodeGreaterZero { .. }) => true,
                 ("recursive-fibonacci-1-10.c", Bug::ExitCodeGreaterZero { .. }) => true,
                 ("simple-if-else-1-35.c", Bug::ExitCodeGreaterZero { .. }) => true,

@@ -3,8 +3,8 @@ use crate::{
     bug::{BasicInfo, Bug},
     cfg::build_cfg_from_file,
     exploration_strategy::{ExplorationStrategy, ShortestPathStrategy},
-    solver::{MonsterSolver, Solver},
-    symbolic_state::{BVOperator, Query, QueryError, SymbolId, SymbolicState},
+    solver::{MonsterSolver, Solver, SolverError},
+    symbolic_state::{BVOperator, Query, SymbolId, SymbolicState},
     z3::Z3,
 };
 use byteorder::{ByteOrder, LittleEndian};
@@ -108,10 +108,7 @@ pub enum EngineError {
     InvalidInstructionEncoding(u64, DecodingError),
 
     #[error("failed to compute satisfyability for formula")]
-    SatUnknown(QueryError),
-
-    #[error("could not find a satisfiable assignment before timing out")]
-    SatTimeout(),
+    SatUnknown(SolverError),
 }
 
 pub struct Engine<'a, E, S>
@@ -233,8 +230,7 @@ where
         Ok(self
             .symbolic_state
             .execute_query(query)
-            // TODO: differenciate between unsat, timeout and error
-            //.map_err(|e| EngineError::SatUnknown(e))
+            .map_err(EngineError::SatUnknown)
             .map_or(None, |result| {
                 result.map(|witness| {
                     basic_info_to_bug(BasicInfo {
@@ -460,26 +456,39 @@ where
         }
     }
 
-    fn bytewise_combine(
-        &mut self,
-        old_idx: SymbolId,
-        n_lower_bytes: u32,
-        new_idx: SymbolId,
-    ) -> SymbolId {
+    fn bytewise_combine(&mut self, old: Value, n_lower_bytes: u32, new_idx: SymbolId) -> SymbolId {
         let bits_in_a_byte = 8;
         let low_shift_factor = 2_u64.pow(n_lower_bytes * bits_in_a_byte);
         let high_shift_factor =
             2_u64.pow((size_of::<u64>() as u32 - n_lower_bytes) * bits_in_a_byte);
 
-        let low_shift_factor_idx = self.symbolic_state.create_const(low_shift_factor);
+        assert!(
+            low_shift_factor != 0 && high_shift_factor != 0,
+            "no bytes to shift"
+        );
 
-        let old_idx =
-            self.symbolic_state
-                .create_operator(BVOperator::Divu, old_idx, low_shift_factor_idx);
+        let old_idx = match old {
+            Value::Concrete(c) => {
+                let old_c = c / low_shift_factor * low_shift_factor;
 
-        let old_idx =
-            self.symbolic_state
-                .create_operator(BVOperator::Mul, old_idx, low_shift_factor_idx);
+                self.symbolic_state.create_const(old_c)
+            }
+            Value::Symbolic(old_idx) => {
+                let low_shift_factor_idx = self.symbolic_state.create_const(low_shift_factor);
+
+                let old_idx = self.symbolic_state.create_operator(
+                    BVOperator::Divu,
+                    old_idx,
+                    low_shift_factor_idx,
+                );
+
+                self.symbolic_state
+                    .create_operator(BVOperator::Mul, old_idx, low_shift_factor_idx)
+            }
+            Value::Uninitialized => {
+                unreachable!("function should not be called for uninitialized values")
+            }
+        };
 
         let high_shift_factor_idx = self.symbolic_state.create_const(high_shift_factor);
 
@@ -560,14 +569,7 @@ where
                         // if at least one byte in a word is uninitialized, the whole word is uninitialized
                         break;
                     }
-                    Value::Symbolic(old_idx) => {
-                        self.bytewise_combine(old_idx, bytes_to_read as u32, input_idx)
-                    }
-                    Value::Concrete(c) => {
-                        let old_idx = self.symbolic_state.create_const(c);
-
-                        self.bytewise_combine(old_idx, bytes_to_read as u32, input_idx)
-                    }
+                    v => self.bytewise_combine(v, bytes_to_read as u32, input_idx),
                 }
             };
 
