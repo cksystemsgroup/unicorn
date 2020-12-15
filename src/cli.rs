@@ -163,15 +163,33 @@ pub fn args() -> App<'static> {
                         .validator(is_u64),
                 )
                 .arg(
-                    Arg::new("rounds")
+                    Arg::new("runs")
                         .about("Number of distinct runs")
                         .short('r')
-                        .long("rounds")
+                        .long("runs")
                         .takes_value(true)
                         .value_name("NUMBER")
-                        .default_value("10")
+                        .default_value("3000")
                         .validator(is_u64),
-                ),
+                )
+                .arg(
+                    Arg::new("selection")
+                    .about("Number of runs to select in every iteration")
+                    .short('s')
+                    .long("selection")
+                    .takes_value(true)
+                    .value_name("NUMBER")
+                    .default_value("50")
+                    .validator(is_u64))
+                .arg(
+                    Arg::new("iterations")
+                    .about("Iterations of rarity simulation to run")
+                    .short('i')
+                    .long("iterations")
+                    .takes_value(true)
+                    .value_name("NUMBER")
+                    .default_value("20")
+                    .validator(is_u64))
         )
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .global_setting(AppSettings::GlobalVersion)

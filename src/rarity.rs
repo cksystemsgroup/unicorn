@@ -4,17 +4,20 @@ use crate::{
 };
 use byteorder::{ByteOrder, LittleEndian};
 use bytesize::ByteSize;
+use itertools::Itertools;
 use log::{debug, info, trace, warn};
 use riscu::{
     decode, load_object_file, types::*, DecodingError, Instruction, Program, ProgramSegment,
     Register, RiscuError, INSTRUCTION_SIZE as INSTR_SIZE,
 };
 use std::{
+    cmp::{min, Reverse},
     fmt,
     fs::{create_dir_all, File},
     io::Write,
     mem::size_of,
     path::Path,
+    sync::Arc,
 };
 use thiserror::Error;
 
@@ -22,6 +25,7 @@ pub type Bug = BugDef<RarityBugInfo>;
 
 const INSTRUCTION_SIZE: u64 = INSTR_SIZE as u64;
 
+#[derive(Debug, Clone)]
 pub struct State {
     pc: u64,
     regs: [Value; 32],
@@ -31,7 +35,7 @@ pub struct State {
 
 trait StateComparator {
     fn score_states(&self, first: &State, second: &State) -> u64;
-    fn score_states_pairwise(&self, states: &[State]) -> Vec<u64> {
+    fn score_states_pairwise(&self, states: &[&State]) -> Vec<u64> {
         let mut scores = vec![0u64; states.len()];
 
         for (i, state) in states.iter().enumerate() {
@@ -93,13 +97,14 @@ impl StateComparator for BytewiseStateComparator {
 }
 
 impl State {
+    #[allow(dead_code)]
     fn write_to_file<P>(&self, path: P) -> Result<(), EngineError>
     where
         P: AsRef<Path>,
     {
         File::create(path)
             .and_then(|mut file| write!(file, "{}", self))
-            .map_err(EngineError::IoError)
+            .map_err(|e| EngineError::IoError(Arc::new(e)))
     }
 }
 
@@ -125,64 +130,103 @@ pub fn execute<P>(
     input: P,
     output_dir: P,
     memory_size: ByteSize,
-    rounds: u64,
+    number_of_states: u64,
+    selection: u64,
     cycles: u64,
+    iterations: u64,
 ) -> Result<Option<Bug>, EngineError>
 where
     P: AsRef<Path>,
 {
-    let program = load_object_file(input).map_err(EngineError::RiscuError)?;
+    let program = load_object_file(input).map_err(|e| EngineError::RiscuError(Arc::new(e)))?;
 
-    create_and_run(&program, output_dir, memory_size, rounds, cycles)
+    create_and_run(
+        &program,
+        output_dir,
+        memory_size,
+        number_of_states,
+        selection,
+        cycles,
+        iterations,
+    )
 }
 
 fn create_and_run<P>(
     program: &Program,
     output_dir: P,
     memory_size: ByteSize,
-    rounds: u64,
+    number_of_states: u64,
+    selection: u64,
     cycles: u64,
+    iterations: u64,
 ) -> Result<Option<Bug>, EngineError>
 where
     P: AsRef<Path>,
 {
     if !output_dir.as_ref().is_dir() {
-        create_dir_all(&output_dir).map_err(EngineError::IoError)?;
+        create_dir_all(&output_dir).map_err(|e| EngineError::IoError(Arc::new(e)))?;
     }
 
-    let mut states: Vec<State> = Vec::new();
+    let mut engines: Vec<Engine> = Vec::new();
 
-    for round in 0..rounds {
-        info!("Running rarity simulation round {}...", round + 1);
+    for iteration in 0..iterations {
+        info!("Running rarity simulation round {}...", iteration + 1);
 
-        let mut engine = Engine::new(&program, memory_size, cycles);
+        let to_create = number_of_states as usize - engines.len();
+        info!("Creating {} new states", to_create);
+        engines.extend((0..to_create).map(|_| Engine::new(&program, memory_size)));
 
-        let result = engine.run();
+        let results = time_info!("Running engines", {
+            let results: Vec<_> = engines
+                .iter_mut()
+                .map(|engine| engine.run(cycles))
+                .collect();
+
+            if let Some(error_or_bug) = results.clone().iter().find(|result| match result {
+                Err(EngineError::ExecutionDepthReached(_)) => false,
+                Err(_) | Ok(Some(_)) => true,
+                _ => false,
+            }) {
+                return error_or_bug.clone();
+            }
+
+            results
+        });
+
+        // remove successfully exited engines
+        engines = engines
+            .iter()
+            .cloned()
+            .zip(results)
+            .filter(|(_, r)| matches!(r, Err(EngineError::ExecutionDepthReached(_))))
+            .map(|(e, _)| e)
+            .collect();
 
         info!(
-            "  executed {} instructions out of {}",
-            engine.execution_depth, cycles
+            "Remove {} successfully exited states from selection",
+            number_of_states as usize - engines.len()
         );
 
-        match result {
-            // TODO: Ok(None) is a state which successfully exited, should we really dump that???
-            Err(EngineError::ExecutionDepthReached(_)) | Ok(None) => {
-                states.push(engine.state);
-            }
-            Err(_) | Ok(Some(_)) => return result,
-        }
+        let scores = time_info!("Scoring states", {
+            let cmp = BytewiseStateComparator {};
+            let states: Vec<_> = engines.iter().map(|e| e.state()).collect();
+            cmp.score_states_pairwise(states.as_slice())
+        });
+
+        info!("  scored states: {:?}", scores);
+
+        let selection = min(selection as usize, engines.len());
+
+        engines = engines
+            .iter()
+            .zip(scores)
+            .sorted_by_key(|x| Reverse(x.1))
+            .map(|x| (*x.0).clone())
+            .take(selection)
+            .collect();
+
+        info!("  selecting {} states", selection);
     }
-
-    info!("Writing state dumps...");
-    for (idx, state) in states.iter().enumerate() {
-        let state_file = output_dir.as_ref().join(format!("dump_{}.out", idx));
-
-        state.write_to_file(&state_file)?;
-    }
-    info!("  done! State dumps written into {:?}", output_dir.as_ref());
-
-    let cmp = BytewiseStateComparator {};
-    info!("  scored states: {:?}", cmp.score_states_pairwise(&states));
 
     Ok(None)
 }
@@ -202,6 +246,7 @@ impl fmt::Display for Value {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Engine {
     program_break: u64,
     state: State,
@@ -213,7 +258,12 @@ pub struct Engine {
 
 impl Engine {
     // creates a machine state with a specific memory size
-    pub fn new(program: &Program, memory_size: ByteSize, max_exection_depth: u64) -> Self {
+    pub fn new(program: &Program, memory_size: ByteSize) -> Self {
+        assert!(
+            memory_size.as_u64() % 8 == 0,
+            "memory size has to be a multiple of 8"
+        );
+
         let mut regs = [Value::Uninitialized; 32];
         let mut memory = vec![Value::Uninitialized; memory_size.as_u64() as usize / 8];
 
@@ -255,15 +305,19 @@ impl Engine {
             program_break,
             state: State { pc, regs, memory },
             execution_depth: 0,
-            max_exection_depth,
+            max_exection_depth: 0,
             concrete_inputs: Vec::new(),
             is_running: false,
         }
     }
 
-    pub fn run(&mut self) -> Result<Option<Bug>, EngineError> {
+    pub fn state(&self) -> &State {
+        &self.state
+    }
+
+    pub fn run(&mut self, number_of_instructions: u64) -> Result<Option<Bug>, EngineError> {
         self.is_running = true;
-        self.concrete_inputs = Vec::new();
+        self.max_exection_depth += number_of_instructions;
 
         loop {
             if self.execution_depth >= self.max_exection_depth {
@@ -830,13 +884,13 @@ impl Engine {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum EngineError {
     #[error("failed to load RISC-U binary")]
-    RiscuError(RiscuError),
+    RiscuError(Arc<RiscuError>),
 
     #[error("failed to write State to file")]
-    IoError(std::io::Error),
+    IoError(Arc<std::io::Error>),
 
     #[error("engine does not support {0}")]
     NotSupported(String),

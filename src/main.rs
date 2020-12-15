@@ -110,13 +110,27 @@ fn main() -> Result<()> {
                 .value_of_t::<u64>("cycles")
                 .expect("value is validated already");
 
-            let rounds = args
-                .value_of_t::<u64>("rounds")
+            let iterations = args
+                .value_of_t::<u64>("iterations")
                 .expect("value is validated already");
 
-            if let Some(bug) =
-                rarity::execute(input, output, ByteSize::mb(megabytes), rounds, cycles)?
-            {
+            let runs = args
+                .value_of_t::<u64>("runs")
+                .expect("value is validated already");
+
+            let selection = args
+                .value_of_t::<u64>("selection")
+                .expect("value is validated already");
+
+            if let Some(bug) = rarity::execute(
+                input,
+                output,
+                ByteSize::mb(megabytes),
+                runs,
+                selection,
+                cycles,
+                iterations,
+            )? {
                 info!("bug found:\n{}", bug);
             } else {
                 info!("no bug found in binary");
