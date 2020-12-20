@@ -73,7 +73,11 @@ impl Div<BitVector> for BitVector {
     type Output = BitVector;
 
     fn div(self, other: BitVector) -> Self::Output {
-        Self(self.0.wrapping_div(other.0))
+        if other == BitVector(0) {
+            Self::ones()
+        } else {
+            Self(self.0.wrapping_div(other.0))
+        }
     }
 }
 
