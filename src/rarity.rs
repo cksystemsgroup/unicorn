@@ -12,6 +12,7 @@ use riscu::{
 };
 use std::{
     cmp::{min, Reverse},
+    collections::HashMap,
     fmt,
     fs::{create_dir_all, File},
     io::Write,
@@ -33,67 +34,85 @@ pub struct State {
     memory: Vec<Value>,
 }
 
-trait StateComparator {
-    fn score_states(&self, first: &State, second: &State) -> u64;
-    fn score_states_pairwise(&self, states: &[&State]) -> Vec<u64> {
-        let mut scores = vec![0u64; states.len()];
+type Address = u64;
+type Counter = u64;
 
-        for (i, state) in states.iter().enumerate() {
-            let mut sum: u64 = 0;
-            for (j, other) in states.iter().enumerate() {
-                if i == j {
-                    continue;
-                }
+fn compute_byte_value_rarity(states: &[&State]) -> HashMap<Address, Counter> {
+    let mut scores = HashMap::new();
 
-                sum += self.score_states(state, other);
-            }
-            scores[i] = sum;
-        }
-
-        scores
-    }
-}
-
-struct BytewiseStateComparator {}
-
-impl BytewiseStateComparator {
-    fn score_word(&self, first: u64, second: u64) -> u64 {
-        u64::to_ne_bytes(first)
-            .iter()
-            .zip(u64::to_ne_bytes(second).iter())
-            .filter(|(val1, val2)| val1 != val2)
-            .count() as u64
-    }
-    fn score_value(&self, first: &Value, second: &Value) -> u64 {
-        match (first, second) {
-            (Value::Concrete(val1), Value::Concrete(val2)) => self.score_word(*val1, *val2),
-            (Value::Uninitialized, Value::Uninitialized) => 0,
-            _ => 8, // One is initialized, the other not -> all bytes differ
+    fn count_score(scores: &mut HashMap<Address, Counter>, addr: Address) {
+        if let Some(entry) = scores.get_mut(&addr) {
+            *entry += 1;
+        } else {
+            scores.insert(addr, 1);
         }
     }
-}
-impl StateComparator for BytewiseStateComparator {
-    fn score_states(&self, first: &State, second: &State) -> u64 {
-        let mut score: u64 = 0;
 
-        score += self.score_word(first.pc, second.pc);
-        score += first
-            .regs
-            .iter()
-            .zip(second.regs.iter())
-            .fold(0u64, |accu, tuple| {
-                accu + self.score_value(tuple.0, tuple.1)
-            });
-        score += first
-            .memory
-            .iter()
-            .zip(second.memory.iter())
-            .fold(0u64, |accu, tuple| {
-                accu + self.score_value(tuple.0, tuple.1)
-            });
-
-        score
+    for state in states {
+        scorable_values(state, |it| it.for_each(|v| count_score(&mut scores, v)));
     }
+
+    scores
+}
+
+fn scorable_values<F, R>(state: &State, mut f: F) -> R
+where
+    F: FnMut(&mut dyn Iterator<Item = u64>) -> R,
+{
+    let bytes_per_word = size_of::<u64>() as u64;
+    let number_of_byte_values = 256;
+
+    let pc_bytes = u64::to_ne_bytes(state.pc);
+
+    let pc = pc_bytes
+        .iter()
+        .enumerate()
+        .map(|(i, b)| i as u64 * number_of_byte_values + *b as u64);
+
+    let offset = bytes_per_word * number_of_byte_values;
+
+    let regs = state
+        .regs
+        .iter()
+        .filter_map(|v| match v {
+            Value::Concrete(w) => Some(w),
+            _ => None,
+        })
+        .flat_map(|w| u64::to_ne_bytes(*w).iter().cloned().collect_vec())
+        .enumerate()
+        .map(|(i, b)| offset + i as u64 * number_of_byte_values + b as u64);
+
+    let offset = 33 * bytes_per_word * number_of_byte_values;
+
+    let memory = state
+        .memory
+        .iter()
+        .filter_map(|v| match v {
+            Value::Concrete(w) => Some(w),
+            _ => None,
+        })
+        .flat_map(|w| u64::to_ne_bytes(*w).iter().cloned().collect_vec())
+        .enumerate()
+        .map(|(i, b)| offset + i as u64 * number_of_byte_values + b as u64);
+
+    let mut iter = pc.chain(regs).chain(memory);
+
+    f(&mut iter)
+}
+
+fn score_states(states: &[&State]) -> Vec<u64> {
+    let rarity = compute_byte_value_rarity(states);
+
+    let mut scores = Vec::new();
+
+    for state in states {
+        scorable_values(state, |it| {
+            let score = it.map(|v| rarity.get(&v).unwrap()).sum();
+            scores.push(score);
+        });
+    }
+
+    scores
 }
 
 impl State {
@@ -208,9 +227,9 @@ where
         );
 
         let scores = time_info!("Scoring states", {
-            let cmp = BytewiseStateComparator {};
             let states: Vec<_> = engines.iter().map(|e| e.state()).collect();
-            cmp.score_states_pairwise(states.as_slice())
+
+            score_states(states.as_slice())
         });
 
         info!("  scored states: {:?}", scores);
