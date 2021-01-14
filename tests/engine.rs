@@ -58,24 +58,22 @@ fn execute_riscu(names: &'static [&str], solver: Backend) {
         let bug = possible_bug.unwrap();
 
         assert!(
-            match (file_name, bug.clone()) {
-                ("arithmetic.c", Bug::ExitCodeGreaterZero { .. }) => true,
-                ("invalid-memory-access-2-35.c", Bug::AccessToOutOfRangeAddress { .. }) => true,
-                ("if-else.c", Bug::ExitCodeGreaterZero { .. }) => true,
-                ("division-by-zero-3-35.c", Bug::DivisionByZero { .. }) => true,
-                ("simple-assignment-1-35.c", Bug::ExitCodeGreaterZero { .. }) => true,
-                ("test-sltu.c", Bug::ExitCodeGreaterZero { .. }) => true,
+            matches!((file_name, bug.clone()),
+                ("arithmetic.c", Bug::ExitCodeGreaterZero { .. }) |
+                ("invalid-memory-access-2-35.c", Bug::AccessToOutOfRangeAddress { .. }) |
+                ("if-else.c", Bug::ExitCodeGreaterZero { .. }) |
+                ("division-by-zero-3-35.c", Bug::DivisionByZero { .. }) |
+                ("simple-assignment-1-35.c", Bug::ExitCodeGreaterZero { .. }) |
+                ("test-sltu.c", Bug::ExitCodeGreaterZero { .. }) |
                 //("memory-access-1-35.c", Bug::
-                ("nested-if-else-reverse-1-35", Bug::ExitCodeGreaterZero { .. }) => true,
-                ("nested-recursion-1-35.c", Bug::ExitCodeGreaterZero { .. }) => true,
-                ("recursive-ackermann-1-35.c", Bug::ExitCodeGreaterZero { .. }) => true,
-                ("recursive-factorial-1-35.c", Bug::ExitCodeGreaterZero { .. }) => true,
-                ("recursive-fibonacci-1-10.c", Bug::ExitCodeGreaterZero { .. }) => true,
-                ("simple-if-else-1-35.c", Bug::ExitCodeGreaterZero { .. }) => true,
-                ("simple-increasing-loop-1-35.c", Bug::ExitCodeGreaterZero { .. }) => true,
-                ("two-level-nested-loop-1-35.c", Bug::ExitCodeGreaterZero { .. }) => true,
-                _ => false,
-            },
+                ("nested-if-else-reverse-1-35", Bug::ExitCodeGreaterZero { .. }) |
+                ("nested-recursion-1-35.c", Bug::ExitCodeGreaterZero { .. }) |
+                ("recursive-ackermann-1-35.c", Bug::ExitCodeGreaterZero { .. }) |
+                ("recursive-factorial-1-35.c", Bug::ExitCodeGreaterZero { .. }) |
+                ("recursive-fibonacci-1-10.c", Bug::ExitCodeGreaterZero { .. }) |
+                ("simple-if-else-1-35.c", Bug::ExitCodeGreaterZero { .. }) |
+                ("simple-increasing-loop-1-35.c", Bug::ExitCodeGreaterZero { .. }) |
+                ("two-level-nested-loop-1-35.c", Bug::ExitCodeGreaterZero { .. })),
             "found right bug type (actual: {}) for {}",
             bug,
             file_name
