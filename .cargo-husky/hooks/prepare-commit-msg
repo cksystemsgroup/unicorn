@@ -1,19 +1,21 @@
 #!/bin/bash
 
-INPUT_FILE=$1
-START_LINE=`head -n1 $INPUT_FILE`
+# TODO: make this work for "git commit" command
 
-regexp="(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-z ]+\))?!?: .+"
+#INPUT_FILE=$1
+#START_LINE=`head -n1 $INPUT_FILE`
 
-echo "Checking for Conventional Commit for message:"
-echo $START_LINE
+#regexp="(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-z ]+\))?!?: .+"
 
-if [[ $START_LINE =~ $regexp ]]
-then
-    echo "Convention upheld"
-    exit 0
-else
-    echo "Commit Message not Conventional"
-    exit 1
-fi
+#echo "Checking for Conventional Commit for message:"
+#echo $START_LINE
+
+#if [[ $START_LINE =~ $regexp ]]
+#then
+    #echo "Convention upheld"
+    #exit 0
+#else
+    #echo "Commit Message not Conventional"
+    #exit 1
+#fi
 
