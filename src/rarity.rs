@@ -37,7 +37,7 @@ pub struct State {
 type Address = u64;
 type Counter = u64;
 
-fn compute_byte_value_rarity(states: &[&State]) -> HashMap<Address, Counter> {
+fn compute_byte_value_presence(states: &[&State]) -> HashMap<Address, Counter> {
     let mut scores = HashMap::new();
 
     fn count_score(scores: &mut HashMap<Address, Counter>, addr: Address) {
@@ -55,6 +55,40 @@ fn compute_byte_value_rarity(states: &[&State]) -> HashMap<Address, Counter> {
     scores
 }
 
+fn compute_byte_value_rarity(state: &[&State]) -> HashMap<Address, Counter> {
+    let n = state.len();
+
+    let mut rarity = compute_byte_value_presence(state);
+
+    for (_, counter) in rarity.iter_mut() {
+        // The rarity is actually determined by the inverse of the counter values
+        // (e.g. a value is more rare if its rarity score is 1/1 (occurs once) than 1/3 (occurs
+        // thrice).
+        *counter = f64::round((n as f64) / (*counter as f64)) as u64;
+    }
+
+    rarity
+}
+
+/**
+ *
+ * Based on a state, generates an iterator that contains
+ * matching counter `addresses` for each byte.
+ *
+ * The counter address is a combination of the byte's address and the value of that
+ * address in the state.
+ *
+ * Each byte assumes on of 256 (2^8) values.
+ * Thus, each distinct byte i of the state has has 256 different addresses: (i*256)..((i*256) + 255)
+ * That is, each byte is `expanded` to 256 addresses.
+ *
+ * The first 8 bytes are represented by the program counter, in the CPU's native byte ordering
+ * Next, 32 64-bit registers are represented.
+ * Then, all touched memory regions follow.
+ *
+ * For each byte i, only one of its 256 different addresses may occur (because a byte can only
+ * assume one state at a time)
+ */
 fn scorable_values<F, R>(state: &State, mut f: F) -> R
 where
     F: FnMut(&mut dyn Iterator<Item = u64>) -> R,
