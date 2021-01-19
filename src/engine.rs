@@ -1,3 +1,5 @@
+
+
 use crate::{
     boolector::Boolector,
     bug::{BasicInfo, Bug},
@@ -323,21 +325,31 @@ where
         Ok(None)
     }
 
-    fn execute_divu(
+    fn execute_divu_remu<Op>(
         &mut self,
         instruction: Instruction,
         rtype: RType,
-    ) -> Result<Option<Bug>, EngineError> {
+        op: Op,
+    ) -> Result<Option<Bug>, EngineError>
+    where
+        Op: FnOnce(u64, u64) -> u64,
+    {
         let bug = match self.regs[rtype.rs2() as usize] {
             Value::Symbolic(divisor) => {
-                trace!("divu: symbolic divisor -> find input for divisor == 0");
+                trace!(
+                    "{}: symbolic divisor -> find input for divisor == 0",
+                    instruction_to_str(instruction)
+                );
 
                 self.execute_query(Query::Equals((divisor, 0)), |info| Bug::DivisionByZero {
                     info,
                 })?
             }
             Value::Concrete(divisor) if divisor == 0 => {
-                trace!("divu: divisor == 0 -> compute reachability");
+                trace!(
+                    "{}: divisor == 0 -> compute reachability",
+                    instruction_to_str(instruction)
+                );
 
                 self.execute_query(Query::Reachable, |info| Bug::DivisionByZero { info })?
             }
@@ -345,7 +357,7 @@ where
         };
 
         if bug.is_none() {
-            self.execute_rtype(instruction, rtype, u64::wrapping_div)
+            self.execute_rtype(instruction, rtype, op)
         } else {
             Ok(bug)
         }
@@ -614,7 +626,10 @@ where
 
         let result = self.run();
 
-        if !matches!(result, Err(EngineError::ExecutionDepthReached(_)) | Ok(None)) {
+        if !matches!(
+            result,
+            Err(EngineError::ExecutionDepthReached(_)) | Ok(None)
+        ) {
             return result;
         }
 
@@ -895,8 +910,12 @@ where
             Instruction::Add(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_add),
             Instruction::Sub(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_sub),
             Instruction::Mul(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_mul),
-            Instruction::Divu(rtype) => self.execute_divu(instruction, rtype),
-            Instruction::Remu(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_rem),
+            Instruction::Divu(rtype) => {
+                self.execute_divu_remu(instruction, rtype, u64::wrapping_div)
+            }
+            Instruction::Remu(rtype) => {
+                self.execute_divu_remu(instruction, rtype, u64::wrapping_rem)
+            }
             Instruction::Sltu(rtype) => {
                 self.execute_rtype(instruction, rtype, |l, r| if l < r { 1 } else { 0 })
             }

@@ -152,6 +152,7 @@ impl<'a, 'ctx> Z3Translator<'a, 'ctx> {
                     BVOperator::Sub => traverse_binary!(self, lhs, bvsub, rhs),
                     BVOperator::Mul => traverse_binary!(self, lhs, bvmul, rhs),
                     BVOperator::Divu => traverse_binary!(self, lhs, bvudiv, rhs),
+                    BVOperator::Remu => traverse_binary!(self, lhs, bvurem, rhs),
                     BVOperator::Equals => traverse_binary!(self, lhs, _eq, rhs)
                         .as_bool()
                         .unwrap()

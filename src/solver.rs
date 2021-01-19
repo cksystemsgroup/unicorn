@@ -6,9 +6,10 @@ use crate::{
     bitvec::*,
     symbolic_state::{get_operands, BVOperator, Formula, Node, OperandSide, SymbolId},
 };
+use divisors::get_divisors;
 use log::{debug, log_enabled, trace, Level};
 use petgraph::{visit::EdgeRef, Direction};
-use rand::{distributions::Uniform, random, thread_rng, Rng};
+use rand::{distributions::Uniform, random, seq::SliceRandom, thread_rng, Rng};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
@@ -120,6 +121,12 @@ fn is_invertable(op: BVOperator, s: BitVector, t: BitVector, d: OperandSide) -> 
                 true
             }
         }
+        BVOperator::Remu => match d {
+            OperandSide::Lhs => !(s <= t),
+            OperandSide::Rhs => {
+                !(s < t) || ((t != BitVector(0)) && t == s - BitVector(1)) || (s - t <= t)
+            }
+        },
         BVOperator::Not => true,
         BVOperator::BitwiseAnd => (t & s) == t,
         BVOperator::Equals => true,
@@ -277,6 +284,36 @@ fn compute_inverse_value(op: BVOperator, s: BitVector, t: BitVector, d: OperandS
                 }
             }
         },
+        BVOperator::Remu => match d {
+            OperandSide::Lhs => {
+                let y = BitVector(
+                    thread_rng().sample(Uniform::new_inclusive(1, (BitVector::ones() - t / s).0)),
+                );
+                if !(s.0.overflowing_mul(y.0).1) && !(t.0.overflowing_add(y.0 * s.0).1) {
+                    return y;
+                }
+                panic!("Big Error in REMU Inverse Value (LHS)")
+            }
+            OperandSide::Rhs => {
+                if s == t {
+                    let x = BitVector(
+                        thread_rng().sample(Uniform::new_inclusive(t.0, BitVector::ones().0)),
+                    );
+                    if x == t {
+                        BitVector(0)
+                    } else {
+                        x
+                    }
+                } else {
+                    let mut v = get_divisors(s.0 - t.0);
+                    v.push(1);
+                    v.push(s.0 - t.0);
+                    v = v.into_iter().filter(|x| x > &t.0).collect();
+
+                    return BitVector(*v.choose(&mut rand::thread_rng()).unwrap());
+                }
+            }
+        },
         BVOperator::BitwiseAnd => BitVector(random::<u64>()) | t,
         BVOperator::Equals => {
             if t == BitVector(0) {
@@ -357,6 +394,24 @@ fn compute_consistent_value(op: BVOperator, t: BitVector, d: OperandSide) -> Bit
                 BitVector(thread_rng().sample(Uniform::new(1, BitVector::ones().0)))
             }
         }
+        BVOperator::Remu => match d {
+            OperandSide::Lhs => {
+                if t == BitVector::ones() {
+                    BitVector::ones()
+                } else {
+                    BitVector(thread_rng().sample(Uniform::new_inclusive(t.0, BitVector::ones().0)))
+                }
+            }
+            OperandSide::Rhs => {
+                if t == BitVector::ones() {
+                    BitVector(0)
+                } else {
+                    BitVector(
+                        thread_rng().sample(Uniform::new_inclusive(t.0 + 1, BitVector::ones().0)),
+                    )
+                }
+            }
+        },
         BVOperator::BitwiseAnd => BitVector(random::<u64>()) | t,
         _ => unreachable!("unknown operator for consistent value: {:?}", op),
     }
@@ -513,6 +568,7 @@ fn propagate_assignment(f: &Formula, ab: &mut Assignment<BitVector>, n: SymbolId
                         BitVector(0)
                     }
                 }),
+                BVOperator::Remu => update_binary(f, ab, n, "%", |l, r| l % r),
                 BVOperator::Equals => update_binary(f, ab, n, "=", |l, r| {
                     if l == r {
                         BitVector(1)

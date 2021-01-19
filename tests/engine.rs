@@ -58,7 +58,8 @@ fn execute_riscu(names: &'static [&str], solver: Backend) {
         let bug = possible_bug.unwrap();
 
         assert!(
-            matches!((file_name, bug.clone()),
+            matches!(
+                (file_name, bug.clone()),
                 ("arithmetic.c", Bug::ExitCodeGreaterZero { .. }) |
                 ("invalid-memory-access-2-35.c", Bug::AccessToOutOfRangeAddress { .. }) |
                 ("if-else.c", Bug::ExitCodeGreaterZero { .. }) |
@@ -73,7 +74,8 @@ fn execute_riscu(names: &'static [&str], solver: Backend) {
                 ("recursive-fibonacci-1-10.c", Bug::ExitCodeGreaterZero { .. }) |
                 ("simple-if-else-1-35.c", Bug::ExitCodeGreaterZero { .. }) |
                 ("simple-increasing-loop-1-35.c", Bug::ExitCodeGreaterZero { .. }) |
-                ("two-level-nested-loop-1-35.c", Bug::ExitCodeGreaterZero { .. })),
+                ("two-level-nested-loop-1-35.c", Bug::ExitCodeGreaterZero { .. })
+            ),
             "found right bug type (actual: {}) for {}",
             bug,
             file_name

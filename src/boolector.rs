@@ -93,6 +93,8 @@ fn traverse<'a>(
                             .and(&traverse(graph, rhs, solver, bvs)),
                         BVOperator::Divu => traverse(graph, lhs, solver, bvs)
                             .udiv(&traverse(graph, rhs, solver, bvs)),
+                        BVOperator::Remu => traverse(graph, lhs, solver, bvs)
+                            .urem(&traverse(graph, rhs, solver, bvs)),
                         BVOperator::Sltu => traverse(graph, lhs, solver, bvs)
                             .ult(&traverse(graph, rhs, solver, bvs))
                             .uext(63),
