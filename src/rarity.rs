@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 use crate::{
     bug::Bug as BugDef,
     engine::{instruction_to_str, SyscallId},
@@ -149,6 +151,10 @@ fn score_states(states: &[&State]) -> Vec<u64> {
     scores
 }
 
+fn random_index(len: usize) -> usize {
+    rand::random::<usize>() % len
+}
+
 impl State {
     #[allow(dead_code)]
     fn write_to_file<P>(&self, path: P) -> Result<(), EngineError>
@@ -187,6 +193,7 @@ pub fn execute<P>(
     selection: u64,
     cycles: u64,
     iterations: u64,
+    copy_ratio: f64,
 ) -> Result<Option<Bug>, EngineError>
 where
     P: AsRef<Path>,
@@ -201,6 +208,7 @@ where
         selection,
         cycles,
         iterations,
+        copy_ratio,
     )
 }
 
@@ -212,6 +220,7 @@ fn create_and_run<P>(
     selection: u64,
     cycles: u64,
     iterations: u64,
+    copy_ratio: f64,
 ) -> Result<Option<Bug>, EngineError>
 where
     P: AsRef<Path>,
@@ -226,8 +235,26 @@ where
         info!("Running rarity simulation round {}...", iteration + 1);
 
         let to_create = number_of_states as usize - engines.len();
+        let to_copy = if engines.is_empty() {
+            0
+        } else {
+            f64::round(to_create as f64 * copy_ratio) as usize
+        };
+        let to_init = to_create - to_copy;
+
         info!("Creating {} new states", to_create);
-        engines.extend((0..to_create).map(|_| Engine::new(&program, memory_size)));
+        debug!(
+            "  {} engines will be copied and {} engines will be created",
+            to_copy, to_init
+        );
+        let initial_engines = engines.len();
+        engines.extend(
+            (0..to_copy)
+                .map(|_| random_index(initial_engines))
+                .map(|idx| engines[idx].clone())
+                .collect::<Vec<Engine>>(),
+        );
+        engines.extend((0..to_init).map(|_| Engine::new(&program, memory_size)));
 
         let results = time_info!("Running engines", {
             let results: Vec<_> = engines

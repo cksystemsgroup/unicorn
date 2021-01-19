@@ -32,7 +32,7 @@ fn test_rarity_simulation() {
 
             let output_dir = std::env::current_dir().unwrap().join("dumps");
 
-            let result = execute(&object, &output_dir, ByteSize::mb(1), 1, 1, 1, 1);
+            let result = execute(&object, &output_dir, ByteSize::mb(1), 1, 1, 1, 1, 0.6);
 
             trace!("execution finished: {:?}", result);
 

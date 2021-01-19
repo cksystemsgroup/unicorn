@@ -29,6 +29,21 @@ fn is_valid_memory_size(v: &str) -> Result<(), String> {
     })
 }
 
+fn is_ratio(v: &str) -> Result<(), String> {
+    let valid_range = 0.0_f64..=1.0f64;
+
+    match v.parse::<f64>() {
+        Ok(ratio) => {
+            if valid_range.contains(&ratio) {
+                Ok(())
+            } else {
+                Err("Expected range between 0.0 and 1.0".to_string())
+            }
+        }
+        Err(err) => Err(err.to_string()),
+    }
+}
+
 pub fn args() -> App<'static> {
     App::new("Monster")
         .version(crate_version!())
@@ -190,6 +205,15 @@ pub fn args() -> App<'static> {
                     .value_name("NUMBER")
                     .default_value("20")
                     .validator(is_u64))
+                .arg(
+                    Arg::new("copy-init-ratio")
+                        .about("Determines how much new states are copied instead of started from the beginning")
+                        .long("copy-init-ratio")
+                        .takes_value(true)
+                        .value_name("RATIO")
+                        .default_value("0.6")
+                        .validator(is_ratio)
+                    )
         )
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .global_setting(AppSettings::GlobalVersion)

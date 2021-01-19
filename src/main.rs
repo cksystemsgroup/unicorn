@@ -122,6 +122,10 @@ fn main() -> Result<()> {
                 .value_of_t::<u64>("selection")
                 .expect("value is validated already");
 
+            let copy_ratio = args
+                .value_of_t::<f64>("copy-init-ratio")
+                .expect("value is validated already");
+
             if let Some(bug) = rarity::execute(
                 input,
                 output,
@@ -130,6 +134,7 @@ fn main() -> Result<()> {
                 selection,
                 cycles,
                 iterations,
+                copy_ratio,
             )? {
                 info!("bug found:\n{}", bug);
             } else {
