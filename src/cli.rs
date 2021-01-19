@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::{crate_authors, crate_description, crate_version, App, AppSettings, Arg, ArgMatches};
 
 pub const LOGGING_LEVELS: [&str; 5] = ["trace", "debug", "info", "warn", "error"];
-pub const SOLVER: [&str; 3] = ["monster", "boolector", "z3"];
+pub const SOLVER: [&str; 4] = ["monster", "boolector", "z3", "external"];
 
 pub fn expect_arg<'a>(m: &'a ArgMatches, arg: &str) -> &'a str {
     m.value_of(arg)

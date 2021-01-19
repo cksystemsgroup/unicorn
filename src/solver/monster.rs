@@ -4,47 +4,14 @@
 
 use crate::{
     bitvec::*,
+    solver::{Assignment, Solver, SolverError},
     symbolic_state::{get_operands, BVOperator, Formula, Node, OperandSide, SymbolId},
 };
 use divisors::get_divisors;
-use log::{debug, log_enabled, trace, Level};
+use log::{log_enabled, trace, Level};
 use petgraph::{visit::EdgeRef, Direction};
 use rand::{distributions::Uniform, random, seq::SliceRandom, thread_rng, Rng};
 use std::time::{Duration, Instant};
-use thiserror::Error;
-
-pub type Assignment<T> = Vec<T>;
-
-pub trait Solver: Default {
-    fn name() -> &'static str;
-
-    fn solve(
-        &self,
-        formula: &Formula,
-        root: SymbolId,
-    ) -> Result<Option<Assignment<BitVector>>, SolverError> {
-        debug!("try to solve with {} solver", Self::name());
-
-        time_debug!("finished solving formula", {
-            self.solve_impl(formula, root)
-        })
-    }
-
-    fn solve_impl(
-        &self,
-        formula: &Formula,
-        root: SymbolId,
-    ) -> Result<Option<Assignment<BitVector>>, SolverError>;
-}
-
-#[derive(Debug, Error)]
-pub enum SolverError {
-    #[error("failed to compute satisfiability within the given limits")]
-    SatUnknown,
-
-    #[error("could not find a satisfiable assignment before timing out")]
-    Timeout,
-}
 
 pub struct MonsterSolver {}
 

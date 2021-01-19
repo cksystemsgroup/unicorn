@@ -1,13 +1,9 @@
-
-
 use crate::{
-    boolector::Boolector,
     bug::{BasicInfo, Bug},
     cfg::build_cfg_from_file,
     exploration_strategy::{ExplorationStrategy, ShortestPathStrategy},
-    solver::{MonsterSolver, Solver, SolverError},
+    solver::{Boolector, ExternalSolver, MonsterSolver, Solver, SolverError, Z3},
     symbolic_state::{BVOperator, Query, SymbolId, SymbolicState},
-    z3::Z3,
 };
 use byteorder::{ByteOrder, LittleEndian};
 use bytesize::ByteSize;
@@ -29,11 +25,12 @@ pub enum SyscallId {
     Openat = 56,
     Brk = 214,
 }
-#[derive(Clone, Copy)]
+#[derive(Copy, Clone)]
 pub enum Backend {
     Monster,
     Boolector,
     Z3,
+    External,
 }
 
 pub fn execute<P>(
@@ -59,6 +56,12 @@ where
         Backend::Z3 => {
             create_and_run::<_, Z3>(&program, &strategy, max_exection_depth, memory_size)
         }
+        Backend::External => create_and_run::<_, ExternalSolver>(
+            &program,
+            &strategy,
+            max_exection_depth,
+            memory_size,
+        ),
     }
 }
 

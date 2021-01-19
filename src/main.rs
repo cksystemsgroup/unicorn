@@ -60,6 +60,7 @@ fn main() -> Result<()> {
                     "monster" => engine::Backend::Monster,
                     "boolector" => engine::Backend::Boolector,
                     "z3" => engine::Backend::Z3,
+                    "external" => engine::Backend::External,
                     _ => unreachable!(),
                 },
                 depth,

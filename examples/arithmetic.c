@@ -22,7 +22,7 @@ uint64_t main() {
 
   c = b - c;
 
-  c = c % b;
+  c = c % 223405432;
 
   return c;
 }

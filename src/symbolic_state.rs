@@ -362,7 +362,7 @@ where
         let mut visited = HashMap::<NodeIndex, NodeIndex>::new();
         let mut printer = Printer {};
 
-        self.traverse(root, &mut visited, &mut printer)
+        traverse(&self.data_flow, root, &mut visited, &mut printer)
     }
 
     fn build_trivial_witness(&self) -> Witness {
@@ -386,92 +386,88 @@ where
             assignment,
         };
 
-        self.traverse(root, &mut visited, &mut builder);
+        traverse(&self.data_flow, root, &mut visited, &mut builder);
 
         witness
     }
-
-    fn traverse<V, R>(&self, n: NodeIndex, visit_map: &mut HashMap<NodeIndex, R>, v: &mut V) -> R
-    where
-        V: Visitor<R>,
-        R: Copy,
-    {
-        if let Some(result) = visit_map.get(&n) {
-            return *result;
-        }
-
-        let result = match &self.data_flow[n] {
-            Node::Operator(op) => {
-                let mut operands = self
-                    .data_flow
-                    .neighbors_directed(n, Direction::Incoming)
-                    .detach();
-
-                if op.is_unary() {
-                    let x = operands
-                        .next(&self.data_flow)
-                        .expect("every unary operator must have 1 operand")
-                        .1;
-
-                    let x = self.traverse(x, visit_map, v);
-
-                    v.unary(n, *op, x)
-                } else {
-                    let lhs = operands
-                        .next(&self.data_flow)
-                        .expect("every binary operator must have an lhs operand")
-                        .1;
-
-                    let rhs = operands
-                        .next(&self.data_flow)
-                        .expect("every binary operator must have an rhs operand")
-                        .1;
-
-                    let lhs = self.traverse(lhs, visit_map, v);
-                    let rhs = self.traverse(rhs, visit_map, v);
-
-                    v.binary(n, *op, lhs, rhs)
-                }
-            }
-            Node::Constant(c) => v.constant(n, BitVector(*c)),
-            Node::Input(name) => v.input(n, name),
-        };
-
-        visit_map.insert(n, result);
-
-        result
-    }
 }
 
-trait Visitor<T> {
-    fn input(&mut self, idx: NodeIndex, name: &str) -> T;
-    fn constant(&mut self, idx: NodeIndex, v: BitVector) -> T;
-    fn unary(&mut self, idx: NodeIndex, op: BVOperator, v: T) -> T;
-    fn binary(&mut self, idx: NodeIndex, op: BVOperator, lhs: T, rhs: T) -> T;
+pub fn traverse<V, R>(
+    formula: &Formula,
+    n: SymbolId,
+    visit_map: &mut HashMap<NodeIndex, R>,
+    v: &mut V,
+) -> R
+where
+    V: FormulaVisitor<R>,
+    R: Clone,
+{
+    if let Some(result) = visit_map.get(&n) {
+        return (*result).clone();
+    }
+
+    let result = match &formula[n] {
+        Node::Operator(op) => {
+            let mut operands = formula.neighbors_directed(n, Direction::Incoming).detach();
+
+            if op.is_unary() {
+                let x = operands
+                    .next(formula)
+                    .expect("every unary operator must have 1 operand")
+                    .1;
+
+                let x = traverse(formula, x, visit_map, v);
+
+                v.unary(n, *op, x)
+            } else {
+                let lhs = operands
+                    .next(formula)
+                    .expect("every binary operator must have an lhs operand")
+                    .1;
+
+                let rhs = operands
+                    .next(formula)
+                    .expect("every binary operator must have an rhs operand")
+                    .1;
+
+                let lhs = traverse(formula, lhs, visit_map, v);
+                let rhs = traverse(formula, rhs, visit_map, v);
+
+                v.binary(n, *op, lhs, rhs)
+            }
+        }
+        Node::Constant(c) => v.constant(n, BitVector(*c)),
+        Node::Input(name) => v.input(n, name.as_str()),
+    };
+
+    visit_map.insert(n, result.clone());
+
+    result
+}
+
+pub trait FormulaVisitor<T>: Sized {
+    fn input(&mut self, idx: SymbolId, name: &str) -> T;
+    fn constant(&mut self, idx: SymbolId, v: BitVector) -> T;
+    fn unary(&mut self, idx: SymbolId, op: BVOperator, v: T) -> T;
+    fn binary(&mut self, idx: SymbolId, op: BVOperator, lhs: T, rhs: T) -> T;
 }
 
 struct Printer {}
 
-impl Visitor<NodeIndex> for Printer {
-    fn input(&mut self, idx: NodeIndex, name: &str) -> NodeIndex {
+impl FormulaVisitor<SymbolId> for Printer {
+    fn input(&mut self, idx: SymbolId, name: &str) -> SymbolId {
         debug!("x{} := {:?}", idx.index(), name);
         idx
     }
-    fn constant(&mut self, idx: NodeIndex, v: BitVector) -> NodeIndex {
+    fn constant(&mut self, idx: SymbolId, v: BitVector) -> SymbolId {
         debug!("x{} := {}", idx.index(), v.0);
         idx
     }
-    fn unary(&mut self, idx: NodeIndex, op: BVOperator, v: NodeIndex) -> NodeIndex {
+    fn unary(&mut self, idx: SymbolId, op: BVOperator, v: SymbolId) -> SymbolId {
         debug!("x{} := {}x{}", idx.index(), op, v.index());
         idx
     }
-    fn binary(
-        &mut self,
-        idx: NodeIndex,
-        op: BVOperator,
-        lhs: NodeIndex,
-        rhs: NodeIndex,
-    ) -> NodeIndex {
+    fn binary(&mut self, idx: SymbolId, op: BVOperator, lhs: SymbolId, rhs: SymbolId) -> SymbolId {
         debug!(
             "x{} := x{} {} x{}",
             idx.index(),
@@ -488,18 +484,18 @@ struct WitnessBuilder<'a> {
     assignment: &'a [BitVector],
 }
 
-impl<'a> Visitor<usize> for WitnessBuilder<'a> {
-    fn input(&mut self, idx: NodeIndex, name: &str) -> usize {
+impl<'a> FormulaVisitor<usize> for WitnessBuilder<'a> {
+    fn input(&mut self, idx: SymbolId, name: &str) -> usize {
         self.witness
             .add_variable(name, self.assignment[idx.index()])
     }
-    fn constant(&mut self, _idx: NodeIndex, v: BitVector) -> usize {
+    fn constant(&mut self, _idx: SymbolId, v: BitVector) -> usize {
         self.witness.add_constant(v)
     }
-    fn unary(&mut self, idx: NodeIndex, op: BVOperator, v: usize) -> usize {
+    fn unary(&mut self, idx: SymbolId, op: BVOperator, v: usize) -> usize {
         self.witness.add_unary(op, v, self.assignment[idx.index()])
     }
-    fn binary(&mut self, idx: NodeIndex, op: BVOperator, lhs: usize, rhs: usize) -> usize {
+    fn binary(&mut self, idx: SymbolId, op: BVOperator, lhs: usize, rhs: usize) -> usize {
         self.witness
             .add_binary(lhs, op, rhs, self.assignment[idx.index()])
     }
