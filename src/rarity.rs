@@ -110,12 +110,19 @@ where
     let regs = state
         .regs
         .iter()
-        .filter_map(|v| match v {
-            Value::Concrete(w) => Some(w),
+        .enumerate()
+        .filter_map(|(idx, v)| match v {
+            Value::Concrete(w) => Some((idx, w)),
             _ => None,
         })
-        .flat_map(|w| u64::to_ne_bytes(*w).iter().cloned().collect_vec())
-        .enumerate()
+        .flat_map(|(idx, w)| {
+            u64::to_ne_bytes(*w)
+                .iter()
+                .cloned()
+                .enumerate()
+                .map(|(i, b)| ((bytes_per_word * idx as u64) + i as u64, b))
+                .collect_vec()
+        })
         .map(|(i, b)| offset + i as u64 * number_of_byte_values + b as u64);
 
     let offset = 33 * bytes_per_word * number_of_byte_values;
@@ -123,12 +130,19 @@ where
     let memory = state
         .memory
         .iter()
-        .filter_map(|v| match v {
-            Value::Concrete(w) => Some(w),
+        .enumerate()
+        .filter_map(|(idx, v)| match v {
+            Value::Concrete(w) => Some((idx, w)),
             _ => None,
         })
-        .flat_map(|w| u64::to_ne_bytes(*w).iter().cloned().collect_vec())
-        .enumerate()
+        .flat_map(|(idx, w)| {
+            u64::to_ne_bytes(*w)
+                .iter()
+                .cloned()
+                .enumerate()
+                .map(|(i, b)| ((bytes_per_word * idx as u64) + i as u64, b))
+                .collect_vec()
+        })
         .map(|(i, b)| offset + i as u64 * number_of_byte_values + b as u64);
 
     let mut iter = pc.chain(regs).chain(memory);
