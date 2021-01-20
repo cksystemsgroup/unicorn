@@ -9,7 +9,7 @@ license = "MIT"
 categories = ["command-line-utilities", "development-tools::testing", "science", "simulation"]
 keywords = ["monster", "riscv", "riscu", "symbolic-execution", "smt"]
 edition = "2018"
-version = "0.0.1"
+version ="0.1.0"
 
 [features]
 pictures = [] 
