@@ -52,7 +52,7 @@ jobs:
 
       - name: Install Rust Cross Compiler
         run: |
-          cargo install cross || true
+          cargo install cross --locked || true
           rustup target add riscv64gc-unknown-linux-gnu
 
       - name: Check Format
@@ -109,7 +109,7 @@ jobs:
           key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install Rust Dependency Scanner
-        run: cargo install audit || true
+        run: cargo install audit --locked || true
 
       - name: Scan Dependencies
         run: cargo audit

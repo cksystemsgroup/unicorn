@@ -44,9 +44,9 @@ jobs:
 
       - name: Install mdbook and Dependencies
         run: |
-          cargo install mdbook || true
-          cargo install mdbook-linkcheck || true
-          cargo install --git https://github.com/christianmoesl/mdbook-graphviz || true
+          cargo install mdbook --locked || true
+          cargo install mdbook-linkcheck --locked || true
+          cargo install --git https://github.com/dylanowen/mdbook-graphviz || true
 
       - name: Generate Book as Html
         run: mdbook build book
