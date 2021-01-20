@@ -57,7 +57,10 @@ impl Solver for Z3 {
                 Ok(Some(
                     graph
                         .node_indices()
-                        .map(|i| bv_for_node_idx(i, translation, &model))
+                        .filter_map(|i| match bv_for_node_idx(i, translation, &model) {
+                            Some(bv) => Some((i, bv)),
+                            None => None,
+                        })
                         .collect(),
                 ))
             }
@@ -71,33 +74,33 @@ fn bv_for_node_idx<'ctx>(
     i: SymbolId,
     translation: &HashMap<SymbolId, Dynamic<'ctx>>,
     m: &Model,
-) -> BitVector {
-    let ast_node = translation
-        .get(&i)
-        .expect("input BV must be always assigned something once solved");
+) -> Option<BitVector> {
+    if let Some(ast_node) = translation.get(&i) {
+        if let Some(bv) = ast_node.as_bv() {
+            let concrete_bv = m
+                .eval(&bv)
+                .expect("will always get a result because the formula is SAT");
 
-    if let Some(bv) = ast_node.as_bv() {
-        let concrete_bv = m
-            .eval(&bv)
-            .expect("will always get a result because the formula is SAT");
+            let result_value = concrete_bv.as_u64().expect("type already checked here");
 
-        let result_value = concrete_bv.as_u64().expect("type already checked here");
+            Some(BitVector(result_value))
+        } else if let Some(b) = ast_node.as_bool() {
+            let concrete_bool = m
+                .eval(&b)
+                .expect("will always get a result because the formula is SAT");
 
-        BitVector(result_value)
-    } else if let Some(b) = ast_node.as_bool() {
-        let concrete_bool = m
-            .eval(&b)
-            .expect("will always get a result because the formula is SAT");
+            let result_value = concrete_bool.as_bool().expect("type already checked here");
 
-        let result_value = concrete_bool.as_bool().expect("type already checked here");
-
-        if result_value {
-            BitVector(1)
+            Some(if result_value {
+                BitVector(1)
+            } else {
+                BitVector(0)
+            })
         } else {
-            BitVector(0)
+            panic!("only inputs of type BV and Bool are allowed");
         }
     } else {
-        panic!("only inputs of type BV and Bool are allowed");
+        None
     }
 }
 

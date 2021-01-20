@@ -50,14 +50,19 @@ impl Solver for Boolector {
             SolverResult::Sat => {
                 let assignments = graph
                     .node_indices()
-                    .map(|i| {
-                        let bv = bvs.get(&i).expect("every input must be part of bvs");
-
-                        BitVector(
-                            bv.get_a_solution()
-                                .as_u64()
-                                .expect("BV always fits in 64 bits for our machine"),
-                        )
+                    .filter_map(|i| {
+                        if let Some(bv) = bvs.get(&i) {
+                            Some((
+                                i,
+                                BitVector(
+                                    bv.get_a_solution()
+                                        .as_u64()
+                                        .expect("BV always fits in 64 bits for our machine"),
+                                ),
+                            ))
+                        } else {
+                            None
+                        }
                     })
                     .collect();
 

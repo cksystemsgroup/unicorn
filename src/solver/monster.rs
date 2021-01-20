@@ -108,7 +108,7 @@ fn is_leaf(formula: &Formula, idx: SymbolId) -> bool {
 
 // initialize bit vectors with a consistent intial assignment to the formula
 // inputs are initialized with random values
-fn initialize_ab(formula: &Formula) -> Assignment<BitVector> {
+fn initialize_ab(formula: &Formula) -> Vec<BitVector> {
     // Initialize values for all input/const nodes
     let mut ab = formula
         .node_indices()
@@ -116,7 +116,7 @@ fn initialize_ab(formula: &Formula) -> Assignment<BitVector> {
             Node::Constant(c) => BitVector(c),
             _ => BitVector(random::<u64>()),
         })
-        .collect::<Assignment<BitVector>>();
+        .collect::<Vec<BitVector>>();
 
     if log_enabled!(Level::Trace) {
         formula
@@ -457,7 +457,7 @@ fn get_operand(f: &Formula, n: SymbolId) -> SymbolId {
         .source()
 }
 
-fn update_assignment(f: &Formula, ab: &mut Assignment<BitVector>, n: SymbolId, v: BitVector) {
+fn update_assignment(f: &Formula, ab: &mut Vec<BitVector>, n: SymbolId, v: BitVector) {
     ab[n.index()] = v;
 
     assert!(
@@ -471,8 +471,8 @@ fn update_assignment(f: &Formula, ab: &mut Assignment<BitVector>, n: SymbolId, v
         .for_each(|n| propagate_assignment(f, ab, n));
 }
 
-fn propagate_assignment(f: &Formula, ab: &mut Assignment<BitVector>, n: SymbolId) {
-    fn update_binary<Op>(f: &Formula, ab: &mut Assignment<BitVector>, n: SymbolId, s: &str, op: Op)
+fn propagate_assignment(f: &Formula, ab: &mut Vec<BitVector>, n: SymbolId) {
+    fn update_binary<Op>(f: &Formula, ab: &mut Vec<BitVector>, n: SymbolId, s: &str, op: Op)
     where
         Op: FnOnce(BitVector, BitVector) -> BitVector,
     {
@@ -497,7 +497,7 @@ fn propagate_assignment(f: &Formula, ab: &mut Assignment<BitVector>, n: SymbolId
         }
     }
 
-    fn update_unary<Op>(f: &Formula, ab: &mut Assignment<BitVector>, n: SymbolId, s: &str, op: Op)
+    fn update_unary<Op>(f: &Formula, ab: &mut Vec<BitVector>, n: SymbolId, s: &str, op: Op)
     where
         Op: FnOnce(BitVector) -> BitVector,
     {
@@ -562,7 +562,7 @@ fn propagate_assignment(f: &Formula, ab: &mut Assignment<BitVector>, n: SymbolId
 fn sat(
     formula: &Formula,
     root: SymbolId,
-    mut ab: Assignment<BitVector>,
+    mut ab: Vec<BitVector>,
     timeout_time: Duration,
 ) -> Result<Option<Assignment<BitVector>>, SolverError> {
     let mut iterations = 0;
@@ -640,7 +640,9 @@ fn sat(
         update_assignment(formula, &mut ab, n, t);
     }
 
-    Ok(Some(ab))
+    let assignment: Assignment<_> = formula.node_indices().map(|i| (i, ab[i.index()])).collect();
+
+    Ok(Some(assignment))
 }
 
 #[cfg(test)]
@@ -692,7 +694,7 @@ mod tests {
             "has result for trivial equals constrain"
         );
         assert_eq!(
-            unwrapped_result.unwrap()[input_idx.index()],
+            *unwrapped_result.unwrap().get(&input_idx).unwrap(),
             BitVector(10),
             "solver result of trivial equal constrain has right value"
         );
@@ -721,7 +723,7 @@ mod tests {
 
         assert!(unwrapped_result.is_some(), "has result for trivial add op");
         assert_eq!(
-            unwrapped_result.unwrap()[input_idx.index()],
+            *unwrapped_result.unwrap().get(&input_idx).unwrap(),
             BitVector(7),
             "solver result of trivial add op has right value"
         );

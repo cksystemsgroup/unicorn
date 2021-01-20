@@ -616,25 +616,37 @@ where
         self.symbolic_state
             .create_beq_path_condition(decision, lhs, rhs);
 
-        trace!(
-            "[{:#010x}] beq: x{}, x{} |- assume {}, pc <- {:#x}",
-            self.pc,
-            lhs.index(),
-            rhs.index(),
-            next_pc == false_branch,
-            next_pc,
-        );
+        if let Ok(Some(_)) = self.symbolic_state.execute_query(Query::Reachable) {
+            trace!(
+                "[{:#010x}] beq: x{}, x{} |- assume {}, pc <- {:#x}",
+                self.pc,
+                lhs.index(),
+                rhs.index(),
+                next_pc == false_branch,
+                next_pc,
+            );
 
-        self.pc = next_pc;
+            self.pc = next_pc;
 
-        let result = self.run();
+            let result = self.run();
 
-        if !matches!(
-            result,
-            Err(EngineError::ExecutionDepthReached(_)) | Ok(None)
-        ) {
-            return result;
+            if !matches!(
+                result,
+                Err(EngineError::ExecutionDepthReached(_)) | Ok(None)
+            ) {
+                return result;
+            }
+        } else {
+            trace!(
+                "[{:#010x}] beq: x{}, x{} |- assume {}, not reachable",
+                self.pc,
+                lhs.index(),
+                rhs.index(),
+                next_pc == false_branch,
+            );
         }
+
+        let next_pc = if decision { false_branch } else { true_branch };
 
         self.is_running = true;
 
@@ -644,23 +656,35 @@ where
         self.program_break = brk_snapshot;
         self.execution_depth = execution_depth_snapshot;
 
-        let next_pc = if decision { false_branch } else { true_branch };
-
         self.symbolic_state
             .create_beq_path_condition(!decision, lhs, rhs);
 
-        trace!(
-            "[{:#010x}] beq: x{}, x{} |- assume {}, pc <- {:#x}",
-            self.pc,
-            lhs.index(),
-            rhs.index(),
-            next_pc == false_branch,
-            next_pc,
-        );
+        if let Ok(Some(_)) = self.symbolic_state.execute_query(Query::Reachable) {
+            trace!(
+                "[{:#010x}] beq: x{}, x{} |- assume {}, pc <- {:#x}",
+                self.pc,
+                lhs.index(),
+                rhs.index(),
+                next_pc == false_branch,
+                next_pc,
+            );
 
-        self.pc = next_pc;
+            self.pc = next_pc;
 
-        Ok(None)
+            Ok(None)
+        } else {
+            trace!(
+                "[{:#010x}] beq: x{}, x{} |- assume {}, not reachable",
+                self.pc,
+                lhs.index(),
+                rhs.index(),
+                next_pc == false_branch,
+            );
+
+            self.is_running = false;
+
+            Ok(None)
+        }
     }
 
     fn execute_beq(&mut self, btype: BType) -> Result<Option<Bug>, EngineError> {

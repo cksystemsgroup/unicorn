@@ -377,7 +377,7 @@ where
         witness
     }
 
-    fn build_witness(&self, root: NodeIndex, assignment: &[BitVector]) -> Witness {
+    fn build_witness(&self, root: NodeIndex, assignment: &HashMap<SymbolId, BitVector>) -> Witness {
         let mut visited = HashMap::<NodeIndex, usize>::new();
 
         let mut witness = Witness::new();
@@ -481,22 +481,41 @@ impl FormulaVisitor<SymbolId> for Printer {
 
 struct WitnessBuilder<'a> {
     witness: &'a mut Witness,
-    assignment: &'a [BitVector],
+    assignment: &'a HashMap<SymbolId, BitVector>,
 }
 
 impl<'a> FormulaVisitor<usize> for WitnessBuilder<'a> {
     fn input(&mut self, idx: SymbolId, name: &str) -> usize {
-        self.witness
-            .add_variable(name, self.assignment[idx.index()])
+        self.witness.add_variable(
+            name,
+            *self
+                .assignment
+                .get(&idx)
+                .expect("assignment should be available"),
+        )
     }
     fn constant(&mut self, _idx: SymbolId, v: BitVector) -> usize {
         self.witness.add_constant(v)
     }
     fn unary(&mut self, idx: SymbolId, op: BVOperator, v: usize) -> usize {
-        self.witness.add_unary(op, v, self.assignment[idx.index()])
+        self.witness.add_unary(
+            op,
+            v,
+            *self
+                .assignment
+                .get(&idx)
+                .expect("assignment should be available"),
+        )
     }
     fn binary(&mut self, idx: SymbolId, op: BVOperator, lhs: usize, rhs: usize) -> usize {
-        self.witness
-            .add_binary(lhs, op, rhs, self.assignment[idx.index()])
+        self.witness.add_binary(
+            lhs,
+            op,
+            rhs,
+            *self
+                .assignment
+                .get(&idx)
+                .expect("assignment should be available"),
+        )
     }
 }

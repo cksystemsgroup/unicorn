@@ -10,10 +10,10 @@ use crate::{
     symbolic_state::{Formula, SymbolId},
 };
 use log::debug;
-use std::{convert::From, io};
+use std::{collections::HashMap, convert::From, io};
 use thiserror::Error;
 
-pub type Assignment<T> = Vec<T>;
+pub type Assignment<T> = HashMap<SymbolId, T>;
 
 pub trait Solver: Default {
     fn name() -> &'static str;
