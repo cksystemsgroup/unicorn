@@ -149,15 +149,6 @@ pub fn args() -> App<'static> {
                         .required(true),
                 )
                 .arg(
-                    Arg::new("output-dir")
-                        .about("Output directory to write round states to")
-                        .short('o')
-                        .long("output-dir")
-                        .takes_value(true)
-                        .value_name("DIR")
-                        .default_value("states"),
-                )
-                .arg(
                     Arg::new("memory")
                         .about("Amount of memory to be used per execution context in megabytes [possible_values: 1 .. 1024]")
                         .short('m')

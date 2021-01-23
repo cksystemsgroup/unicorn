@@ -100,7 +100,6 @@ fn main() -> Result<()> {
         }
         Some(("rarity", args)) => {
             let input = Path::new(expect_arg(&args, "input-file"));
-            let output = Path::new(expect_arg(&args, "output-dir"));
 
             let megabytes = args
                 .value_of_t::<u64>("memory")
@@ -128,7 +127,6 @@ fn main() -> Result<()> {
 
             if let Some(bug) = rarity::execute(
                 input,
-                output,
                 ByteSize::mb(megabytes),
                 runs,
                 selection,

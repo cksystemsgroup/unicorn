@@ -16,7 +16,7 @@ use std::{
     cmp::{min, Ordering},
     collections::HashMap,
     fmt,
-    fs::{create_dir_all, File},
+    fs::File,
     io::Write,
     mem::size_of,
     path::Path,
@@ -202,7 +202,6 @@ impl fmt::Display for State {
 
 pub fn execute<P>(
     input: P,
-    output_dir: P,
     memory_size: ByteSize,
     number_of_states: u64,
     selection: u64,
@@ -217,7 +216,6 @@ where
 
     create_and_run(
         &program,
-        output_dir,
         memory_size,
         number_of_states,
         selection,
@@ -227,23 +225,15 @@ where
     )
 }
 
-fn create_and_run<P>(
+fn create_and_run(
     program: &Program,
-    output_dir: P,
     memory_size: ByteSize,
     number_of_states: u64,
     selection: u64,
     cycles: u64,
     iterations: u64,
     copy_ratio: f64,
-) -> Result<Option<Bug>, EngineError>
-where
-    P: AsRef<Path>,
-{
-    if !output_dir.as_ref().is_dir() {
-        create_dir_all(&output_dir).map_err(|e| EngineError::IoError(Arc::new(e)))?;
-    }
-
+) -> Result<Option<Bug>, EngineError> {
     let mut engines: Vec<Engine> = Vec::new();
 
     for iteration in 0..iterations {
@@ -464,8 +454,12 @@ impl Engine {
             Instruction::Add(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_add),
             Instruction::Sub(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_sub),
             Instruction::Mul(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_mul),
-            Instruction::Divu(rtype) => self.execute_divu(instruction, rtype),
-            Instruction::Remu(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_rem),
+            Instruction::Divu(rtype) => {
+                self.execute_divu_remu(instruction, rtype, u64::wrapping_div)
+            }
+            Instruction::Remu(rtype) => {
+                self.execute_divu_remu(instruction, rtype, u64::wrapping_rem)
+            }
             Instruction::Sltu(rtype) => {
                 self.execute_rtype(instruction, rtype, |l, r| if l < r { 1 } else { 0 })
             }
@@ -569,14 +563,21 @@ impl Engine {
         Ok(None)
     }
 
-    fn execute_divu(
+    fn execute_divu_remu<Op>(
         &mut self,
         instruction: Instruction,
         rtype: RType,
-    ) -> Result<Option<Bug>, EngineError> {
+        op: Op,
+    ) -> Result<Option<Bug>, EngineError>
+    where
+        Op: FnOnce(u64, u64) -> u64,
+    {
         match self.state.regs[rtype.rs2() as usize] {
             Value::Concrete(divisor) if divisor == 0 => {
-                trace!("divu: divisor == 0 -> compute reachability");
+                trace!(
+                    "{}: divisor == 0 -> compute reachability",
+                    instruction_to_str(instruction)
+                );
 
                 Ok(Some(Bug::DivisionByZero {
                     info: RarityBugInfo {
@@ -585,7 +586,7 @@ impl Engine {
                     },
                 }))
             }
-            _ => self.execute_rtype(instruction, rtype, u64::wrapping_div),
+            _ => self.execute_rtype(instruction, rtype, op),
         }
     }
 
