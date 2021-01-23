@@ -58,17 +58,15 @@ fn compute_byte_value_presence(states: &[&State]) -> HashMap<Address, Counter> {
     scores
 }
 
-fn compute_byte_value_rarity(state: &[&State]) -> HashMap<Address, Score> {
-    let n = state.len();
-
-    let counter = compute_byte_value_presence(state);
+fn compute_byte_value_rarity(states: &[&State]) -> HashMap<Address, Score> {
+    let counter = compute_byte_value_presence(states);
 
     // The rarity is actually determined by the inverse of the counter values
     // (e.g. a value is more rare if its rarity score is 1/1 (occurs once) than 1/3 (occurs
     // thrice).
     let scores: HashMap<_, _> = counter
         .iter()
-        .map(|(addr, count)| (*addr, (n as f64) / (*count as f64)))
+        .map(|(addr, count)| (*addr, 1.0_f64 / (*count as f64)))
         .collect();
 
     scores
@@ -153,13 +151,14 @@ where
 }
 
 fn score_states(states: &[&State]) -> Vec<Score> {
+    let n = states.len();
     let rarity = compute_byte_value_rarity(states);
 
     let mut scores = Vec::new();
 
     for state in states {
         scorable_values(state, |it| {
-            let score = it.map(|v| rarity.get(&v).unwrap()).sum();
+            let score = (n as f64) / it.map(|v| rarity.get(&v).unwrap()).sum::<f64>();
             scores.push(score);
         });
     }
@@ -316,13 +315,7 @@ where
         engines = engines
             .iter()
             .zip(scores)
-            .sorted_by(|first, second| {
-                first
-                    .1
-                    .partial_cmp(&second.1)
-                    .unwrap_or(Ordering::Greater)
-                    .reverse()
-            })
+            .sorted_by(|first, second| first.1.partial_cmp(&second.1).unwrap_or(Ordering::Greater))
             .map(|x| (*x.0).clone())
             .take(selection)
             .collect();
