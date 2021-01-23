@@ -13,7 +13,16 @@ fn test_rarity_simulation() {
     compile_riscu(Some(&["three-level-nested-loop-1-35.c"]))
         .1
         .for_each(|(source, object)| {
-            let result = execute(&object, ByteSize::mb(1), 1, 1, 1, 1, 0.6);
+            let result = execute(
+                &object,
+                ByteSize::mb(1),
+                1,
+                1,
+                1,
+                1,
+                0.6,
+                MetricType::Harmonic,
+            );
 
             trace!("execution finished: {:?}", result);
 

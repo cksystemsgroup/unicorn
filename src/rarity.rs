@@ -28,6 +28,15 @@ pub type Bug = BugDef<RarityBugInfo>;
 
 const INSTRUCTION_SIZE: u64 = INSTR_SIZE as u64;
 
+const BYTES_PER_WORD: u64 = size_of::<u64>() as u64;
+const NUMBER_OF_BYTE_VALUES: u64 = 256;
+
+#[derive(Debug, Clone, Copy)]
+pub enum MetricType {
+    Arithmetic,
+    Harmonic,
+}
+
 #[derive(Debug, Clone)]
 pub struct State {
     pc: u64,
@@ -38,38 +47,49 @@ pub struct State {
 
 type Address = u64;
 type Counter = u64;
-type Score = f64;
 
-fn compute_byte_value_presence(states: &[&State]) -> HashMap<Address, Counter> {
-    let mut scores = HashMap::new();
-
-    fn count_score(scores: &mut HashMap<Address, Counter>, addr: Address) {
-        if let Some(entry) = scores.get_mut(&addr) {
-            *entry += 1;
-        } else {
-            scores.insert(addr, 1);
-        }
-    }
-
-    for state in states {
-        scorable_values(state, |it| it.for_each(|v| count_score(&mut scores, v)));
-    }
-
-    scores
-}
-
-fn compute_byte_value_rarity(states: &[&State]) -> HashMap<Address, Score> {
-    let counter = compute_byte_value_presence(states);
-
-    // The rarity is actually determined by the inverse of the counter values
-    // (e.g. a value is more rare if its rarity score is 1/1 (occurs once) than 1/3 (occurs
-    // thrice).
-    let scores: HashMap<_, _> = counter
+fn compute_scores<F>(states: &[&State], score: F) -> Vec<f64>
+where
+    F: Fn(usize, &[Counter]) -> f64,
+{
+    let counter_addresses: Vec<Vec<Address>> = states
         .iter()
-        .map(|(addr, count)| (*addr, 1.0_f64 / (*count as f64)))
+        .map(|s| compute_counter_addresses(&s))
         .collect();
 
-    scores
+    // create global counters for all states
+    let mut overall_counts = HashMap::<Address, Counter>::new();
+
+    counter_addresses
+        .iter()
+        .flatten()
+        .for_each(|address| count_address(&mut overall_counts, *address));
+
+    // create counters per state based on overall counts
+    let n = states.len();
+
+    counter_addresses
+        .iter()
+        .map(|addresses| {
+            addresses
+                .iter()
+                .map(|address| {
+                    *overall_counts
+                        .get(address)
+                        .expect("cound should be available")
+                })
+                .collect_vec()
+        })
+        .map(|addresses| score(n, &addresses[..]))
+        .collect()
+}
+
+fn count_address(scores: &mut HashMap<Address, Counter>, addr: Address) {
+    if let Some(entry) = scores.get_mut(&addr) {
+        *entry += 1;
+    } else {
+        scores.insert(addr, 1);
+    }
 }
 
 /**
@@ -91,79 +111,53 @@ fn compute_byte_value_rarity(states: &[&State]) -> HashMap<Address, Score> {
  * For each byte i, only one of its 256 different addresses may occur (because a byte can only
  * assume one state at a time)
  */
-fn scorable_values<F, R>(state: &State, mut f: F) -> R
-where
-    F: FnMut(&mut dyn Iterator<Item = u64>) -> R,
-{
-    let bytes_per_word = size_of::<u64>() as u64;
-    let number_of_byte_values = 256;
-
-    let pc_bytes = u64::to_ne_bytes(state.pc);
-
-    let pc = pc_bytes
-        .iter()
-        .enumerate()
-        .map(|(i, b)| i as u64 * number_of_byte_values + *b as u64);
-
-    let offset = bytes_per_word * number_of_byte_values;
-
-    let regs = state
-        .regs
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, v)| match v {
-            Value::Concrete(w) => Some((idx, w)),
-            _ => None,
-        })
-        .flat_map(|(idx, w)| {
-            u64::to_ne_bytes(*w)
-                .iter()
-                .cloned()
-                .enumerate()
-                .map(|(i, b)| ((bytes_per_word * idx as u64) + i as u64, b))
-                .collect_vec()
-        })
-        .map(|(i, b)| offset + i as u64 * number_of_byte_values + b as u64);
-
-    let offset = 33 * bytes_per_word * number_of_byte_values;
-
-    let memory = state
-        .memory
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, v)| match v {
-            Value::Concrete(w) => Some((idx, w)),
-            _ => None,
-        })
-        .flat_map(|(idx, w)| {
-            u64::to_ne_bytes(*w)
-                .iter()
-                .cloned()
-                .enumerate()
-                .map(|(i, b)| ((bytes_per_word * idx as u64) + i as u64, b))
-                .collect_vec()
-        })
-        .map(|(i, b)| offset + i as u64 * number_of_byte_values + b as u64);
-
-    let mut iter = pc.chain(regs).chain(memory);
-
-    f(&mut iter)
-}
-
-fn score_states(states: &[&State]) -> Vec<Score> {
-    let n = states.len();
-    let rarity = compute_byte_value_rarity(states);
-
-    let mut scores = Vec::new();
-
-    for state in states {
-        scorable_values(state, |it| {
-            let score = (n as f64) / it.map(|v| rarity.get(&v).unwrap()).sum::<f64>();
-            scores.push(score);
-        });
+fn compute_counter_addresses(state: &State) -> Vec<Address> {
+    fn offset_for_word(idx: u64) -> u64 {
+        idx * BYTES_PER_WORD * NUMBER_OF_BYTE_VALUES
     }
 
-    scores
+    let mut addresses = Vec::new();
+
+    compute_counter_addresses_for_word(0, state.pc, &mut addresses);
+
+    compute_counter_addresses_for_iter(offset_for_word(1), state.regs.iter(), &mut addresses);
+
+    compute_counter_addresses_for_iter(offset_for_word(33), state.memory.iter(), &mut addresses);
+
+    addresses
+}
+
+fn compute_counter_addresses_for_iter<'a, Iter>(
+    offset: u64,
+    iter: Iter,
+    addresses: &mut Vec<Address>,
+) where
+    Iter: Iterator<Item = &'a Value>,
+{
+    iter.enumerate()
+        .filter_map(|(idx, v)| match v {
+            Value::Concrete(w) => Some((idx, w)),
+            _ => None,
+        })
+        .for_each(|(idx, word)| {
+            compute_counter_addresses_for_word(
+                offset + idx as u64 * NUMBER_OF_BYTE_VALUES,
+                *word,
+                addresses,
+            );
+        });
+}
+
+fn compute_counter_addresses_for_word(offset: u64, word: u64, addresses: &mut Vec<u64>) {
+    u64::to_ne_bytes(word)
+        .iter()
+        .cloned()
+        .enumerate()
+        .for_each(|(byte_idx, byte_value)| {
+            let byte_address = BYTES_PER_WORD * byte_idx as u64;
+            let address = offset + byte_address * NUMBER_OF_BYTE_VALUES + byte_value as u64;
+            addresses.push(address);
+        });
 }
 
 fn random_index(len: usize) -> usize {
@@ -208,6 +202,7 @@ pub fn execute<P>(
     cycles: u64,
     iterations: u64,
     copy_ratio: f64,
+    metric: MetricType,
 ) -> Result<Option<Bug>, EngineError>
 where
     P: AsRef<Path>,
@@ -222,6 +217,7 @@ where
         cycles,
         iterations,
         copy_ratio,
+        metric,
     )
 }
 
@@ -233,6 +229,7 @@ fn create_and_run(
     cycles: u64,
     iterations: u64,
     copy_ratio: f64,
+    metric: MetricType,
 ) -> Result<Option<Bug>, EngineError> {
     let mut engines: Vec<Engine> = Vec::new();
 
@@ -292,10 +289,10 @@ fn create_and_run(
             number_of_states as usize - engines.len()
         );
 
-        let scores = time_info!("Scoring states", {
+        let (scores, ordering) = time_info!("Scoring states", {
             let states: Vec<_> = engines.iter().map(|e| e.state()).collect();
 
-            score_states(states.as_slice())
+            score_with_metric(&states[..], metric)
         });
 
         info!("  scored states: {:?}", scores);
@@ -305,7 +302,7 @@ fn create_and_run(
         engines = engines
             .iter()
             .zip(scores)
-            .sorted_by(|first, second| first.1.partial_cmp(&second.1).unwrap_or(Ordering::Greater))
+            .sorted_by(|first, second| first.1.partial_cmp(&second.1).unwrap_or(ordering))
             .map(|x| (*x.0).clone())
             .take(selection)
             .collect();
@@ -314,6 +311,23 @@ fn create_and_run(
     }
 
     Ok(None)
+}
+
+fn score_with_metric(states: &[&State], metric: MetricType) -> (Vec<f64>, Ordering) {
+    match metric {
+        MetricType::Harmonic => {
+            let scores = compute_scores(states, |n, cs| {
+                (n as f64) / cs.iter().map(|c| 1_f64 / (*c as f64)).sum::<f64>()
+            });
+
+            (scores, Ordering::Greater)
+        }
+        MetricType::Arithmetic => {
+            let scores = compute_scores(states, |n, cs| cs.iter().sum::<u64>() as f64 / (n as f64));
+
+            (scores, Ordering::Less)
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

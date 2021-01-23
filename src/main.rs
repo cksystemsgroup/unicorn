@@ -10,7 +10,9 @@ use monster::{
     engine::{self, EngineOptions},
     execute_elf_with,
     path_exploration::{ControlFlowGraph, ShortestPathStrategy},
-    rarity, solver,
+    rarity,
+    rarity::{self, MetricType},
+    solver,
 };
 use riscu::load_object_file;
 use std::{env, fmt::Display, fs::File, io::Write, path::Path};
@@ -125,6 +127,12 @@ fn main() -> Result<()> {
                 .value_of_t::<f64>("copy-init-ratio")
                 .expect("value is validated already");
 
+            let metric = match expect_arg(&args, "metric") {
+                "arithmetic" => MetricType::Arithmetic,
+                "harmonic" => MetricType::Harmonic,
+                _ => unreachable!(),
+            };
+
             if let Some(bug) = rarity::execute(
                 input,
                 ByteSize::mb(megabytes),
@@ -133,6 +141,7 @@ fn main() -> Result<()> {
                 cycles,
                 iterations,
                 copy_ratio,
+                metric,
             )? {
                 info!("bug found:\n{}", bug);
             } else {

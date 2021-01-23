@@ -5,6 +5,7 @@ use const_format::formatcp;
 
 pub const LOGGING_LEVELS: [&str; 5] = ["trace", "debug", "info", "warn", "error"];
 pub const SOLVER: [&str; 4] = ["monster", "boolector", "z3", "external"];
+pub const METRICS: [&str; 2] = ["arithmetic", "harmonic"];
 
 pub fn expect_arg<'a>(m: &'a ArgMatches, arg: &str) -> &'a str {
     m.value_of(arg)
@@ -204,6 +205,15 @@ pub fn args() -> App<'static> {
                         .value_name("RATIO")
                         .default_value("0.6")
                         .validator(is_ratio)
+                    )
+                .arg(
+                    Arg::new("metric")
+                    .about("The average to be used for the counts")
+                    .long("metric")
+                    .takes_value(true)
+                    .value_name("METRIC")
+                    .possible_values(&METRICS)
+                    .default_value(METRICS[1])
                     )
         )
         .setting(AppSettings::SubcommandRequiredElseHelp)
