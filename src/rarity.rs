@@ -13,7 +13,7 @@ use riscu::{
     Register, RiscuError, INSTRUCTION_SIZE as INSTR_SIZE,
 };
 use std::{
-    cmp::{min, Reverse},
+    cmp::{min, Ordering},
     collections::HashMap,
     fmt,
     fs::{create_dir_all, File},
@@ -38,6 +38,7 @@ pub struct State {
 
 type Address = u64;
 type Counter = u64;
+type Score = f64;
 
 fn compute_byte_value_presence(states: &[&State]) -> HashMap<Address, Counter> {
     let mut scores = HashMap::new();
@@ -57,19 +58,20 @@ fn compute_byte_value_presence(states: &[&State]) -> HashMap<Address, Counter> {
     scores
 }
 
-fn compute_byte_value_rarity(state: &[&State]) -> HashMap<Address, Counter> {
+fn compute_byte_value_rarity(state: &[&State]) -> HashMap<Address, Score> {
     let n = state.len();
 
-    let mut rarity = compute_byte_value_presence(state);
+    let counter = compute_byte_value_presence(state);
 
-    for (_, counter) in rarity.iter_mut() {
-        // The rarity is actually determined by the inverse of the counter values
-        // (e.g. a value is more rare if its rarity score is 1/1 (occurs once) than 1/3 (occurs
-        // thrice).
-        *counter = f64::round((n as f64) / (*counter as f64)) as u64;
-    }
+    // The rarity is actually determined by the inverse of the counter values
+    // (e.g. a value is more rare if its rarity score is 1/1 (occurs once) than 1/3 (occurs
+    // thrice).
+    let scores: HashMap<_, _> = counter
+        .iter()
+        .map(|(addr, count)| (*addr, (n as f64) / (*count as f64)))
+        .collect();
 
-    rarity
+    scores
 }
 
 /**
@@ -150,7 +152,7 @@ where
     f(&mut iter)
 }
 
-fn score_states(states: &[&State]) -> Vec<u64> {
+fn score_states(states: &[&State]) -> Vec<Score> {
     let rarity = compute_byte_value_rarity(states);
 
     let mut scores = Vec::new();
@@ -314,7 +316,13 @@ where
         engines = engines
             .iter()
             .zip(scores)
-            .sorted_by_key(|x| Reverse(x.1))
+            .sorted_by(|first, second| {
+                first
+                    .1
+                    .partial_cmp(&second.1)
+                    .unwrap_or(Ordering::Greater)
+                    .reverse()
+            })
             .map(|x| (*x.0).clone())
             .take(selection)
             .collect();
