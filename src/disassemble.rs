@@ -63,7 +63,7 @@ impl<'a> fmt::Display for Disassembly {
                 self.decoded.data.address,
                 size_of::<u64>() as u64,
             )
-            .try_for_each(|(pc, d)| write!(f, "{:#x}: .8byte {:#x}", pc, d))
+            .try_for_each(|(pc, d)| writeln!(f, "{:#x}: .8byte {:#x}", pc, d))
         })
     }
 }
@@ -88,7 +88,7 @@ fn print_instruction(f: &mut fmt::Formatter<'_>, pc: u64, i: Instruction) -> fmt
         Instruction::Sltu(t) => print_rtype(f, pc, "sltu", t),
         Instruction::Sd(t) => print_stype(f, pc, "sd", t),
         Instruction::Ld(t) => print_itype(f, pc, "ld", t),
-        Instruction::Ecall(_) => write!(f, "{:#x}: ecall", pc),
+        Instruction::Ecall(_) => writeln!(f, "{:#x}: ecall", pc),
         Instruction::Jal(t) => print_jtype(f, pc, "jal", t),
         Instruction::Jalr(t) => print_itype(f, pc, "jalr", t),
         Instruction::Beq(t) => print_btype(f, pc, "beq", t),
@@ -97,7 +97,7 @@ fn print_instruction(f: &mut fmt::Formatter<'_>, pc: u64, i: Instruction) -> fmt
 }
 
 fn print_rtype(f: &mut fmt::Formatter<'_>, pc: u64, op: &str, rtype: RType) -> fmt::Result {
-    write!(
+    writeln!(
         f,
         "{:#x}: {} {:?},{:?},{:?}",
         pc,
@@ -109,7 +109,7 @@ fn print_rtype(f: &mut fmt::Formatter<'_>, pc: u64, op: &str, rtype: RType) -> f
 }
 
 fn print_itype(f: &mut fmt::Formatter<'_>, pc: u64, op: &str, itype: IType) -> fmt::Result {
-    write!(
+    writeln!(
         f,
         "{:#x}: {} {:?},{:?},{}",
         pc,
@@ -121,7 +121,7 @@ fn print_itype(f: &mut fmt::Formatter<'_>, pc: u64, op: &str, itype: IType) -> f
 }
 
 fn print_stype(f: &mut fmt::Formatter<'_>, pc: u64, op: &str, stype: SType) -> fmt::Result {
-    write!(
+    writeln!(
         f,
         "{:#x}: {} {:?},{}({:?})",
         pc,
@@ -133,11 +133,11 @@ fn print_stype(f: &mut fmt::Formatter<'_>, pc: u64, op: &str, stype: SType) -> f
 }
 
 fn print_jtype(f: &mut fmt::Formatter<'_>, pc: u64, op: &str, jtype: JType) -> fmt::Result {
-    write!(f, "{:#x}: {} {:?},{}", pc, op, jtype.rd(), jtype.imm())
+    writeln!(f, "{:#x}: {} {:?},{}", pc, op, jtype.rd(), jtype.imm())
 }
 
 fn print_btype(f: &mut fmt::Formatter<'_>, pc: u64, op: &str, btype: BType) -> fmt::Result {
-    write!(
+    writeln!(
         f,
         "{:#x}: {} {:?},{:?},{}",
         pc,
@@ -149,5 +149,5 @@ fn print_btype(f: &mut fmt::Formatter<'_>, pc: u64, op: &str, btype: BType) -> f
 }
 
 fn print_utype(f: &mut fmt::Formatter<'_>, pc: u64, op: &str, utype: UType) -> fmt::Result {
-    write!(f, "{:#x}: {} {:?},{:#x}", pc, op, utype.rd(), utype.imm())
+    writeln!(f, "{:#x}: {} {:?},{:#x}", pc, op, utype.rd(), utype.imm())
 }
