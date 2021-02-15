@@ -12,13 +12,20 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
-# TODO: docker is not supported for Github MacOs virtual environments.
-# This is a problem, because "cross" needs docker to cross compile rust code
-
 jobs:
   build-and-test:
-    name: Build and Test on Linux
-    runs-on: ubuntu-20.04
+    name: Build and Test
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      matrix:
+        toolchain: [1.50.0]
+        os: [ubuntu-20.04, macos-10.15]
+        experimental: [false]
+        include:
+          - toolchain: stable
+            os: ubuntu-latest
+            experimental: true
     steps:
       - name: Checkout
         uses: actions/checkout@v2
@@ -26,11 +33,11 @@ jobs:
             fetch-depth: 0
             persist-credentials: false
 
-      - name: Install Rust Stable
+      - name: Install Rust ${{ matrix.toolchain }}
         uses: actions-rs/toolchain@v1
         with:
             profile: minimal
-            toolchain: 1.50.0
+            toolchain: ${{ matrix.toolchain }}
             components: rustfmt, clippy
             override: true
 
@@ -38,7 +45,7 @@ jobs:
         uses: actions/cache@v2
         env:
           cache-name: cache-cargo-dependencies
-        # disable cache four daily builds
+        # disable cache for scheduled builds
         if: ${{ github.event_name != 'schedule' }}
         with:
           # cargo cache files are stored in `~/.cargo` on Linux/macOS
@@ -49,7 +56,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target
-          key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ github.job }}-${{ matrix.toolchain }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Check Format
         uses: actions-rs/cargo@v1
@@ -59,8 +66,19 @@ jobs:
 
       - name: Clippy
         uses: actions-rs/clippy-check@v1
+        # execute clippy with Github integration for the target platform (Linux with fixed toolchain version)
+        if: ${{ matrix.os == 'ubuntu-20.04' && !matrix.experimental }}
         with:
             token: ${{ secrets.GITHUB_TOKEN }}
+            args: --all-targets --all-features -- -D warnings
+            name: Clippy
+
+      - name: Clippy CLI only 
+        uses: actions-rs/cargo@v1
+        # execute CLI-only version of clippy for all platforms besides the target platform
+        if: ${{ !(matrix.os == 'ubuntu-20.04' && !matrix.experimental) }}
+        with:
+            command: clippy
             args: --all-targets --all-features -- -D warnings
 
       - name: Build
@@ -76,36 +94,9 @@ jobs:
 
       - name: Test
         uses: actions-rs/cargo@v1
+        # sadly, the Github runners for MacOs do not support Docker,
+        # so tests are only executed on Linux.
+        if: ${{ matrix.os == 'ubuntu-20.04' }}
         with:
             command: test
             args: --locked
-
-
-  security-scan:
-    name: Security Scan of Dependencies
-    runs-on: ubuntu-20.04
-    steps:
-      - uses: actions/checkout@v2
-
-      - name: Cache Cargo Dependencies
-        uses: actions/cache@v2
-        env:
-          cache-name: cache-cargo-dependencies
-        # disable cache four daily builds
-        if: ${{ github.event_name != 'schedule' }}
-        with:
-          # cargo cache files are stored in `~/.cargo` on Linux/macOS
-          # source for paths: https://doc.rust-lang.org/cargo/guide/cargo-home.html#caching-the-cargo-home-in-ci
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target
-          key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Install Rust Dependency Scanner
-        run: cargo install audit --locked || true
-
-      - name: Scan Dependencies
-        run: cargo audit

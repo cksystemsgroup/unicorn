@@ -4,6 +4,7 @@
 [![Crate](https://img.shields.io/crates/v/monster-rs.svg)](https://crates.io/crates/monster-rs)
 [![API](https://docs.rs/monster-rs/badge.svg)](https://docs.rs/monster-rs)
 ![Experimental Status](https://img.shields.io/badge/status-experimental-yellow.svg)
+![Rust Version](https://img.shields.io/badge/Rust-v1.50.0-yellowgreen)
 [![Lines of Code](https://tokei.rs/b1/github/cksystemsgroup/monster)](https://github.com/cksystemsgroup/monster)
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/cksystemsgroup/monster/blob/master/LICENSE)
 
@@ -28,10 +29,10 @@ Add this to your Cargo.toml:
 monster-rs = "0"
 ```
 
-### Toolchain setup
+### Toolchain Setup
 
 #### Linux and Unix-like OS
-1. Bootstrap rust
+1. Bootstrap Rust v1.50.0
 ```
 $ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
@@ -44,41 +45,30 @@ $ rustup component add clippy
 ```
 $ echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 ```
-4. Install tool for cross compilation and documentation generation
+4. Install tool for documentation generation
 ```
-$ cargo install cross --locked
 $ cargo install mdbook --locked
 $ cargo install mdbook-linkcheck --locked
 $ cargo install mdbook-graphviz --locked
 ```
-5. install Docker and LLVM with your favorite package manager
-
 ##### MacOS
-6. Install docker (needed by cross) with [this installation guide](https://docs.docker.com/docker-for-mac/install/)
+5. Install Docker for test execution
 ```
 $ brew cask install docker
 ```
-7. Make sure you have a recent version of clang/llvm (>= v9) installed:
-```
-$ brew install llvm
-```
 
 ##### Debian based
-6. Install docker (needed by cross) with [this installation guide](https://docs.docker.com/engine/install/debian/)
-7. Make sure you have a recent version of clang/llvm (>= v9) installed:
-```
-$ apt install llvm
-```
+5. Install Docker for test execution with [this installation guide](https://docs.docker.com/engine/install/debian/)
 
 #### Windows
 We do not support Windows directly. But someone can use WSL2 to run/develop for Monster.
 
 ### Build and Test from Source
-7. Test your toolchain setup by compiling monster:
+1. Test your toolchain setup by compiling monster:
 ```
 $ cargo build --locked
 ```
-8. Execute tests:
+2. Execute tests:
 ```
 $ cargo test --locked
 ```

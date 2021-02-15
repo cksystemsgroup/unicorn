@@ -277,7 +277,7 @@ fn compute_inverse_value(op: BVOperator, s: BitVector, t: BitVector, d: OperandS
                     v.push(s.0 - t.0);
                     v = v.into_iter().filter(|x| x > &t.0).collect();
 
-                    return BitVector(*v.choose(&mut rand::thread_rng()).unwrap());
+                    BitVector(*v.choose(&mut rand::thread_rng()).unwrap())
                 }
             }
         },
