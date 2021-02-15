@@ -2,11 +2,10 @@
 
 set -e
 
-echo '+cargo check'
-cargo check
-echo '+cargo clippy --all-targets --all-features -- -D warnings'
+# make clippy check all rust files again (bug in clippy)
 find . -name '*.rs' | xargs touch
-cargo clippy --all-targets --all-features -- -D warnings
+
+echo '+cargo clippy --all-features -- -D warnings'
+cargo clippy --all-features -- -D warnings
 echo '+cargo fmt -- --check'
 cargo fmt -- --check
-

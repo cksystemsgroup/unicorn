@@ -3,8 +3,9 @@ name: Test
 on:
   push:
   schedule:
-    # trigger daily at 12am
-    - cron: '0 0 * * *'
+    # trigger weekly at 12am
+    # this build should run with caches disabled
+    - cron: '0 0 * * 0'
   workflow_dispatch:
 
 env:
@@ -29,7 +30,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
             profile: minimal
-            toolchain: stable
+            toolchain: 1.50.0
             components: rustfmt, clippy
             override: true
 
@@ -49,11 +50,6 @@ jobs:
             ~/.cargo/git/db/
             target
           key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Install Rust Cross Compiler
-        run: |
-          cargo install cross --locked || true
-          rustup target add riscv64gc-unknown-linux-gnu
 
       - name: Check Format
         uses: actions-rs/cargo@v1

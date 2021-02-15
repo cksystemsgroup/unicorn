@@ -232,18 +232,17 @@ where
     where
         F: Fn(BasicInfo) -> Bug,
     {
-        Ok(self
-            .symbolic_state
+        self.symbolic_state
             .execute_query(query)
             .map_err(EngineError::SatUnknown)
-            .map_or(None, |result| {
-                result.map(|witness| {
+            .map_or(Ok(None), |result| {
+                Ok(result.map(|witness| {
                     basic_info_to_bug(BasicInfo {
                         witness,
                         pc: self.pc,
                     })
-                })
-            }))
+                }))
+            })
     }
 
     fn check_for_uninitialized_memory(
@@ -308,6 +307,7 @@ where
         }
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn execute_lui(&mut self, utype: UType) -> Result<Option<Bug>, EngineError> {
         let immediate = u64::from(utype.imm()) << 12;
 
@@ -862,6 +862,7 @@ where
         }
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn execute_jal(&mut self, jtype: JType) -> Result<Option<Bug>, EngineError> {
         let link = self.pc + INSTRUCTION_SIZE;
 
