@@ -1,11 +1,8 @@
-use crate::{
-    bitvec::BitVector,
-    solver::{Assignment, Solver, SolverError},
-    symbolic_state::{
-        get_operands, BVOperator, Formula,
-        Node::{Constant, Input, Operator},
-        SymbolId,
-    },
+use super::{Assignment, BitVector, Solver, SolverError};
+use crate::symbolic_state::{
+    get_operands, BVOperator, Formula,
+    Node::{Constant, Input, Operator},
+    SymbolId,
 };
 use boolector::{
     option::{BtorOption, ModelGen, OutputFileFormat},

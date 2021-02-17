@@ -1,6 +1,6 @@
 use crate::{
-    bitvec::BitVector,
     engine::{instruction_to_str, Value},
+    solver::BitVector,
     symbolic_state::BVOperator,
 };
 use riscu::Instruction;

@@ -1,8 +1,5 @@
-use crate::{
-    bitvec::BitVector,
-    solver::{Assignment, Solver, SolverError},
-    symbolic_state::{traverse, BVOperator, Formula, FormulaVisitor, SymbolId},
-};
+use super::{Assignment, BitVector, Solver, SolverError};
+use crate::symbolic_state::{traverse, BVOperator, Formula, FormulaVisitor, SymbolId};
 use std::{
     collections::HashMap,
     fs::File,

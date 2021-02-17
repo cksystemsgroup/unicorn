@@ -1,7 +1,7 @@
 mod common;
 
 use common::{compile_riscu, convert_dot_to_png_and_check, init, time};
-use monster::cfg::*;
+use monster::path_exploration::*;
 use petgraph::dot::Dot;
 use rayon::prelude::*;
 use std::{fs::File, io::prelude::*};
@@ -11,11 +11,13 @@ fn can_build_control_flow_graph() {
     init();
 
     compile_riscu(None).1.for_each(|(source, object)| {
-        let ((graph, _), _) = time(format!("compute cfg: {:?}", source).as_str(), || {
-            build_cfg_from_file(object.clone()).unwrap()
+        let program = riscu::load_object_file(object).unwrap();
+
+        let cfg = time(format!("compute cfg: {:?}", source).as_str(), || {
+            ControlFlowGraph::build_for(&program).unwrap()
         });
 
-        let dot_graph = Dot::with_config(&graph, &[]);
+        let dot_graph = Dot::with_config(&cfg.graph, &[]);
 
         let dot_file = source.with_extension("dot");
 

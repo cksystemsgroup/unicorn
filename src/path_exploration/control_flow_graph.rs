@@ -15,16 +15,13 @@
 
 use anyhow::{ensure, Context, Error, Result};
 use byteorder::{ByteOrder, LittleEndian};
-use bytesize::ByteSize;
-use log::info;
 use petgraph::{
     dot::Dot,
     graph::{EdgeIndex, NodeIndex},
     visit::EdgeRef,
-    Graph,
 };
-use riscu::{decode, load_object_file, Instruction, Program, Register};
-use std::{fs::File, io::prelude::*, mem::size_of, path::Path, vec::Vec};
+use riscu::{decode, Instruction, Program, Register};
+use std::{fmt, mem::size_of, vec::Vec};
 
 type Edge = (NodeIndex, NodeIndex, Option<ProcedureCallId>);
 
@@ -34,31 +31,79 @@ pub enum ProcedureCallId {
     Return(u64),
 }
 
-pub type ControlFlowGraph = Graph<Instruction, Option<ProcedureCallId>>;
+pub type Graph = petgraph::Graph<Instruction, Option<ProcedureCallId>>;
 
-/// Create a `ControlFlowGraph` from an `u8` slice without fixing edges
-fn create_instruction_graph(binary: &[u8]) -> Result<ControlFlowGraph> {
+pub struct ControlFlowGraph {
+    pub graph: Graph,
+    pub start: NodeIndex,
+    pub exit: NodeIndex,
+}
+
+impl ControlFlowGraph {
+    pub fn build_for(program: &Program) -> Result<ControlFlowGraph> {
+        let mut graph = create_instruction_graph(program)?;
+
+        fn add_edges(graph: &mut Graph, edges: &[Edge]) {
+            edges.iter().for_each(|e| {
+                graph.add_edge(e.0, e.1, e.2);
+            });
+        }
+
+        let edges = compute_edges(&graph, construct_edge_if_trivial);
+        add_edges(&mut graph, &edges);
+
+        let pure_edges = compute_edges(&graph, construct_edge_if_pure);
+        add_edges(&mut graph, &pure_edges);
+
+        let jump_edges = StatefulEdgeBuilder::new().compute_stateful_edges(&graph);
+        add_edges(&mut graph, &jump_edges);
+
+        let exit = fix_exit_ecall(&mut graph)?;
+
+        Ok(ControlFlowGraph {
+            graph,
+            start: NodeIndex::new(0),
+            exit,
+        })
+    }
+}
+
+impl fmt::Display for ControlFlowGraph {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let dot_graph = Dot::with_config(&self.graph, &[]);
+
+        write!(f, "{:?}", dot_graph)
+    }
+}
+
+pub type DataSegment = Vec<u8>;
+
+/// Create a `ControlFlowGraph` from an Program without fixing edges
+fn create_instruction_graph(program: &Program) -> Result<Graph> {
     ensure!(
-        binary.len() % size_of::<u32>() == 0,
+        program.code.content.len() % size_of::<u32>() == 0,
         "RISC-U instructions are 32 bits, so the length of the binary must be a multiple of 4"
     );
 
-    let mut g = ControlFlowGraph::new();
+    let mut g = Graph::new();
 
-    binary
+    program
+        .code
+        .content
         .chunks_exact(size_of::<u32>())
         .map(LittleEndian::read_u32)
         .try_for_each(|raw| {
             decode(raw).map(|i| {
                 g.add_node(i);
             })
-        })?;
+        })
+        .context("Failed to decode instructions of program")?;
 
     Ok(g)
 }
 
 /// Compute trivial edges
-fn construct_edge_if_trivial(graph: &ControlFlowGraph, idx: NodeIndex) -> Option<Edge> {
+fn construct_edge_if_trivial(graph: &Graph, idx: NodeIndex) -> Option<Edge> {
     match graph[idx] {
         Instruction::Jal(_) | Instruction::Jalr(_) => None,
         _ if idx.index() + 1 < graph.node_count() => {
@@ -69,7 +114,7 @@ fn construct_edge_if_trivial(graph: &ControlFlowGraph, idx: NodeIndex) -> Option
 }
 
 /// Compute pure edges
-fn construct_edge_if_pure(graph: &ControlFlowGraph, idx: NodeIndex) -> Option<Edge> {
+fn construct_edge_if_pure(graph: &Graph, idx: NodeIndex) -> Option<Edge> {
     match graph[idx] {
         Instruction::Jal(i) if i.rd() == Register::Zero => Some((
             idx,
@@ -86,9 +131,9 @@ fn construct_edge_if_pure(graph: &ControlFlowGraph, idx: NodeIndex) -> Option<Ed
 }
 
 /// Compute all edges in `graph`
-fn compute_edges<F>(graph: &ControlFlowGraph, f: F) -> Vec<Edge>
+fn compute_edges<F>(graph: &Graph, f: F) -> Vec<Edge>
 where
-    F: Fn(&ControlFlowGraph, NodeIndex) -> Option<Edge>,
+    F: Fn(&Graph, NodeIndex) -> Option<Edge>,
 {
     graph
         .node_indices()
@@ -97,7 +142,7 @@ where
 }
 
 /// Compute all return locations in a given function starting at idx.
-fn compute_return_edge_position(graph: &ControlFlowGraph, idx: NodeIndex) -> NodeIndex {
+fn compute_return_edge_position(graph: &Graph, idx: NodeIndex) -> NodeIndex {
     match graph[idx] {
         Instruction::Jalr(_) => idx,
         Instruction::Jal(i) if i.rd() != Register::Zero => {
@@ -134,7 +179,7 @@ impl StatefulEdgeBuilder {
     }
 
     /// Calculate stateful edges and return a vector containing them
-    pub fn compute_stateful_edges(&mut self, graph: &ControlFlowGraph) -> Vec<Edge> {
+    pub fn compute_stateful_edges(&mut self, graph: &Graph) -> Vec<Edge> {
         graph
             .node_indices()
             .filter_map(|idx| self.construct_edge_if_stateful(idx, graph))
@@ -143,11 +188,7 @@ impl StatefulEdgeBuilder {
     }
 
     /// Fix stateful edges and return a vector containing them
-    fn construct_edge_if_stateful(
-        &mut self,
-        idx: NodeIndex,
-        graph: &ControlFlowGraph,
-    ) -> Option<Vec<Edge>> {
+    fn construct_edge_if_stateful(&mut self, idx: NodeIndex, graph: &Graph) -> Option<Vec<Edge>> {
         match graph[idx] {
             Instruction::Jal(jtype) if jtype.rd() != Register::Zero => {
                 // jump and link => function call
@@ -181,7 +222,7 @@ impl StatefulEdgeBuilder {
 }
 
 /// Get exit edge if possible
-fn find_possible_exit_edge(graph: &ControlFlowGraph, idx: NodeIndex) -> Option<EdgeIndex> {
+fn find_possible_exit_edge(graph: &Graph, idx: NodeIndex) -> Option<EdgeIndex> {
     let prev_idx = NodeIndex::new(idx.index() - 1);
     let next_idx = NodeIndex::new(idx.index() + 1);
     match graph[prev_idx] {
@@ -198,7 +239,7 @@ fn find_possible_exit_edge(graph: &ControlFlowGraph, idx: NodeIndex) -> Option<E
 }
 
 /// Fix the exit ecall edge
-fn fix_exit_ecall(graph: &mut ControlFlowGraph) -> Result<NodeIndex> {
+fn fix_exit_ecall(graph: &mut Graph) -> Result<NodeIndex> {
     graph
         .node_indices()
         .find(|idx| {
@@ -211,66 +252,4 @@ fn fix_exit_ecall(graph: &mut ControlFlowGraph) -> Result<NodeIndex> {
             false
         })
         .ok_or_else(|| Error::msg("Could not find exit ecall in binary"))
-}
-
-/// Create a ControlFlowGraph from `u8` slice.
-fn build(binary: &[u8]) -> Result<(ControlFlowGraph, NodeIndex)> {
-    let mut graph = create_instruction_graph(binary)?;
-
-    fn add_edges(graph: &mut ControlFlowGraph, edges: &[Edge]) {
-        edges.iter().for_each(|e| {
-            graph.add_edge(e.0, e.1, e.2);
-        });
-    }
-
-    let edges = compute_edges(&graph, construct_edge_if_trivial);
-    add_edges(&mut graph, &edges);
-
-    let pure_edges = compute_edges(&graph, construct_edge_if_pure);
-    add_edges(&mut graph, &pure_edges);
-
-    let jump_edges = StatefulEdgeBuilder::new().compute_stateful_edges(&graph);
-    add_edges(&mut graph, &jump_edges);
-
-    let exit_node = fix_exit_ecall(&mut graph)?;
-
-    Ok((graph, exit_node))
-}
-
-pub type DataSegment = Vec<u8>;
-
-/// Create a ControlFlowGraph from Path `file`.
-pub fn build_cfg_from_file<P>(file: P) -> Result<((ControlFlowGraph, NodeIndex), Program)>
-where
-    P: AsRef<Path>,
-{
-    let program = load_object_file(file).context("Failed to load object file")?;
-
-    let cfg = time_info!("generate CFG from binary", {
-        build(program.code.content.as_slice())
-            .context("Could not build a control flow graph from loaded file")?
-    });
-
-    Ok((cfg, program))
-}
-
-/// Write ControlFlowGraph `graph` to dot file at `file` Path.
-pub fn write_to_file<P>(graph: &ControlFlowGraph, file_path: P) -> Result<()>
-where
-    P: AsRef<Path>,
-{
-    let dot_graph = Dot::with_config(graph, &[]);
-
-    let mut file = File::create(file_path.as_ref())?;
-
-    file.write_fmt(format_args!("{:?}", dot_graph))?;
-    file.flush()?;
-
-    info!(
-        "{} written to file {}",
-        ByteSize(file.metadata()?.len()),
-        file_path.as_ref().display(),
-    );
-
-    Ok(())
 }

@@ -1,7 +1,6 @@
 use crate::{
-    bitvec::BitVector,
     bug::Witness,
-    solver::{Solver, SolverError},
+    solver::{BitVector, Solver, SolverError},
 };
 use log::{debug, trace, Level};
 pub use petgraph::graph::{EdgeIndex, NodeIndex};

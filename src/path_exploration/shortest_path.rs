@@ -1,4 +1,4 @@
-use crate::cfg::{ControlFlowGraph, ProcedureCallId};
+use super::{ControlFlowGraph, ExplorationStrategy, ProcedureCallId};
 use anyhow::{Context as AnyhowContext, Result};
 use itertools::Itertools;
 use log::trace;
@@ -9,27 +9,30 @@ use petgraph::{
     prelude::*,
     visit::{EdgeRef, Reversed},
 };
-use riscu::{Instruction, Register};
-use std::{collections::HashMap, fs::File, io::Write, path::Path};
+use riscu::{Instruction, Program, Register};
+use std::{collections::HashMap, fmt, fs::File, io::Write, path::Path};
 
-pub trait ExplorationStrategy {
-    fn choose_path(&self, branch1: u64, branch2: u64) -> u64;
-}
-
-pub struct ShortestPathStrategy<'a> {
-    cfg: &'a ControlFlowGraph,
+pub struct ShortestPathStrategy {
+    cfg: ControlFlowGraph,
     distance: HashMap<NodeIndex, u64>,
     entry_address: u64,
 }
 
-impl<'a> ShortestPathStrategy<'a> {
-    pub fn new(cfg: &'a ControlFlowGraph, entry_address: u64) -> Self {
-        time_info!("computing shortest paths in CFG", {
-            Self {
-                cfg,
-                distance: compute_distances(cfg),
-                entry_address,
-            }
+impl ShortestPathStrategy {
+    pub fn compute_for(program: &Program) -> Result<Self> {
+        let cfg = time_info!("generate CFG from binary", {
+            ControlFlowGraph::build_for(program)
+                .context("Could not build control flow graph from program")?
+        });
+
+        let distance = time_info!("computing shortest paths in CFG", {
+            compute_distances(&cfg)
+        });
+
+        Ok(Self {
+            cfg,
+            distance,
+            entry_address: program.code.address,
         })
     }
 
@@ -52,6 +55,7 @@ impl<'a> ShortestPathStrategy<'a> {
         &self,
     ) -> Graph<(Instruction, Option<u64>), Option<ProcedureCallId>> {
         self.cfg
+            .graph
             .map(|i, n| (*n, self.distance.get(&i).copied()), |_, e| *e)
     }
 
@@ -60,7 +64,7 @@ impl<'a> ShortestPathStrategy<'a> {
     }
 }
 
-impl<'a> ExplorationStrategy for ShortestPathStrategy<'a> {
+impl ExplorationStrategy for ShortestPathStrategy {
     fn choose_path(&self, branch1: u64, branch2: u64) -> u64 {
         let distance1 = self.distance.get(&self.address_to_cfg_idx(branch1));
         let distance2 = self.distance.get(&self.address_to_cfg_idx(branch2));
@@ -120,13 +124,19 @@ pub fn compute_distances(cfg: &ControlFlowGraph) -> HashMap<NodeIndex, u64> {
     })
 }
 
-impl std::fmt::Debug for ShortestPathStrategy<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for ShortestPathStrategy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let cfg_with_distances = self.create_cfg_with_distances();
 
         let dot_graph = Dot::with_config(&cfg_with_distances, &[]);
 
         write!(f, "{:?}", dot_graph)
+    }
+}
+
+impl fmt::Display for ShortestPathStrategy {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
     }
 }
 
@@ -179,6 +189,7 @@ impl<'a> Context<'a> {
 
     fn next(&self) -> NodeIndex {
         self.cfg
+            .graph
             .neighbors_directed(self.idx, Direction::Outgoing)
             .next()
             .expect("instruction has a followup instruction")
@@ -196,7 +207,7 @@ impl<'a> Context<'a> {
             "visit: id={:?}, idx={}, instr={:?}",
             self.id,
             idx.index(),
-            self.cfg[idx]
+            self.cfg.graph[idx]
         );
 
         self.visited.insert(idx, n);
@@ -236,13 +247,16 @@ impl<'a> Context<'a> {
     }
 
     fn traverse(&mut self, g: &mut UnrolledCfg) {
+        let graph = &self.cfg.graph;
+
         while self.exit_reason.is_none() {
-            match self.cfg[self.idx] {
+            match graph[self.idx] {
                 Instruction::Jal(jtype) if jtype.rd() != Register::Zero => {
                     let jump_idx = self.next();
 
                     if let Some(ProcedureCallId::Call(id)) = self
                         .cfg
+                        .graph
                         .edges_directed(self.idx, Direction::Outgoing)
                         .next()
                         .expect("A procedure call (jal) always has to have an outgoing edge")
@@ -310,7 +324,7 @@ impl<'a> Context<'a> {
                     }
                 }
                 Instruction::Jalr(_) => {
-                    let mut return_edges = self.cfg.edges_directed(self.idx, Direction::Outgoing);
+                    let mut return_edges = graph.edges_directed(self.idx, Direction::Outgoing);
 
                     let return_idx = return_edges
                         .find(
@@ -325,7 +339,7 @@ impl<'a> Context<'a> {
                     trace!("jalr: exiting");
                 }
                 Instruction::Beq(_) => {
-                    let mut neighbors = self.cfg.neighbors_directed(self.idx, Direction::Outgoing);
+                    let mut neighbors = graph.neighbors_directed(self.idx, Direction::Outgoing);
 
                     let first = neighbors.next().expect("BEQ creates 2 branches");
                     let second = neighbors.next().expect("BEQ creates 2 branches");
@@ -361,12 +375,7 @@ impl<'a> Context<'a> {
                     };
                 }
                 Instruction::Ecall(_) => {
-                    if self
-                        .cfg
-                        .edges_directed(self.idx, Direction::Outgoing)
-                        .count()
-                        == 0
-                    {
+                    if graph.edges_directed(self.idx, Direction::Outgoing).count() == 0 {
                         trace!("ecall: (exit) => exiting");
                         self.exit_reason = Some(ExitReason::ExitSyscall);
                     } else {

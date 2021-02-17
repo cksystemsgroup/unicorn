@@ -1,5 +1,7 @@
-use std::fmt;
-use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Sub};
+use std::{
+    fmt,
+    ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Sub},
+};
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq, PartialOrd)]
 pub struct BitVector(pub u64);

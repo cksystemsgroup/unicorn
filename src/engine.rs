@@ -1,16 +1,16 @@
 use crate::{
     bug::{BasicInfo, Bug},
-    cfg::build_cfg_from_file,
-    exploration_strategy::{ExplorationStrategy, ShortestPathStrategy},
+    path_exploration::{ExplorationStrategy, ShortestPathStrategy},
     solver::{Boolector, ExternalSolver, MonsterSolver, Solver, SolverError, Z3},
     symbolic_state::{BVOperator, Query, SymbolId, SymbolicState},
 };
+use anyhow::Context;
 use byteorder::{ByteOrder, LittleEndian};
 use bytesize::ByteSize;
 use log::{debug, trace};
 use riscu::{
-    decode, types::*, DecodingError, Instruction, Program, ProgramSegment, Register,
-    INSTRUCTION_SIZE as INSTR_SIZE,
+    decode, load_object_file, types::*, DecodingError, Instruction, Program, ProgramSegment,
+    Register, INSTRUCTION_SIZE as INSTR_SIZE,
 };
 use std::{fmt, mem::size_of, path::Path, rc::Rc};
 use thiserror::Error;
@@ -42,9 +42,11 @@ pub fn execute<P>(
 where
     P: AsRef<Path>,
 {
-    let ((graph, _), program) = build_cfg_from_file(input).map_err(EngineError::IoError)?;
+    let program = load_object_file(input)
+        .context("Failed to load object file")
+        .map_err(EngineError::IoError)?;
 
-    let strategy = ShortestPathStrategy::new(&graph, program.code.address);
+    let strategy = ShortestPathStrategy::compute_for(&program).map_err(EngineError::IoError)?;
 
     match with {
         Backend::Monster => {

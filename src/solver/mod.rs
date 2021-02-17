@@ -1,14 +1,12 @@
-pub mod boolector;
-pub mod external;
-pub mod monster;
-pub mod z3;
+mod bitvec;
+mod boolector;
+mod external;
+mod monster;
+mod z3;
 
-pub use self::{boolector::*, external::*, monster::*, z3::*};
+pub use self::{bitvec::*, boolector::*, external::*, monster::*, z3::*};
 
-use crate::{
-    bitvec::*,
-    symbolic_state::{Formula, SymbolId},
-};
+use crate::symbolic_state::{Formula, SymbolId};
 use log::debug;
 use std::{collections::HashMap, convert::From, io};
 use thiserror::Error;

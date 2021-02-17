@@ -2,11 +2,8 @@
 #![allow(clippy::if_same_then_else)]
 #![allow(clippy::neg_cmp_op_on_partial_ord)]
 
-use crate::{
-    bitvec::*,
-    solver::{Assignment, Solver, SolverError},
-    symbolic_state::{get_operands, BVOperator, Formula, Node, OperandSide, SymbolId},
-};
+use super::{Assignment, BitVector, Solver, SolverError};
+use crate::symbolic_state::{get_operands, BVOperator, Formula, Node, OperandSide, SymbolId};
 use divisors::get_divisors;
 use log::{log_enabled, trace, Level};
 use petgraph::{visit::EdgeRef, Direction};

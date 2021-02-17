@@ -6,12 +6,12 @@ use cli::expect_arg;
 use env_logger::{Env, TimestampPrecision};
 use log::info;
 use monster::{
-    cfg::{build_cfg_from_file, write_to_file},
     disassemble::disassemble,
     engine,
-    exploration_strategy::ShortestPathStrategy,
+    path_exploration::{ControlFlowGraph, ShortestPathStrategy},
 };
-use std::{env, io::Write, path::Path};
+use riscu::load_object_file;
+use std::{env, fmt::Display, fs::File, io::Write, path::Path};
 
 fn main() -> Result<()> {
     let matches = cli::args().get_matches();
@@ -33,13 +33,16 @@ fn main() -> Result<()> {
             let output = Path::new(expect_arg(&args, "output-file"));
             let distances = args.is_present("distances");
 
-            let ((cfg, _), program) = build_cfg_from_file(Path::new(input))?;
+            let program = load_object_file(input)?;
 
             if distances {
-                ShortestPathStrategy::new(&cfg, program.code.address)
-                    .write_cfg_with_distances_to_file(output)
+                let strat = ShortestPathStrategy::compute_for(&program)?;
+
+                write_to_file(output, &strat)
             } else {
-                write_to_file(&cfg, output)
+                let cfg = ControlFlowGraph::build_for(&program)?;
+
+                write_to_file(output, &cfg)
             }
         }
         Some(("execute", args)) => {
@@ -93,4 +96,16 @@ fn init_logger(cli_log_level: &str) -> Result<()> {
     }
 
     builder.try_init().context("Failed to initialize logger")
+}
+
+fn write_to_file<P, O>(path: P, object: O) -> Result<()>
+where
+    P: AsRef<Path>,
+    O: Display,
+{
+    File::create(path)
+        .and_then(|mut f| write!(f, "{}", object).and_then(|_| f.sync_all()))
+        .context("Failed to write control flow graph to file")?;
+
+    Ok(())
 }

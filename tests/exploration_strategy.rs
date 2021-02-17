@@ -1,10 +1,10 @@
 mod common;
 
 use common::{compile_riscu, convert_dot_to_png_and_check, init, time};
-use monster::cfg::build_cfg_from_file;
-use monster::exploration_strategy::*;
+use monster::path_exploration::*;
 use petgraph::dot::Dot;
 use rayon::prelude::*;
+use riscu::load_object_file;
 use std::{
     fs::{metadata, File},
     io::prelude::*,
@@ -16,11 +16,11 @@ fn can_build_control_flow_graph_with_distance_from_exit() {
 
     compile_riscu(None).1
         .for_each(|(source_file, object_file)| {
-        let ((graph, _), program) = time(format!("compute cfg: {:?}", source_file).as_str(), || {
-            build_cfg_from_file(object_file.clone()).unwrap()
-        });
+        let program = load_object_file(object_file).unwrap();
 
-        let strategy = ShortestPathStrategy::new(&graph, program.code.address);
+        let strategy = time(format!("compute cfg: {:?}", source_file).as_str(), || {
+            ShortestPathStrategy::compute_for(&program).unwrap()
+        });
 
         let src_file_name = source_file.file_name().unwrap().to_str().unwrap();
         let dot_file = source_file
@@ -66,19 +66,19 @@ fn can_unroll_procedures_in_control_flow_graph() {
     compile_riscu(None)
         .1
         .for_each(|(source_file, object_file)| {
-            let ((graph, _), program) =
-                time(format!("compute cfg: {:?}", source_file).as_str(), || {
-                    build_cfg_from_file(object_file.clone()).unwrap()
-                });
+            let program = load_object_file(object_file).unwrap();
+            let cfg = time(format!("compute cfg: {:?}", source_file).as_str(), || {
+                ControlFlowGraph::build_for(&program).unwrap()
+            });
 
-            let strategy = ShortestPathStrategy::new(&graph, program.code.address);
+            let strategy = ShortestPathStrategy::compute_for(&program);
 
             let dot_file = source_file.with_extension("dot");
 
             let mut f = File::create(dot_file.clone()).unwrap();
             f.write_fmt(format_args!("{:?}", strategy)).unwrap();
 
-            let unrolled = compute_unrolled_cfg(&graph);
+            let unrolled = compute_unrolled_cfg(&cfg);
             let dot_file = dot_file.with_file_name(
                 dot_file
                     .file_name()
