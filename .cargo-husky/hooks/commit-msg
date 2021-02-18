@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+
+types=(
+  "build"
+  "ci"
+  "docs"
+  "feat"
+  "fix"
+  "perf"
+  "refactor"
+  "style"
+  "test"
+  "chore"
+  "revert"
+)
+min_length=10
+max_length=100
+
+# build the regex pattern based on the config file
+regexp="^[.0-9]+$|"
+
+for type in "${types[@]}"
+do
+  regexp="${regexp}$type|"
+done
+
+regexp="${regexp%|})(\(.+\))?: "
+
+regexp="${regexp}.{$min_length,$max_length}\n$"
+
+
+# Print out a standard error message which explains
+# how the commit message should be structured
+function print_error() {
+  RED='\033[0;31m'
+  NC='\033[0m'
+  CYAN='\033[0;36m'
+  LGRAY='\033[0;37m'
+  BLUE='\033[0;34m'
+
+  echo -e "\n${RED}[Invalid Commit Message]"
+  echo -e "------------------------${NC}"
+  echo -e "Valid types: ${CYAN}${types[@]}${NC}"
+  echo -e "Max length (first line): ${CYAN}$max_length${NC}"
+  echo -e "Min length (first line): ${CYAN}$min_length${NC}\n"
+  echo -e "Commit message structure should be:"
+  echo -e "${BLUE}<type>[optional scope]: <description>\n"
+  echo -e "[optional body]\n"
+  echo -e "[optional footer(s)]${NC}\n"
+  echo -e "Find more information on: https://www.conventionalcommits.org/en/v1.0.0/#summary"
+}
+
+# get the first line of the commit message
+INPUT_FILE=$1
+START_LINE=`head -n1 $INPUT_FILE`
+
+if [[ ! $START_LINE =~ $regexp ]]; then
+  # commit message is invalid according to config - block commit
+  print_error 
+  exit 1
+fi
