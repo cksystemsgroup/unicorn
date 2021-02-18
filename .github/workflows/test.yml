@@ -56,7 +56,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target
-          key: ${{ runner.os }}-${{ github.job }}-${{ matrix.toolchain }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ github.job }}-${{ matrix.toolchain }}-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Check Format
         uses: actions-rs/cargo@v1
@@ -66,8 +66,8 @@ jobs:
 
       - name: Clippy
         uses: actions-rs/clippy-check@v1
-        # execute clippy with Github integration for the target platform (Linux with fixed toolchain version)
-        if: ${{ matrix.os == 'ubuntu-20.04' && !matrix.experimental }}
+        # execute Clippy with Github integration for the target platform (Linux with fixed toolchain version)
+        if: ${{ contains(matrix.os, 'ubuntu') && !matrix.experimental }}
         with:
             token: ${{ secrets.GITHUB_TOKEN }}
             args: --all-targets --all-features -- -D warnings
@@ -75,8 +75,8 @@ jobs:
 
       - name: Clippy CLI only 
         uses: actions-rs/cargo@v1
-        # execute CLI-only version of clippy for all platforms besides the target platform
-        if: ${{ !(matrix.os == 'ubuntu-20.04' && !matrix.experimental) }}
+        # execute CLI-only version of Clippy for all platforms besides the target platform
+        if: ${{ !(contains(matrix.os, 'ubuntu') && !matrix.experimental) }}
         with:
             command: clippy
             args: --all-targets --all-features -- -D warnings
@@ -96,7 +96,16 @@ jobs:
         uses: actions-rs/cargo@v1
         # sadly, the Github runners for MacOs do not support Docker,
         # so tests are only executed on Linux.
-        if: ${{ matrix.os == 'ubuntu-20.04' }}
+        if: ${{ contains(matrix.os, 'ubuntu') }}
         with:
             command: test
             args: --locked
+
+        # Unfortunately MacOs in combination with the Github Cache action has a bug:
+        # https://github.com/actions/virtual-environments/issues/2619
+        # This is a workaround to fix curroption of cached cargo dependencies
+      - name: Cache Sync
+        if: ${{ contains(matrix.os, 'macos') }}
+        run: sleep 10
+
+
