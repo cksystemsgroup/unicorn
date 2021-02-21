@@ -1,10 +1,9 @@
 use crate::{
     bug::{BasicInfo, Bug},
     path_exploration::{ExplorationStrategy, ShortestPathStrategy},
-    solver::{Boolector, ExternalSolver, MonsterSolver, Solver, SolverError, Z3},
+    solver::{ExternalSolver, MonsterSolver, Solver, SolverError},
     symbolic_state::{BVOperator, Query, SymbolId, SymbolicState},
 };
-use anyhow::Context;
 use byteorder::{ByteOrder, LittleEndian};
 use bytesize::ByteSize;
 use log::{debug, trace};
@@ -14,6 +13,12 @@ use riscu::{
 };
 use std::{fmt, mem::size_of, path::Path, rc::Rc};
 use thiserror::Error;
+
+#[cfg(feature = "boolector-solver")]
+use crate::solver::Boolector;
+
+#[cfg(feature = "z3-solver")]
+use crate::solver::Z3;
 
 const INSTRUCTION_SIZE: u64 = INSTR_SIZE as u64;
 
@@ -28,9 +33,13 @@ pub enum SyscallId {
 #[derive(Copy, Clone)]
 pub enum Backend {
     Monster,
-    Boolector,
-    Z3,
     External,
+
+    #[cfg(feature = "boolector-solver")]
+    Boolector,
+
+    #[cfg(feature = "z3-solver")]
+    Z3,
 }
 
 pub fn execute<P>(
@@ -42,9 +51,9 @@ pub fn execute<P>(
 where
     P: AsRef<Path>,
 {
-    let program = load_object_file(input)
-        .context("Failed to load object file")
-        .map_err(EngineError::IoError)?;
+    let program = load_object_file(input).map_err(|e| {
+        EngineError::IoError(anyhow::Error::new(e).context("Failed to load object file"))
+    })?;
 
     let strategy = ShortestPathStrategy::compute_for(&program).map_err(EngineError::IoError)?;
 
@@ -52,9 +61,11 @@ where
         Backend::Monster => {
             create_and_run::<_, MonsterSolver>(&program, &strategy, max_exection_depth, memory_size)
         }
+        #[cfg(feature = "boolector-solver")]
         Backend::Boolector => {
             create_and_run::<_, Boolector>(&program, &strategy, max_exection_depth, memory_size)
         }
+        #[cfg(feature = "z3-solver")]
         Backend::Z3 => {
             create_and_run::<_, Z3>(&program, &strategy, max_exection_depth, memory_size)
         }
@@ -102,7 +113,7 @@ impl fmt::Display for Value {
 
 #[derive(Debug, Error)]
 pub enum EngineError {
-    #[error("failed to load binary")]
+    #[error("failed to load binary {0:#}")]
     IoError(anyhow::Error),
 
     #[error("engine does not support {0}")]

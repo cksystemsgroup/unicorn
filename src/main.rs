@@ -61,14 +61,20 @@ fn main() -> Result<()> {
                 input,
                 match solver {
                     "monster" => engine::Backend::Monster,
-                    "boolector" => engine::Backend::Boolector,
-                    "z3" => engine::Backend::Z3,
                     "external" => engine::Backend::External,
+
+                    #[cfg(feature = "boolector-solver")]
+                    "boolector" => engine::Backend::Boolector,
+
+                    #[cfg(feature = "z3-solver")]
+                    "z3" => engine::Backend::Z3,
                     _ => unreachable!(),
                 },
                 depth,
                 ByteSize::mb(megabytes),
-            )? {
+            )
+            .with_context(|| format!("Execution of {} failed", input.display()))?
+            {
                 info!("bug found:\n{}", bug);
             } else {
                 info!("no bug found in binary");

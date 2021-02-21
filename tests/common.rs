@@ -18,7 +18,7 @@ pub fn init() {
 // Until then, we can use this image, which is a build from the #arch branch.
 // This version of Selfie creates seperate segments for code and data,
 // which is needed by the "riscu" library to work.
-const SELFIE_DOCKER_IMAGE: &str = "christianmoesl/selfie";
+const SELFIE_DOCKER_IMAGE: &str = "cksystemsteaching/selfie";
 
 pub fn compile<P>(source_file: P, destination_file: P) -> Result<PathBuf, &'static str>
 where

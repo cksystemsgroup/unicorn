@@ -1,10 +1,20 @@
 mod bitvec;
-mod boolector;
 mod external;
 mod monster;
+
+#[cfg(feature = "boolector-solver")]
+mod boolector;
+
+#[cfg(feature = "z3-solver")]
 mod z3;
 
-pub use self::{bitvec::*, boolector::*, external::*, monster::*, z3::*};
+#[cfg(feature = "boolector-solver")]
+pub use self::boolector::*;
+
+#[cfg(feature = "z3-solver")]
+pub use self::z3::*;
+
+pub use self::{bitvec::*, external::*, monster::*};
 
 use crate::symbolic_state::{Formula, SymbolId};
 use log::debug;

@@ -90,11 +90,13 @@ fn execute_riscu(names: &'static [&str], solver: Backend) {
 //}
 
 #[test]
+#[cfg(feature = "boolector-solver")]
 fn execute_riscu_with_boolector_solver() {
     execute_riscu(&TEST_FILES, Backend::Boolector);
 }
 
 #[test]
+#[cfg(feature = "z3-solver")]
 fn execute_riscu_with_z3_solver() {
     execute_riscu(&TEST_FILES, Backend::Z3);
 }
