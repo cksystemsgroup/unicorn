@@ -20,18 +20,22 @@ jobs:
     strategy:
       matrix:
         toolchain: [1.50.0]
-        os: [ubuntu-20.04, macos-10.15]
+        os: [ubuntu-20.04, macos-10.15, windows-2019]
         experimental: [false]
         include:
+          - os: ubuntu-20.04
+            features: z3-solver,boolector-solver
+          - os: macos-10.15
+            features: z3-solver,boolector-solver
+          - os: windows-2019
+            features: z3-solver
           - toolchain: stable
             os: ubuntu-latest
             experimental: true
+            features: z3-solver,boolector-solver
     steps:
       - name: Checkout
         uses: actions/checkout@v2
-        with:
-            fetch-depth: 0
-            persist-credentials: false
 
       - name: Install Rust ${{ matrix.toolchain }}
         uses: actions-rs/toolchain@v1
@@ -40,6 +44,12 @@ jobs:
             toolchain: ${{ matrix.toolchain }}
             components: rustfmt, clippy
             override: true
+
+      - name: Setup Windows Environment
+        if: ${{ contains(matrix.os, 'windows') }}
+        # MinGw64 and Git is already installed
+        # https://github.com/actions/virtual-environments/blob/main/images/win/Windows2019-Readme.md
+        run: choco install make -y
 
       - name: Cache Cargo Dependencies
         uses: actions/cache@v2
@@ -70,36 +80,34 @@ jobs:
         if: ${{ contains(matrix.os, 'ubuntu') && !matrix.experimental }}
         with:
             token: ${{ secrets.GITHUB_TOKEN }}
-            args: --all-targets --all-features -- -D warnings
+            args: --all-targets --features ${{ matrix.features }} -- -D warnings
             name: Clippy
 
-      - name: Clippy CLI only 
+      - name: Clippy CLI
         uses: actions-rs/cargo@v1
         # execute CLI-only version of Clippy for all platforms besides the target platform
         if: ${{ !(contains(matrix.os, 'ubuntu') && !matrix.experimental) }}
         with:
             command: clippy
-            args: --all-targets --all-features -- -D warnings
+            args: --all-targets --features ${{ matrix.features }} -- -D warnings
 
       - name: Build
         uses: actions-rs/cargo@v1
         with:
             command: build
-            args: --locked
+            args: --features ${{ matrix.features }} --locked
 
       - name: Doc
         uses: actions-rs/cargo@v1
         with:
             command: doc
+            args: --features ${{ matrix.features }} --locked
 
       - name: Test
         uses: actions-rs/cargo@v1
-        # sadly, the Github runners for MacOs do not support Docker,
-        # so tests are only executed on Linux.
-        if: ${{ contains(matrix.os, 'ubuntu') }}
         with:
             command: test
-            args: --locked
+            args: --features ${{ matrix.features }} --locked
 
         # Unfortunately MacOs in combination with the Github Cache action has a bug:
         # https://github.com/actions/virtual-environments/issues/2619

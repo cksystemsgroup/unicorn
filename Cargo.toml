@@ -12,7 +12,7 @@ edition = "2018"
 version ="0.1.0"
 
 [features]
-default = ["z3-solver"]
+default = []
 boolector-solver = ["boolector"]
 z3-solver = ["z3"]
 
