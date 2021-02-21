@@ -1,6 +1,6 @@
 mod common;
 
-use common::{compile_riscu, convert_dot_to_png_and_check, init, time};
+use common::{compile_riscu, convert_dot_to_png_and_check, init, time, with_temp_dir};
 use monster::path_exploration::*;
 use petgraph::dot::Dot;
 use rayon::prelude::*;
@@ -14,7 +14,8 @@ use std::{
 fn can_build_control_flow_graph_with_distance_from_exit() {
     init();
 
-    compile_riscu(None).1
+    with_temp_dir(|dir| {
+        compile_riscu(dir, None)
         .for_each(|(source_file, object_file)| {
         let program = load_object_file(object_file).unwrap();
 
@@ -57,15 +58,15 @@ fn can_build_control_flow_graph_with_distance_from_exit() {
             convert_dot_to_png_and_check(dot_file).unwrap();
         }
     });
+    });
 }
 
 #[test]
 fn can_unroll_procedures_in_control_flow_graph() {
     init();
 
-    compile_riscu(None)
-        .1
-        .for_each(|(source_file, object_file)| {
+    with_temp_dir(|dir| {
+        compile_riscu(dir, None).for_each(|(source_file, object_file)| {
             let program = load_object_file(object_file).unwrap();
             let cfg = time(format!("compute cfg: {:?}", source_file).as_str(), || {
                 ControlFlowGraph::build_for(&program).unwrap()
@@ -107,4 +108,5 @@ fn can_unroll_procedures_in_control_flow_graph() {
                 convert_dot_to_png_and_check(dot_file).unwrap();
             }
         });
+    });
 }

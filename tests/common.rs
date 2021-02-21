@@ -1,6 +1,7 @@
 use log::info;
 use rayon::{iter::ParallelBridge, prelude::*};
 use std::{
+    env,
     fs::{canonicalize, read_dir},
     path::{Path, PathBuf},
     process::Command,
@@ -8,58 +9,78 @@ use std::{
     time::Instant,
 };
 use tempfile::{tempdir, TempDir};
+use which::which;
 
 pub fn init() {
     let _ = env_logger::builder().is_test(true).try_init();
 }
 
-// TODO: use cksystemsteaching/selfie image, once the #arch branch get's
-// merged into the master branch in the selfie repository.
-// Until then, we can use this image, which is a build from the #arch branch.
-// This version of Selfie creates seperate segments for code and data,
-// which is needed by the "riscu" library to work.
-const SELFIE_DOCKER_IMAGE: &str = "cksystemsteaching/selfie";
-
-pub fn compile<P>(source_file: P, destination_file: P) -> Result<PathBuf, &'static str>
+pub fn compile<P>(
+    selfie_path: P,
+    source_file: P,
+    destination_file: P,
+) -> Result<PathBuf, &'static str>
 where
     P: AsRef<Path>,
 {
-    let src = canonicalize(source_file).unwrap();
+    let src = canonicalize(source_file.as_ref()).unwrap();
 
-    let src_directory = src.parent().unwrap();
-    let src_file_name = src.file_name().unwrap();
-
-    let dst_directory = destination_file.as_ref().parent().unwrap();
-    let dst_file_name = destination_file.as_ref().file_name().unwrap();
-
-    Command::new("docker")
-        .arg("run")
-        .arg("-v")
-        .arg(format!(
-            "{}:/opt/monster_src",
-            src_directory.to_str().unwrap()
-        ))
-        .arg("-v")
-        .arg(format!(
-            "{}:/opt/monster_dst",
-            dst_directory.to_str().unwrap()
-        ))
-        .arg(SELFIE_DOCKER_IMAGE)
-        .arg("/opt/selfie/selfie")
+    Command::new(selfie_path.as_ref())
         .arg("-c")
-        .arg(format!(
-            "/opt/monster_src/{}",
-            src_file_name.to_str().unwrap()
-        ))
+        .arg(src)
         .arg("-o")
-        .arg(format!(
-            "/opt/monster_dst/{}",
-            dst_file_name.to_str().unwrap()
-        ))
+        .arg(destination_file.as_ref())
         .output()
-        .map_err(|_| "Selfie C* compile command was not successfull")?;
+        .expect("Selfie C* compile command was not successfull");
 
     Ok(destination_file.as_ref().to_path_buf())
+}
+
+fn ensure_selfie_build_tools_installed() {
+    let _ =
+        which("make").expect("Can not find make in $PATH. Make has to be installed on your system");
+
+    if cfg!(target_os = "windows") {
+        let _ = which("gcc")
+            .expect("Can not find gcc in $env:PATH. Mingw64 has to be installed on your system");
+    } else {
+        let _ = which("cc")
+            .expect("Can not find cc in $PATH. A C compiler has to be installed on your system");
+    }
+}
+
+fn ensure_selfie_installed() -> PathBuf {
+    ensure_selfie_build_tools_installed();
+
+    let repo_dir = env::temp_dir().join("monster-crate-selfie-installation");
+
+    if !repo_dir.exists() {
+        std::fs::create_dir(&repo_dir).unwrap();
+
+        Command::new("git")
+            .arg("clone")
+            .arg("https://github.com/christianmoesl/selfie")
+            .arg(&repo_dir)
+            .output()
+            .expect("Selfie Git repository could not be cloned from Github");
+    }
+
+    let mut cmd = Command::new("make");
+
+    if cfg!(target_os = "windows") {
+        cmd.env("CC", "gcc");
+    }
+
+    cmd.arg("selfie")
+        .current_dir(&repo_dir)
+        .output()
+        .expect("Selfie can not be compiled");
+
+    if cfg!(target_os = "windows") {
+        repo_dir.join("selfie.exe")
+    } else {
+        repo_dir.join("selfie")
+    }
 }
 
 /// Convert a dot file into a png file (depends on graphviz)
@@ -102,16 +123,22 @@ where
     result
 }
 
-pub fn compile_riscu(
-    filter: Option<&'static [&str]>,
-) -> (
-    Arc<TempDir>,
-    impl ParallelIterator<Item = (PathBuf, PathBuf)>,
-) {
-    let tmp_dir = Arc::new(tempdir().unwrap());
-    let tmp_dir_clone = tmp_dir.clone();
+pub fn with_temp_dir<F, R>(f: F) -> R
+where
+    F: FnOnce(Arc<TempDir>) -> R,
+{
+    let temp_dir = Arc::new(tempdir().unwrap());
 
-    let iter = read_dir("examples")
+    f(temp_dir)
+}
+
+pub fn compile_riscu(
+    tmp_dir: Arc<TempDir>,
+    filter: Option<&'static [&str]>,
+) -> impl ParallelIterator<Item = (PathBuf, PathBuf)> {
+    let selfie_path = ensure_selfie_installed();
+
+    read_dir("examples")
         .unwrap()
         .par_bridge()
         .map(|dir_entry| dir_entry.unwrap().path())
@@ -133,11 +160,9 @@ pub fn compile_riscu(
 
             let result_path = time(
                 format!("compile: {}", source_file.display()).as_str(),
-                || compile(source_file.clone(), dst_file_path.clone()).unwrap(),
+                || compile(&selfie_path, &source_file, &dst_file_path).unwrap(),
             );
 
             (source_file, result_path)
-        });
-
-    (tmp_dir_clone, iter)
+        })
 }

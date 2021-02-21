@@ -15,7 +15,6 @@ version ="0.1.0"
 default = ["z3-solver"]
 boolector-solver = ["boolector"]
 z3-solver = ["z3"]
-pictures = [] 
 
 [lib]
 name = "monster"
@@ -45,6 +44,7 @@ z3 = { version = "~0.7.1", features = ["static-link-z3"], optional = true }
 [dev-dependencies]
 rayon = "~1.5.0"
 tempfile = "~3.1.0"
+which = "~4.0.2"
 
 [dev-dependencies.cargo-husky]
 version = "1"
