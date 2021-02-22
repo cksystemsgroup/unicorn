@@ -49,14 +49,20 @@ jobs:
         if: ${{ contains(matrix.os, 'windows') }}
         # MinGw64 and Git is already installed
         # https://github.com/actions/virtual-environments/blob/main/images/win/Windows2019-Readme.md
-        run: choco install make -y
+        run: |
+          choco install make -y
+          echo "TEMP=$env:USERPROFILE\AppData\Local\Temp" >> $env:GITHUB_ENV
+          echo "TMP=$env:USERPROFILE\AppData\Local\Temp" >> $env:GITHUB_ENV
 
       - name: Cache Cargo Dependencies
         uses: actions/cache@v2
         env:
           cache-name: cache-cargo-dependencies
         # disable cache for scheduled builds
-        if: ${{ github.event_name != 'schedule' }}
+        # Unfortunately MacOs in combination with the Github Cache action has a bug:
+        # https://github.com/actions/virtual-environments/issues/2619
+        # This is a workaround to fix curroption of cached cargo dependencies
+        if: ${{ github.event_name != 'schedule' && !contains(matrix.os, 'macos') }}
         with:
           # cargo cache files are stored in `~/.cargo` on Linux/macOS
           # source for paths: https://doc.rust-lang.org/cargo/guide/cargo-home.html#caching-the-cargo-home-in-ci
@@ -108,12 +114,3 @@ jobs:
         with:
             command: test
             args: --features ${{ matrix.features }} --locked
-
-        # Unfortunately MacOs in combination with the Github Cache action has a bug:
-        # https://github.com/actions/virtual-environments/issues/2619
-        # This is a workaround to fix curroption of cached cargo dependencies
-      - name: Cache Sync
-        if: ${{ contains(matrix.os, 'macos') }}
-        run: sleep 10
-
-

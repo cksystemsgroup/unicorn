@@ -7,8 +7,10 @@ use env_logger::{Env, TimestampPrecision};
 use log::info;
 use monster::{
     disassemble::disassemble,
-    engine,
+    engine::{self, EngineOptions},
+    execute_elf_with,
     path_exploration::{ControlFlowGraph, ShortestPathStrategy},
+    solver,
 };
 use riscu::load_object_file;
 use std::{env, fmt::Display, fs::File, io::Write, path::Path};
@@ -57,28 +59,42 @@ fn main() -> Result<()> {
                 .value_of_t::<u64>("memory")
                 .expect("value is validated already");
 
-            if let Some(bug) = engine::execute(
-                input,
-                match solver {
-                    "monster" => engine::Backend::Monster,
-                    "external" => engine::Backend::External,
+            let options = EngineOptions {
+                max_exection_depth: depth,
+                memory_size: ByteSize::mb(megabytes),
+            };
 
-                    #[cfg(feature = "boolector-solver")]
-                    "boolector" => engine::Backend::Boolector,
+            let program = load_object_file(input)?;
 
-                    #[cfg(feature = "z3-solver")]
-                    "z3" => engine::Backend::Z3,
-                    _ => unreachable!(),
-                },
-                depth,
-                ByteSize::mb(megabytes),
-            )
+            let strategy = ShortestPathStrategy::compute_for(&program)?;
+
+            if let Some(bug) = match solver {
+                "monster" => execute_elf_with(
+                    input,
+                    &options,
+                    &strategy,
+                    &solver::MonsterSolver::default(),
+                ),
+                "external" => execute_elf_with(
+                    input,
+                    &options,
+                    &strategy,
+                    &solver::ExternalSolver::default(),
+                ),
+                #[cfg(feature = "boolector-solver")]
+                "boolector" => {
+                    execute_elf_with(input, &options, &strategy, &solver::Boolector::default())
+                }
+                #[cfg(feature = "z3-solver")]
+                "z3" => execute_elf_with(input, &options, &strategy, &solver::Z3::default()),
+                _ => unreachable!(),
+            }
             .with_context(|| format!("Execution of {} failed", input.display()))?
             {
                 info!("bug found:\n{}", bug);
             } else {
                 info!("no bug found in binary");
-            }
+            };
 
             Ok(())
         }

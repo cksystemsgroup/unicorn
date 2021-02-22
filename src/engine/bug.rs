@@ -1,7 +1,6 @@
 use crate::{
     engine::{instruction_to_str, Value},
-    solver::BitVector,
-    symbolic_state::BVOperator,
+    solver::{BVOperator, BitVector},
 };
 use riscu::Instruction;
 use std::fmt;

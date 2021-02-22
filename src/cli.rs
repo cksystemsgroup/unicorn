@@ -1,5 +1,7 @@
+use crate::engine::{DEFAULT_MAX_EXECUTION_DEPTH, DEFAULT_MEMORY_SIZE};
 use anyhow::Result;
 use clap::{crate_authors, crate_description, crate_version, App, AppSettings, Arg, ArgMatches};
+use const_format::formatcp;
 
 pub const LOGGING_LEVELS: [&str; 5] = ["trace", "debug", "info", "warn", "error"];
 pub const SOLVER: [&str; 4] = ["monster", "boolector", "z3", "external"];
@@ -107,7 +109,7 @@ pub fn args() -> App<'static> {
                         .long("execution-depth")
                         .takes_value(true)
                         .value_name("NUMBER")
-                        .default_value("1000")
+                        .default_value(formatcp!("{}", DEFAULT_MAX_EXECUTION_DEPTH))
                         .validator(is_u64),
                 )
                 .arg(
@@ -117,7 +119,7 @@ pub fn args() -> App<'static> {
                         .long("memory")
                         .takes_value(true)
                         .value_name("NUMBER")
-                        .default_value("1")
+                        .default_value(formatcp!("{}", DEFAULT_MEMORY_SIZE.0 / bytesize::MB))
                         .validator(is_valid_memory_size),
                 ),
         )

@@ -1,5 +1,6 @@
-use super::{Assignment, BitVector, Solver, SolverError};
-use crate::symbolic_state::{traverse, BVOperator, Formula, FormulaVisitor, SymbolId};
+use super::{
+    Assignment, BVOperator, BitVector, Formula, FormulaVisitor, Solver, SolverError, SymbolId,
+};
 use std::{
     collections::HashMap,
     fs::File,
@@ -9,7 +10,7 @@ use std::{
 };
 
 pub struct ExternalSolver {
-    output: Arc<Mutex<dyn Write>>,
+    output: Arc<Mutex<dyn Write + Send>>,
 }
 
 impl ExternalSolver {
@@ -50,11 +51,7 @@ impl Solver for ExternalSolver {
         "External"
     }
 
-    fn solve_impl(
-        &self,
-        formula: &Formula,
-        root: SymbolId,
-    ) -> Result<Option<Assignment<BitVector>>, SolverError> {
+    fn solve_impl<F: Formula>(&self, formula: &F) -> Result<Option<Assignment>, SolverError> {
         {
             let mut output = self.output.lock().expect("no other thread should fail");
 
@@ -68,7 +65,7 @@ impl Solver for ExternalSolver {
         };
         let mut visited = HashMap::<SymbolId, Result<SymbolId, SolverError>>::new();
 
-        traverse(formula, root, &mut visited, &mut printer)?;
+        formula.traverse(formula.root(), &mut visited, &mut printer)?;
 
         let mut output = self.output.lock().expect("no other thread should fail");
 
@@ -86,12 +83,7 @@ impl FormulaVisitor<Result<SymbolId, SolverError>> for SmtPrinter {
     fn input(&mut self, idx: SymbolId, name: &str) -> Result<SymbolId, SolverError> {
         let mut o = self.output.lock().expect("no other thread should fail");
 
-        writeln!(
-            o,
-            "(declare-fun x{} () (_ BitVec 64)); {:?}",
-            idx.index(),
-            name
-        )?;
+        writeln!(o, "(declare-fun x{} () (_ BitVec 64)); {:?}", idx, name)?;
 
         Ok(idx)
     }
@@ -102,9 +94,7 @@ impl FormulaVisitor<Result<SymbolId, SolverError>> for SmtPrinter {
         writeln!(
             o,
             "(declare-fun x{} () (_ BitVec 64))\n(assert (= x{} (_ bv{} 64)))",
-            idx.index(),
-            idx.index(),
-            v.0
+            idx, idx, v.0
         )?;
 
         Ok(idx)
@@ -121,10 +111,10 @@ impl FormulaVisitor<Result<SymbolId, SolverError>> for SmtPrinter {
         writeln!(
             o,
             "(declare-fun x{} () (_ BitVec 64))\n(assert (= x{} ({} x{})))",
-            idx.index(),
-            idx.index(),
+            idx,
+            idx,
             to_smt(op),
-            v?.index()
+            v?
         )?;
 
         Ok(idx)
@@ -142,11 +132,11 @@ impl FormulaVisitor<Result<SymbolId, SolverError>> for SmtPrinter {
         writeln!(
             o,
             "(declare-fun x{} () (_ BitVec 64))\n(assert (= x{} ({} x{} x{})))",
-            idx.index(),
-            idx.index(),
+            idx,
+            idx,
             to_smt(op),
-            lhs?.index(),
-            rhs?.index()
+            lhs?,
+            rhs?
         )?;
 
         Ok(idx)

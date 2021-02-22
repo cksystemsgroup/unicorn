@@ -1,7 +1,6 @@
-use super::{Assignment, BitVector, Solver, SolverError};
-use crate::symbolic_state::{
-    get_operands, BVOperator, Formula,
-    Node::{Constant, Input, Operator},
+use super::{
+    Assignment, BVOperator, BitVector, Formula, Solver, SolverError,
+    Symbol::{Constant, Input, Operator},
     SymbolId,
 };
 use boolector::{
@@ -29,24 +28,20 @@ impl Solver for Boolector {
         "Boolector"
     }
 
-    fn solve_impl(
-        &self,
-        graph: &Formula,
-        root: SymbolId,
-    ) -> Result<Option<Assignment<BitVector>>, SolverError> {
+    fn solve_impl<F: Formula>(&self, formula: &F) -> Result<Option<Assignment>, SolverError> {
         let solver = Rc::new(Btor::new());
         solver.set_opt(BtorOption::ModelGen(ModelGen::All));
         solver.set_opt(BtorOption::Incremental(true));
         solver.set_opt(BtorOption::OutputFileFormat(OutputFileFormat::SMTLIBv2));
 
         let mut bvs = HashMap::new();
-        let bv = traverse(graph, root, &solver, &mut bvs);
+        let bv = traverse(formula, formula.root(), &solver, &mut bvs);
         bv.slice(0, 0).assert();
 
         match solver.sat() {
             SolverResult::Sat => {
-                let assignments = graph
-                    .node_indices()
+                let assignments = formula
+                    .symbol_ids()
                     .filter_map(|i| {
                         if let Some(bv) = bvs.get(&i) {
                             Some((
@@ -71,55 +66,53 @@ impl Solver for Boolector {
     }
 }
 
-fn traverse<'a>(
-    graph: &Formula,
-    node: SymbolId,
+fn traverse<'a, F: Formula>(
+    formula: &F,
+    sym: SymbolId,
     solver: &'a Rc<Btor>,
     bvs: &mut HashMap<SymbolId, BV<Rc<Btor>>>,
 ) -> BV<Rc<Btor>> {
     let bv =
-        match &graph[node] {
-            Operator(op) => {
-                match get_operands(graph, node) {
-                    (lhs, Some(rhs)) => match op {
-                        BVOperator::Add => traverse(graph, lhs, solver, bvs)
-                            .add(&traverse(graph, rhs, solver, bvs)),
-                        BVOperator::Sub => traverse(graph, lhs, solver, bvs)
-                            .sub(&traverse(graph, rhs, solver, bvs)),
-                        BVOperator::Mul => traverse(graph, lhs, solver, bvs)
-                            .mul(&traverse(graph, rhs, solver, bvs)),
-                        BVOperator::Equals => traverse(graph, lhs, solver, bvs)
-                            ._eq(&traverse(graph, rhs, solver, bvs))
-                            .uext(63),
-                        BVOperator::BitwiseAnd => traverse(graph, lhs, solver, bvs)
-                            .and(&traverse(graph, rhs, solver, bvs)),
-                        BVOperator::Divu => traverse(graph, lhs, solver, bvs)
-                            .udiv(&traverse(graph, rhs, solver, bvs)),
-                        BVOperator::Remu => traverse(graph, lhs, solver, bvs)
-                            .urem(&traverse(graph, rhs, solver, bvs)),
-                        BVOperator::Sltu => traverse(graph, lhs, solver, bvs)
-                            .ult(&traverse(graph, rhs, solver, bvs))
-                            .uext(63),
-                        i => unreachable!("binary operator: {:?}", i),
-                    },
-                    (lhs, None) => match op {
-                        BVOperator::Not => traverse(graph, lhs, solver, bvs)
-                            ._eq(&BV::from_u64(solver.clone(), 0, 64))
-                            .uext(63),
-                        i => unreachable!("unary operator: {:?}", i),
-                    },
-                }
-            }
+        match &formula[sym] {
+            Operator(op) => match formula.operands(sym) {
+                (lhs, Some(rhs)) => match op {
+                    BVOperator::Add => traverse(formula, lhs, solver, bvs)
+                        .add(&traverse(formula, rhs, solver, bvs)),
+                    BVOperator::Sub => traverse(formula, lhs, solver, bvs)
+                        .sub(&traverse(formula, rhs, solver, bvs)),
+                    BVOperator::Mul => traverse(formula, lhs, solver, bvs)
+                        .mul(&traverse(formula, rhs, solver, bvs)),
+                    BVOperator::Equals => traverse(formula, lhs, solver, bvs)
+                        ._eq(&traverse(formula, rhs, solver, bvs))
+                        .uext(63),
+                    BVOperator::BitwiseAnd => traverse(formula, lhs, solver, bvs)
+                        .and(&traverse(formula, rhs, solver, bvs)),
+                    BVOperator::Divu => traverse(formula, lhs, solver, bvs)
+                        .udiv(&traverse(formula, rhs, solver, bvs)),
+                    BVOperator::Remu => traverse(formula, lhs, solver, bvs)
+                        .urem(&traverse(formula, rhs, solver, bvs)),
+                    BVOperator::Sltu => traverse(formula, lhs, solver, bvs)
+                        .ult(&traverse(formula, rhs, solver, bvs))
+                        .uext(63),
+                    i => unreachable!("binary operator: {:?}", i),
+                },
+                (lhs, None) => match op {
+                    BVOperator::Not => traverse(formula, lhs, solver, bvs)
+                        ._eq(&BV::from_u64(solver.clone(), 0, 64))
+                        .uext(63),
+                    i => unreachable!("unary operator: {:?}", i),
+                },
+            },
             Input(name) => {
-                if let Some(value) = bvs.get(&node) {
+                if let Some(value) = bvs.get(&sym) {
                     value.clone()
                 } else {
                     BV::new(solver.clone(), 64, Some(name))
                 }
             }
-            Constant(c) => BV::from_u64(solver.clone(), *c, 64),
+            Constant(c) => BV::from_u64(solver.clone(), (*c).0, 64),
         };
 
-    bvs.insert(node, bv.clone());
+    bvs.insert(sym, bv.clone());
     bv
 }

@@ -1,28 +1,30 @@
+pub mod bug;
+pub mod symbolic_state;
+
+pub use bug::Bug;
+
+use self::{
+    bug::BasicInfo,
+    symbolic_state::{Query, SymbolicState, SymbolicValue},
+};
 use crate::{
-    bug::{BasicInfo, Bug},
-    path_exploration::{ExplorationStrategy, ShortestPathStrategy},
-    solver::{ExternalSolver, MonsterSolver, Solver, SolverError},
-    symbolic_state::{BVOperator, Query, SymbolId, SymbolicState},
+    path_exploration::ExplorationStrategy,
+    solver::{BVOperator, Solver, SolverError},
 };
 use byteorder::{ByteOrder, LittleEndian};
 use bytesize::ByteSize;
 use log::{debug, trace};
 use riscu::{
-    decode, load_object_file, types::*, DecodingError, Instruction, Program, ProgramSegment,
-    Register, INSTRUCTION_SIZE as INSTR_SIZE,
+    decode, types::*, DecodingError, Instruction, Program, ProgramSegment, Register,
+    INSTRUCTION_SIZE as INSTR_SIZE,
 };
-use std::{fmt, mem::size_of, path::Path, rc::Rc};
+use std::{fmt, mem::size_of};
 use thiserror::Error;
 
-#[cfg(feature = "boolector-solver")]
-use crate::solver::Boolector;
-
-#[cfg(feature = "z3-solver")]
-use crate::solver::Z3;
-
 const INSTRUCTION_SIZE: u64 = INSTR_SIZE as u64;
+pub const DEFAULT_MEMORY_SIZE: ByteSize = ByteSize(bytesize::MB);
+pub const DEFAULT_MAX_EXECUTION_DEPTH: u64 = 1000;
 
-#[allow(dead_code)]
 pub enum SyscallId {
     Exit = 93,
     Read = 63,
@@ -30,74 +32,25 @@ pub enum SyscallId {
     Openat = 56,
     Brk = 214,
 }
-#[derive(Copy, Clone)]
-pub enum Backend {
-    Monster,
-    External,
 
-    #[cfg(feature = "boolector-solver")]
-    Boolector,
-
-    #[cfg(feature = "z3-solver")]
-    Z3,
+pub struct EngineOptions {
+    pub memory_size: ByteSize,
+    pub max_exection_depth: u64,
 }
 
-pub fn execute<P>(
-    input: P,
-    with: Backend,
-    max_exection_depth: u64,
-    memory_size: ByteSize,
-) -> Result<Option<Bug>, EngineError>
-where
-    P: AsRef<Path>,
-{
-    let program = load_object_file(input).map_err(|e| {
-        EngineError::IoError(anyhow::Error::new(e).context("Failed to load object file"))
-    })?;
-
-    let strategy = ShortestPathStrategy::compute_for(&program).map_err(EngineError::IoError)?;
-
-    match with {
-        Backend::Monster => {
-            create_and_run::<_, MonsterSolver>(&program, &strategy, max_exection_depth, memory_size)
+impl Default for EngineOptions {
+    fn default() -> EngineOptions {
+        EngineOptions {
+            memory_size: DEFAULT_MEMORY_SIZE,
+            max_exection_depth: DEFAULT_MAX_EXECUTION_DEPTH,
         }
-        #[cfg(feature = "boolector-solver")]
-        Backend::Boolector => {
-            create_and_run::<_, Boolector>(&program, &strategy, max_exection_depth, memory_size)
-        }
-        #[cfg(feature = "z3-solver")]
-        Backend::Z3 => {
-            create_and_run::<_, Z3>(&program, &strategy, max_exection_depth, memory_size)
-        }
-        Backend::External => create_and_run::<_, ExternalSolver>(
-            &program,
-            &strategy,
-            max_exection_depth,
-            memory_size,
-        ),
     }
-}
-
-fn create_and_run<E, S>(
-    program: &Program,
-    strategy: &E,
-    max_exection_depth: u64,
-    memory_size: ByteSize,
-) -> Result<Option<Bug>, EngineError>
-where
-    E: ExplorationStrategy,
-    S: Solver + Default,
-{
-    let solver = Rc::new(S::default());
-    let state = Box::new(SymbolicState::new(solver));
-
-    Engine::new(memory_size, max_exection_depth, &program, strategy, state).run()
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Value {
     Concrete(u64),
-    Symbolic(SymbolId),
+    Symbolic(SymbolicValue),
     Uninitialized,
 }
 
@@ -134,7 +87,7 @@ where
     E: ExplorationStrategy,
     S: Solver,
 {
-    symbolic_state: Box<SymbolicState<S>>,
+    symbolic_state: Box<SymbolicState<'a, S>>,
     program_break: u64,
     pc: u64,
     regs: [Value; 32],
@@ -151,17 +104,12 @@ where
     S: Solver,
 {
     // creates a machine state with a specific memory size
-    pub fn new(
-        memory_size: ByteSize,
-        max_exection_depth: u64,
-        program: &Program,
-        strategy: &'a E,
-        symbolic_state: Box<SymbolicState<S>>,
-    ) -> Self {
+    pub fn new(program: &Program, options: &EngineOptions, strategy: &'a E, solver: &'a S) -> Self {
         let mut regs = [Value::Uninitialized; 32];
-        let mut memory = vec![Value::Uninitialized; memory_size.as_u64() as usize / 8];
+        let memory_size = options.memory_size.as_u64();
+        let mut memory = vec![Value::Uninitialized; memory_size as usize / 8];
 
-        let sp = memory_size.as_u64() - 8;
+        let sp = memory_size - 8;
         regs[Register::Sp as usize] = Value::Concrete(sp);
         regs[Register::Zero as usize] = Value::Concrete(0);
 
@@ -175,6 +123,8 @@ where
         let pc = program.code.address;
 
         let program_break = program.data.address + program.data.content.len() as u64;
+
+        let symbolic_state = Box::new(SymbolicState::new(solver));
 
         debug!(
             "initializing new execution context with {} of main memory",
@@ -203,7 +153,7 @@ where
             memory,
             strategy,
             execution_depth: 0,
-            max_exection_depth,
+            max_exection_depth: options.max_exection_depth,
             is_running: false,
         }
     }
@@ -484,7 +434,12 @@ where
         }
     }
 
-    fn bytewise_combine(&mut self, old: Value, n_lower_bytes: u32, new_idx: SymbolId) -> SymbolId {
+    fn bytewise_combine(
+        &mut self,
+        old: Value,
+        n_lower_bytes: u32,
+        new_idx: SymbolicValue,
+    ) -> SymbolicValue {
         let bits_in_a_byte = 8;
         let low_shift_factor = 2_u64.pow(n_lower_bytes * bits_in_a_byte);
         let high_shift_factor =
@@ -613,8 +568,8 @@ where
         &mut self,
         true_branch: u64,
         false_branch: u64,
-        lhs: SymbolId,
-        rhs: SymbolId,
+        lhs: SymbolicValue,
+        rhs: SymbolicValue,
     ) -> Result<Option<Bug>, EngineError> {
         let memory_snapshot = self.memory.clone();
         let regs_snapshot = self.regs;

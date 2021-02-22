@@ -1,7 +1,6 @@
-use super::{Assignment, BitVector, Solver, SolverError};
-use crate::symbolic_state::{
-    get_operands, BVOperator, Formula,
-    Node::{Constant, Input, Operator},
+use super::{
+    Assignment, BVOperator, BitVector, Formula, Solver, SolverError,
+    Symbol::{Constant, Input, Operator},
     SymbolId,
 };
 use std::collections::HashMap;
@@ -29,17 +28,13 @@ impl Solver for Z3 {
         "Z3"
     }
 
-    fn solve_impl(
-        &self,
-        graph: &Formula,
-        root: SymbolId,
-    ) -> Result<Option<Assignment<BitVector>>, SolverError> {
+    fn solve_impl<F: Formula>(&self, formula: &F) -> Result<Option<Assignment>, SolverError> {
         let config = Config::default();
         let ctx = Context::new(&config);
 
-        let mut translator = Z3Translator::new(graph, &ctx);
+        let mut translator = Z3Translator::new(formula, &ctx);
 
-        let (root_node, translation) = translator.translate(root);
+        let (root_node, translation) = translator.translate(formula.root());
 
         let solver = Z3Solver::new(&ctx);
 
@@ -52,8 +47,8 @@ impl Solver for Z3 {
                     .expect("has an result after calling check()");
 
                 Ok(Some(
-                    graph
-                        .node_indices()
+                    formula
+                        .symbol_ids()
                         .filter_map(|i| match bv_for_node_idx(i, translation, &model) {
                             Some(bv) => Some((i, bv)),
                             None => None,
@@ -117,18 +112,18 @@ macro_rules! traverse_binary {
     }};
 }
 
-struct Z3Translator<'a, 'ctx> {
-    graph: &'a Formula,
+struct Z3Translator<'a, 'ctx, F: Formula> {
+    formula: &'a F,
     ctx: &'ctx Context,
     bvs: HashMap<SymbolId, Dynamic<'ctx>>,
     zero: Dynamic<'ctx>,
     one: Dynamic<'ctx>,
 }
 
-impl<'a, 'ctx> Z3Translator<'a, 'ctx> {
-    pub fn new(graph: &'a Formula, into: &'ctx Context) -> Self {
+impl<'a, 'ctx, F: Formula> Z3Translator<'a, 'ctx, F> {
+    pub fn new(formula: &'a F, into: &'ctx Context) -> Self {
         Self {
-            graph,
+            formula,
             ctx: into,
             bvs: HashMap::new(),
             zero: Dynamic::from(BV::from_u64(into, 0, 64)),
@@ -144,9 +139,9 @@ impl<'a, 'ctx> Z3Translator<'a, 'ctx> {
         (root_node._eq(&self.one), &self.bvs)
     }
 
-    fn traverse(&mut self, node: SymbolId) -> Dynamic<'ctx> {
-        let ast_node = match &self.graph[node] {
-            Operator(op) => match get_operands(self.graph, node) {
+    fn traverse(&mut self, sym: SymbolId) -> Dynamic<'ctx> {
+        let ast_node = match &self.formula[sym] {
+            Operator(op) => match self.formula.operands(sym) {
                 (lhs, Some(rhs)) => match op {
                     BVOperator::Add => traverse_binary!(self, lhs, bvadd, rhs),
                     BVOperator::Sub => traverse_binary!(self, lhs, bvsub, rhs),
@@ -173,16 +168,16 @@ impl<'a, 'ctx> Z3Translator<'a, 'ctx> {
                 },
             },
             Input(name) => {
-                if let Some(value) = self.bvs.get(&node) {
+                if let Some(value) = self.bvs.get(&sym) {
                     value.clone()
                 } else {
                     Dynamic::from(BV::new_const(self.ctx, name.clone(), 64))
                 }
             }
-            Constant(cst) => Dynamic::from(BV::from_u64(self.ctx, *cst, 64)),
+            Constant(cst) => Dynamic::from(BV::from_u64(self.ctx, (*cst).0, 64)),
         };
 
-        self.bvs.insert(node, ast_node.clone());
+        self.bvs.insert(sym, ast_node.clone());
 
         ast_node
     }

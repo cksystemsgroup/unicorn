@@ -3,9 +3,19 @@ mod common;
 use bytesize::ByteSize;
 use common::{compile_riscu, init, with_temp_dir};
 use log::trace;
-use monster::{self, bug::Bug, engine::*};
+use monster::{
+    self,
+    engine::{Bug, EngineOptions},
+    execute_with, load_elf,
+    path_exploration::ShortestPathStrategy,
+    solver::{MonsterSolver, Solver},
+    MonsterError,
+};
 use rayon::prelude::*;
-use std::path::PathBuf;
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 const TEST_FILES: [&str; 14] = [
     "arithmetic.c",
@@ -26,22 +36,31 @@ const TEST_FILES: [&str; 14] = [
     //"three-level-nested-loop-1-35",
 ];
 
-// TODO: Fix this test case
 #[test]
 fn execute_riscu_with_monster_solver() {
-    execute_riscu_examples(&TEST_FILES, Backend::Monster);
+    // need a big timeout because of the slow Github runners
+    let solver = MonsterSolver::new(Duration::new(5, 0));
+    execute_riscu_examples(&TEST_FILES, &solver);
 }
 
 #[test]
 #[cfg(feature = "boolector-solver")]
 fn execute_riscu_with_boolector_solver() {
-    execute_riscu_examples(&TEST_FILES, Backend::Boolector);
+    use monster::solver::Boolector;
+
+    let solver = Boolector::default();
+
+    execute_riscu_examples(&TEST_FILES, &solver);
 }
 
 #[test]
 #[cfg(feature = "z3-solver")]
 fn execute_riscu_with_z3_solver() {
-    execute_riscu_examples(&TEST_FILES, Backend::Z3);
+    use monster::solver::Z3;
+
+    let solver = Z3::default();
+
+    execute_riscu_examples(&TEST_FILES, &solver);
 }
 
 #[test]
@@ -51,7 +70,12 @@ fn execute_with_different_memory_sizes() {
     with_temp_dir(|dir| {
         compile_riscu(dir, Some(&["recursive-fibonacci-1-35.c"])).for_each(|(source, object)| {
             [1, 64, 512, 1024].iter().for_each(move |size| {
-                let result = execute(&object, Backend::Monster, 200, ByteSize::mb(*size));
+                let options = EngineOptions {
+                    max_exection_depth: 200,
+                    memory_size: ByteSize::mb(*size),
+                };
+
+                let result = execute_default_with(&object, &options);
 
                 assert!(
                     result.is_ok(),
@@ -71,15 +95,41 @@ fn execute_engine_for_endless_loops() {
 
     with_temp_dir(|dir| {
         compile_riscu(dir, Some(&["endless-loop.c"])).for_each(|(_, object)| {
+            let options = EngineOptions {
+                max_exection_depth: 5,
+                ..Default::default()
+            };
+
             assert!(
-                execute(object, Backend::Monster, 5, ByteSize::mb(1)).is_err(),
+                execute_default_with(object, &options).is_err(),
                 "has to error with depth error"
             );
         });
     });
 }
 
-fn execute_riscu_examples(names: &'static [&str], solver: Backend) {
+fn execute_default_with<P: AsRef<Path>>(
+    object: P,
+    options: &EngineOptions,
+) -> Result<Option<Bug>, MonsterError> {
+    // need a big timeout because of the slow Github runners
+    let solver = MonsterSolver::new(Duration::new(5, 0));
+
+    execute_default_with_solver(object, options, &solver)
+}
+
+fn execute_default_with_solver<P: AsRef<Path>, S: Solver>(
+    object: P,
+    options: &EngineOptions,
+    solver: &S,
+) -> Result<Option<Bug>, MonsterError> {
+    let program = load_elf(object).unwrap();
+    let strategy = ShortestPathStrategy::compute_for(&program).unwrap();
+
+    execute_with(&program, options, &strategy, solver)
+}
+
+fn execute_riscu_examples<S: Solver>(names: &'static [&str], solver: &S) {
     init();
 
     with_temp_dir(|dir| {
@@ -88,16 +138,19 @@ fn execute_riscu_examples(names: &'static [&str], solver: Backend) {
     });
 }
 
-fn execute_riscu(source: PathBuf, object: PathBuf, solver: Backend) {
+fn execute_riscu<S: Solver>(source: PathBuf, object: PathBuf, solver: &S) {
     let file_name = source.file_name().unwrap().to_str().unwrap();
 
-    let depth = match file_name {
-        "two-level-nested-loop-1-35.c" => 200,
-        "recursive-fibonacci-1-10.c" => 300,
-        _ => 1000,
+    let options = EngineOptions {
+        max_exection_depth: match file_name {
+            "two-level-nested-loop-1-35.c" => 200,
+            "recursive-fibonacci-1-10.c" => 300,
+            _ => 1000,
+        },
+        ..Default::default()
     };
 
-    let result = execute(object, solver, depth, ByteSize::mb(1));
+    let result = execute_default_with_solver(object, &options, solver);
 
     trace!("execution finished: {:?}", result);
 

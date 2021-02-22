@@ -2,25 +2,27 @@
 #![allow(clippy::if_same_then_else)]
 #![allow(clippy::neg_cmp_op_on_partial_ord)]
 
-use super::{Assignment, BitVector, Solver, SolverError};
-use crate::symbolic_state::{get_operands, BVOperator, Formula, Node, OperandSide, SymbolId};
+use super::{
+    Assignment, BVOperator, BitVector, Formula, OperandSide, Solver, SolverError, Symbol, SymbolId,
+};
 use divisors::get_divisors;
 use log::{log_enabled, trace, Level};
-use petgraph::{visit::EdgeRef, Direction};
 use rand::{distributions::Uniform, random, seq::SliceRandom, thread_rng, Rng};
 use std::time::{Duration, Instant};
 
-pub struct MonsterSolver {}
+pub struct MonsterSolver {
+    timeout: Duration,
+}
 
 impl Default for MonsterSolver {
     fn default() -> Self {
-        Self::new()
+        Self::new(Duration::new(3, 0))
     }
 }
 
 impl MonsterSolver {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(timeout: Duration) -> Self {
+        Self { timeout }
     }
 }
 
@@ -29,16 +31,10 @@ impl Solver for MonsterSolver {
         "Monster"
     }
 
-    fn solve_impl(
-        &self,
-        formula: &Formula,
-        root: SymbolId,
-    ) -> Result<Option<Assignment<BitVector>>, SolverError> {
+    fn solve_impl<F: Formula>(&self, formula: &F) -> Result<Option<Assignment>, SolverError> {
         let ab = initialize_ab(formula);
 
-        let timeout_time = Duration::new(5, 0);
-
-        sat(formula, root, ab, timeout_time)
+        sat(formula, ab, self.timeout)
     }
 }
 
@@ -97,38 +93,41 @@ fn is_invertable(op: BVOperator, s: BitVector, t: BitVector, d: OperandSide) -> 
     }
 }
 
-fn is_leaf(formula: &Formula, idx: SymbolId) -> bool {
-    let incoming = formula.edges_directed(idx, Direction::Incoming).count();
-
-    incoming == 0
-}
-
 // initialize bit vectors with a consistent intial assignment to the formula
 // inputs are initialized with random values
-fn initialize_ab(formula: &Formula) -> Vec<BitVector> {
+fn initialize_ab<F: Formula>(formula: &F) -> Vec<BitVector> {
     // Initialize values for all input/const nodes
-    let mut ab = formula
-        .node_indices()
-        .map(|i| match formula[i] {
-            Node::Constant(c) => BitVector(c),
+    let max_id = formula
+        .symbol_ids()
+        .max()
+        .expect("formula should not be empty");
+
+    let mut ab = Vec::with_capacity(std::mem::size_of::<BitVector>() * (max_id + 1));
+    unsafe {
+        ab.set_len(max_id + 1);
+    }
+
+    formula.symbol_ids().for_each(|i| {
+        ab[i] = match formula[i] {
+            Symbol::Constant(c) => c,
             _ => BitVector(random::<u64>()),
-        })
-        .collect::<Vec<BitVector>>();
+        };
+    });
 
     if log_enabled!(Level::Trace) {
         formula
-            .node_indices()
-            .filter(|i| matches!(formula[*i], Node::Input(_)))
+            .symbol_ids()
+            .filter(|i| matches!(formula[*i], Symbol::Input(_)))
             .for_each(|i| {
-                trace!("initialize: x{} <- {:#x}", i.index(), ab[i.index()].0);
+                trace!("initialize: x{} <- {:#x}", i, ab[i].0);
             });
     }
 
     // Propagate all values down when all input/const nodes are initialized
-    formula.node_indices().for_each(|i| match formula[i] {
-        Node::Input(_) | Node::Constant(_) => {
+    formula.symbol_ids().for_each(|i| match formula[i] {
+        Symbol::Input(_) | Symbol::Constant(_) => {
             formula
-                .neighbors_directed(i, Direction::Outgoing)
+                .dependencies(i)
                 .for_each(|n| propagate_assignment(formula, &mut ab, n));
         }
         _ => {}
@@ -140,15 +139,15 @@ fn initialize_ab(formula: &Formula) -> Vec<BitVector> {
 // selects a child node to propagate downwards
 // always selects an "essential" input if there is one
 // otherwise selects an input undeterministically
-fn select(
-    f: &Formula,
+fn select<F: Formula>(
+    f: &F,
     idx: SymbolId,
     t: BitVector,
     ab: &[BitVector],
 ) -> (SymbolId, SymbolId, OperandSide) {
-    if let (lhs, Some(rhs)) = get_operands(f, idx) {
-        fn is_constant(f: &Formula, n: SymbolId) -> bool {
-            matches!(f[n], Node::Constant(_))
+    if let (lhs, Some(rhs)) = f.operands(idx) {
+        fn is_constant<F: Formula>(f: &F, n: SymbolId) -> bool {
+            matches!(f[n], Symbol::Constant(_))
         }
 
         #[allow(clippy::if_same_then_else)]
@@ -398,18 +397,18 @@ const CHOOSE_INVERSE: f64 = 0.90;
 
 // computes an inverse/consistent target value
 #[allow(clippy::too_many_arguments)]
-fn value(
-    f: &Formula,
+fn value<F: Formula>(
+    f: &F,
     n: SymbolId,
     ns: SymbolId,
     side: OperandSide,
     t: BitVector,
     ab: &[BitVector],
 ) -> BitVector {
-    let s = ab[ns.index()];
+    let s = ab[ns];
 
     match &f[n] {
-        Node::Operator(op) => {
+        Symbol::Operator(op) => {
             let consistent = compute_consistent_value(*op, t, side);
 
             if is_invertable(*op, s, t, side) {
@@ -430,95 +429,88 @@ fn value(
     }
 }
 
-fn is_essential(
-    formula: &Formula,
+fn is_essential<F: Formula>(
+    formula: &F,
     this: SymbolId,
     on_side: OperandSide,
     other: SymbolId,
     t: BitVector,
     ab: &[BitVector],
 ) -> bool {
-    let ab_nx = ab[this.index()];
+    let ab_nx = ab[this];
 
     match &formula[other] {
-        Node::Operator(op) => !is_invertable(*op, ab_nx, t, on_side.other()),
+        Symbol::Operator(op) => !is_invertable(*op, ab_nx, t, on_side.other()),
         // TODO: not mentioned in paper => improvised. is that really true?
-        Node::Constant(_) | Node::Input(_) => false,
+        Symbol::Constant(_) | Symbol::Input(_) => false,
     }
 }
 
-fn get_operand(f: &Formula, n: SymbolId) -> SymbolId {
-    f.edges_directed(n, Direction::Incoming)
-        .next()
-        .expect("every unary operator must have an operand")
-        .source()
-}
-
-fn update_assignment(f: &Formula, ab: &mut Vec<BitVector>, n: SymbolId, v: BitVector) {
-    ab[n.index()] = v;
+fn update_assignment<F: Formula>(f: &F, ab: &mut Vec<BitVector>, n: SymbolId, v: BitVector) {
+    ab[n] = v;
 
     assert!(
-        matches!(f[n], Node::Input(_)),
+        matches!(f[n], Symbol::Input(_)),
         "only inputs can be assigned"
     );
 
-    trace!("update: x{} <- {:#x}", n.index(), v.0);
+    trace!("update: x{} <- {:#x}", n, v.0);
 
-    f.neighbors_directed(n, Direction::Outgoing)
+    f.dependencies(n)
         .for_each(|n| propagate_assignment(f, ab, n));
 }
 
-fn propagate_assignment(f: &Formula, ab: &mut Vec<BitVector>, n: SymbolId) {
-    fn update_binary<Op>(f: &Formula, ab: &mut Vec<BitVector>, n: SymbolId, s: &str, op: Op)
+fn propagate_assignment<F: Formula>(f: &F, ab: &mut Vec<BitVector>, n: SymbolId) {
+    fn update_binary<F: Formula, Op>(f: &F, ab: &mut Vec<BitVector>, n: SymbolId, s: &str, op: Op)
     where
         Op: FnOnce(BitVector, BitVector) -> BitVector,
     {
-        if let (lhs, Some(rhs)) = get_operands(f, n) {
-            let result = op(ab[lhs.index()], ab[rhs.index()]);
+        if let (lhs, Some(rhs)) = f.operands(n) {
+            let result = op(ab[lhs], ab[rhs]);
 
             trace!(
                 "propagate: x{} := x{}({:#x}) {} x{}({:#x}) |- x{} <- {:#x}",
-                n.index(),
-                lhs.index(),
-                ab[lhs.index()].0,
+                n,
+                lhs,
+                ab[lhs].0,
                 s,
-                rhs.index(),
-                ab[rhs.index()].0,
-                n.index(),
+                rhs,
+                ab[rhs].0,
+                n,
                 result.0
             );
 
-            ab[n.index()] = result;
+            ab[n] = result;
         } else {
             panic!("can not update binary operator with 1 operand")
         }
     }
 
-    fn update_unary<Op>(f: &Formula, ab: &mut Vec<BitVector>, n: SymbolId, s: &str, op: Op)
+    fn update_unary<F: Formula, Op>(f: &F, ab: &mut Vec<BitVector>, n: SymbolId, s: &str, op: Op)
     where
         Op: FnOnce(BitVector) -> BitVector,
     {
-        if let (p, None) = get_operands(f, n) {
-            let result = op(ab[p.index()]);
+        if let (p, None) = f.operands(n) {
+            let result = op(ab[p]);
 
             trace!(
                 "propagate: x{} := {}x{}({:#x}) |- x{} <- {:#x}",
-                n.index(),
+                n,
                 s,
-                p.index(),
-                ab[p.index()].0,
-                n.index(),
+                p,
+                ab[p].0,
+                n,
                 result.0
             );
 
-            ab[n.index()] = result;
+            ab[n] = result;
         } else {
             panic!("can not update unary operator with more than one operand")
         }
     }
 
     match &f[n] {
-        Node::Operator(op) => {
+        Symbol::Operator(op) => {
             match op {
                 BVOperator::Add => update_binary(f, ab, n, "+", |l, r| l + r),
                 BVOperator::Sub => update_binary(f, ab, n, "-", |l, r| l - r),
@@ -548,51 +540,53 @@ fn propagate_assignment(f: &Formula, ab: &mut Vec<BitVector>, n: SymbolId) {
                     }
                 }),
             }
-            f.neighbors_directed(n, Direction::Outgoing)
+            f.dependencies(n)
+                //f.neighbors_directed(n, Direction::Outgoing)
                 .for_each(|n| propagate_assignment(f, ab, n));
         }
         _ => unreachable!(),
     }
 }
 
-// can only handle one Equals constrain with constant
-fn sat(
-    formula: &Formula,
-    root: SymbolId,
+// can only handle one Equals constraint with constant
+fn sat<F: Formula>(
+    formula: &F,
     mut ab: Vec<BitVector>,
     timeout_time: Duration,
-) -> Result<Option<Assignment<BitVector>>, SolverError> {
+) -> Result<Option<Assignment>, SolverError> {
     let mut iterations = 0;
 
     let start_time = Instant::now();
 
-    while ab[root.index()] != BitVector(1) {
+    let root = formula.root();
+
+    while ab[root] != BitVector(1) {
         let mut n = root;
         let mut t = BitVector(1);
 
         iterations += 1;
-        trace!("search {}: x{} <- 0x1", iterations, root.index());
+        trace!("search {}: x{} <- 0x1", iterations, root);
 
-        while !is_leaf(formula, n) {
+        while !formula.is_operand(n) {
             if start_time.elapsed() > timeout_time {
                 return Err(SolverError::Timeout);
             }
             let (v, nx) = match formula[n] {
-                Node::Operator(op) => {
+                Symbol::Operator(op) => {
                     if op.is_unary() {
-                        let nx = get_operand(formula, n);
+                        let nx = formula.operand(n);
 
                         let v = compute_inverse_value_for_unary_op(op, t);
 
                         trace!(
                             "search {}: x{}({:#x}) = {}x{}({:#x}) |- x{} <- {:#x}",
                             iterations,
-                            n.index(),
+                            n,
                             t.0,
                             op,
-                            nx.index(),
-                            ab[nx.index()].0,
-                            nx.index(),
+                            nx,
+                            ab[nx].0,
+                            nx,
                             v.0
                         );
 
@@ -612,14 +606,14 @@ fn sat(
                             trace!(
                                 "search {}: x{}({:#x}) := x{}({:#x}) {} x{}({:#x}) |- x{} <- {:#x}",
                                 iterations,
-                                n.index(),
+                                n,
                                 t.0,
-                                lhs.index(),
-                                ab[lhs.index()].0,
+                                lhs,
+                                ab[lhs].0,
                                 op,
-                                rhs.index(),
-                                ab[rhs.index()].0,
-                                nx.index(),
+                                rhs,
+                                ab[rhs].0,
+                                nx,
                                 v.0
                             );
                         }
@@ -637,7 +631,7 @@ fn sat(
         update_assignment(formula, &mut ab, n, t);
     }
 
-    let assignment: Assignment<_> = formula.node_indices().map(|i| (i, ab[i.index()])).collect();
+    let assignment: Assignment = formula.symbol_ids().map(|i| (i, ab[i])).collect();
 
     Ok(Some(assignment))
 }
@@ -645,53 +639,55 @@ fn sat(
 #[cfg(test)]
 mod tests {
     use super::*;
-    //use crate::engine::SyscallId::Openat;
+    use crate::engine::symbolic_state::{DataFlowGraph, FormulaView, SymbolicValue};
+    use crate::solver::*;
 
-    fn create_formula_with_input() -> (Formula, SymbolId) {
-        let mut formula = Formula::new();
+    fn create_data_flow_with_input() -> (DataFlowGraph, SymbolicValue) {
+        let mut formula = DataFlowGraph::new();
 
-        let input = Node::Input(String::from("x0"));
+        let input = Symbol::Input(String::from("x0"));
         let input_idx = formula.add_node(input);
 
         (formula, input_idx)
     }
 
-    fn add_equals_constrain(
-        formula: &mut Formula,
-        to: SymbolId,
+    fn add_equals_constraint(
+        data_flow: &mut DataFlowGraph,
+        to: SymbolicValue,
         on: OperandSide,
         constant: u64,
-    ) -> SymbolId {
-        let constrain = Node::Operator(BVOperator::Equals);
-        let constrain_idx = formula.add_node(constrain);
+    ) -> SymbolicValue {
+        let constrain = Symbol::Operator(BVOperator::Equals);
+        let constrain_idx = data_flow.add_node(constrain);
 
-        let constrain_c = Node::Constant(constant);
-        let constrain_c_idx = formula.add_node(constrain_c);
+        let constrain_c = Symbol::Constant(BitVector(constant));
+        let constrain_c_idx = data_flow.add_node(constrain_c);
 
-        formula.add_edge(to, constrain_idx, on);
-        formula.add_edge(constrain_c_idx, constrain_idx, on.other());
+        data_flow.add_edge(to, constrain_idx, on);
+        data_flow.add_edge(constrain_c_idx, constrain_idx, on.other());
 
         constrain_idx
     }
 
     #[test]
-    fn solve_trivial_equals_constrain() {
-        let (mut formula, input_idx) = create_formula_with_input();
+    fn solve_trivial_equals_constraint() {
+        let (mut data_flow, input_idx) = create_data_flow_with_input();
 
-        let root = add_equals_constrain(&mut formula, input_idx, OperandSide::Lhs, 10);
+        let root = add_equals_constraint(&mut data_flow, input_idx, OperandSide::Lhs, 10);
 
         let solver = MonsterSolver::default();
-        let result = solver.solve(&formula, root);
+        let formula = FormulaView::new(&data_flow, root);
+        let result = solver.solve(&formula);
 
         assert!(result.is_ok(), "solver did not time out");
         let unwrapped_result = result.unwrap();
 
         assert!(
             unwrapped_result.is_some(),
-            "has result for trivial equals constrain"
+            "has result for trivial equals constraint"
         );
         assert_eq!(
-            *unwrapped_result.unwrap().get(&input_idx).unwrap(),
+            *unwrapped_result.unwrap().get(&input_idx.index()).unwrap(),
             BitVector(10),
             "solver result of trivial equal constrain has right value"
         );
@@ -699,28 +695,29 @@ mod tests {
 
     #[test]
     fn solve_bvadd() {
-        let (mut formula, input_idx) = create_formula_with_input();
+        let (mut data_flow, input_idx) = create_data_flow_with_input();
 
-        let constant = Node::Constant(3);
-        let constant_idx = formula.add_node(constant);
+        let constant = Symbol::Constant(BitVector(3));
+        let constant_idx = data_flow.add_node(constant);
 
-        let instr = Node::Operator(BVOperator::Add);
-        let instr_idx = formula.add_node(instr);
+        let instr = Symbol::Operator(BVOperator::Add);
+        let instr_idx = data_flow.add_node(instr);
 
-        formula.add_edge(input_idx, instr_idx, OperandSide::Lhs);
-        formula.add_edge(constant_idx, instr_idx, OperandSide::Rhs);
+        data_flow.add_edge(input_idx, instr_idx, OperandSide::Lhs);
+        data_flow.add_edge(constant_idx, instr_idx, OperandSide::Rhs);
 
-        let root = add_equals_constrain(&mut formula, instr_idx, OperandSide::Lhs, 10);
+        let root = add_equals_constraint(&mut data_flow, instr_idx, OperandSide::Lhs, 10);
 
         let solver = MonsterSolver::default();
-        let result = solver.solve(&formula, root);
+        let formula = FormulaView::new(&data_flow, root);
+        let result = solver.solve(&formula);
 
         assert!(result.is_ok(), "solver did not time out");
         let unwrapped_result = result.unwrap();
 
         assert!(unwrapped_result.is_some(), "has result for trivial add op");
         assert_eq!(
-            *unwrapped_result.unwrap().get(&input_idx).unwrap(),
+            *unwrapped_result.unwrap().get(&input_idx.index()).unwrap(),
             BitVector(7),
             "solver result of trivial add op has right value"
         );

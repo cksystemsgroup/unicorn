@@ -38,6 +38,7 @@ itertools = "~0.9.0"
 anyhow = "~1.0.34"
 thiserror = "~1.0.22"
 divisors = "~0.2.1"
+const_format = "~0.2.13"
 boolector = { version = "~0.4.2", features = ["vendor-lgl"], optional = true }
 z3 = { version = "~0.7.1", features = ["static-link-z3"], optional = true }
 

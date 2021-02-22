@@ -2,7 +2,7 @@ use log::info;
 use rayon::{iter::ParallelBridge, prelude::*};
 use std::{
     env,
-    fs::{canonicalize, read_dir},
+    fs::read_dir,
     path::{Path, PathBuf},
     process::Command,
     sync::{Arc, Once},
@@ -29,11 +29,9 @@ pub fn compile<P>(
 where
     P: AsRef<Path>,
 {
-    let src = canonicalize(source_file.as_ref()).unwrap();
-
     Command::new(selfie_path.as_ref())
         .arg("-c")
-        .arg(src)
+        .arg(source_file.as_ref())
         .arg("-o")
         .arg(destination_file.as_ref())
         .output()
@@ -159,7 +157,9 @@ pub fn compile_riscu(
 ) -> impl ParallelIterator<Item = (PathBuf, PathBuf)> {
     let selfie_path = ensure_selfie_installed();
 
-    read_dir("examples")
+    let examples_path = env::current_dir().unwrap().join("examples");
+
+    read_dir(examples_path)
         .unwrap()
         .par_bridge()
         .map(|dir_entry| dir_entry.unwrap().path())

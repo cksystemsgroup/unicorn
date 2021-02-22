@@ -1,86 +1,26 @@
-use crate::{
-    bug::Witness,
-    solver::{BitVector, Solver, SolverError},
+use super::bug::Witness;
+use crate::solver::{
+    BVOperator, BitVector, Formula, FormulaVisitor, OperandSide, Solver, SolverError, Symbol,
+    SymbolId,
 };
 use log::{debug, trace, Level};
 pub use petgraph::graph::{EdgeIndex, NodeIndex};
-use petgraph::{Direction, Graph};
+use petgraph::visit::EdgeRef;
+use petgraph::{
+    graph::{Neighbors, NodeIndices},
+    Direction,
+};
 use riscu::Instruction;
-use std::{collections::HashMap, fmt, rc::Rc};
-
-#[derive(Clone, Debug, Copy, Eq, Hash, PartialEq)]
-pub enum OperandSide {
-    Lhs,
-    Rhs,
-}
-
-impl OperandSide {
-    #[allow(dead_code)]
-    pub fn other(&self) -> Self {
-        match self {
-            OperandSide::Lhs => OperandSide::Rhs,
-            OperandSide::Rhs => OperandSide::Lhs,
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
-pub enum BVOperator {
-    Add,
-    Sub,
-    Mul,
-    Divu,
-    Sltu,
-    Remu,
-    Not,
-    Equals,
-    BitwiseAnd,
-}
-
-impl BVOperator {
-    pub fn is_unary(&self) -> bool {
-        *self == BVOperator::Not
-    }
-    pub fn is_binary(&self) -> bool {
-        !self.is_unary()
-    }
-}
-
-impl fmt::Display for BVOperator {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                BVOperator::Add => "+",
-                BVOperator::Sub => "-",
-                BVOperator::Mul => "*",
-                BVOperator::Divu => "/",
-                BVOperator::Not => "!",
-                BVOperator::Remu => "%",
-                BVOperator::Equals => "=",
-                BVOperator::BitwiseAnd => "&",
-                BVOperator::Sltu => "<",
-            }
-        )
-    }
-}
+use std::{collections::HashMap, ops::Index};
 
 pub enum Query {
-    Equals((SymbolId, u64)),
-    NotEquals((SymbolId, u64)),
+    Equals((SymbolicValue, u64)),
+    NotEquals((SymbolicValue, u64)),
     Reachable,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum Node {
-    Constant(u64),
-    Input(String),
-    Operator(BVOperator),
-}
-
-pub type Formula = Graph<Node, OperandSide>;
-pub type SymbolId = NodeIndex;
+pub type SymbolicValue = NodeIndex;
+pub type DataFlowGraph = petgraph::Graph<Symbol, OperandSide>;
 
 fn instruction_to_bv_operator(instruction: Instruction) -> BVOperator {
     match instruction {
@@ -94,35 +34,17 @@ fn instruction_to_bv_operator(instruction: Instruction) -> BVOperator {
     }
 }
 
-pub fn get_operands(graph: &Formula, sym: SymbolId) -> (SymbolId, Option<SymbolId>) {
-    let mut iter = graph.neighbors_directed(sym, Direction::Incoming).detach();
-
-    let lhs = iter
-        .next(graph)
-        .expect("get_operands() should not be called on operators without operands")
-        .1;
-
-    let rhs = iter.next(graph).map(|n| n.1);
-
-    assert!(
-        iter.next(graph) == None,
-        "operators with arity 1 or 2 are supported only"
-    );
-
-    (lhs, rhs)
-}
-
 #[derive(Debug)]
-pub struct SymbolicState<S>
+pub struct SymbolicState<'a, S>
 where
     S: Solver,
 {
-    data_flow: Graph<Node, OperandSide>,
-    path_condition: Option<NodeIndex>,
-    solver: Rc<S>,
+    data_flow: DataFlowGraph,
+    path_condition: Option<SymbolicValue>,
+    solver: &'a S,
 }
 
-impl<S> Clone for SymbolicState<S>
+impl<'a, S> Clone for SymbolicState<'a, S>
 where
     S: Solver,
 {
@@ -130,25 +52,25 @@ where
         Self {
             data_flow: self.data_flow.clone(),
             path_condition: self.path_condition,
-            solver: self.solver.clone(),
+            solver: self.solver,
         }
     }
 }
 
-impl<'a, S> SymbolicState<S>
+impl<'a, S> SymbolicState<'a, S>
 where
     S: Solver,
 {
-    pub fn new(solver: Rc<S>) -> Self {
+    pub fn new(solver: &'a S) -> Self {
         Self {
-            data_flow: Graph::new(),
+            data_flow: DataFlowGraph::new(),
             path_condition: None,
             solver,
         }
     }
 
-    pub fn create_const(&mut self, value: u64) -> SymbolId {
-        let constant = Node::Constant(value);
+    pub fn create_const(&mut self, value: u64) -> SymbolicValue {
+        let constant = Symbol::Constant(BitVector(value));
 
         let i = self.data_flow.add_node(constant);
 
@@ -160,9 +82,9 @@ where
     pub fn create_instruction(
         &mut self,
         instruction: Instruction,
-        lhs: SymbolId,
-        rhs: SymbolId,
-    ) -> SymbolId {
+        lhs: SymbolicValue,
+        rhs: SymbolicValue,
+    ) -> SymbolicValue {
         let op = instruction_to_bv_operator(instruction);
 
         let root = self.create_operator(op, lhs, rhs);
@@ -170,7 +92,7 @@ where
         // constrain divisor to be not zero,
         // as division by zero is allowed in SMT bit-vector formulas
         if matches!(op, BVOperator::Divu)
-            && matches!(self.data_flow[rhs], Node::Operator(_) | Node::Input(_))
+            && matches!(self.data_flow[rhs], Symbol::Operator(_) | Symbol::Input(_))
         {
             let zero = self.create_const(0);
             let negated_condition = self.create_operator(BVOperator::Equals, rhs, zero);
@@ -182,15 +104,20 @@ where
         root
     }
 
-    pub fn create_operator(&mut self, op: BVOperator, lhs: SymbolId, rhs: SymbolId) -> SymbolId {
+    pub fn create_operator(
+        &mut self,
+        op: BVOperator,
+        lhs: SymbolicValue,
+        rhs: SymbolicValue,
+    ) -> SymbolicValue {
         assert!(op.is_binary(), "has to be a binary operator");
 
-        let n = Node::Operator(op);
+        let n = Symbol::Operator(op);
         let n_idx = self.data_flow.add_node(n);
 
         assert!(!(
-                matches!(self.data_flow[lhs], Node::Constant(_))
-                && matches!(self.data_flow[rhs], Node::Constant(_))
+                matches!(self.data_flow[lhs], Symbol::Constant(_))
+                && matches!(self.data_flow[rhs], Symbol::Constant(_))
             ),
             "every operand has to be derived from an input or has to be an (already folded) constant"
         );
@@ -208,18 +135,18 @@ where
         n_idx
     }
 
-    fn create_unary_operator(&mut self, op: BVOperator, v: SymbolId) -> SymbolId {
+    fn create_unary_operator(&mut self, op: BVOperator, v: SymbolicValue) -> SymbolicValue {
         assert!(op.is_unary(), "has to be a unary operator");
 
-        let op_id = self.data_flow.add_node(Node::Operator(op));
+        let op_id = self.data_flow.add_node(Symbol::Operator(op));
 
         self.data_flow.add_edge(v, op_id, OperandSide::Lhs);
 
         op_id
     }
 
-    pub fn create_input(&mut self, name: &str) -> SymbolId {
-        let node = Node::Input(String::from(name));
+    pub fn create_input(&mut self, name: &str) -> SymbolicValue {
+        let node = Symbol::Input(String::from(name));
 
         let idx = self.data_flow.add_node(node);
 
@@ -228,7 +155,12 @@ where
         idx
     }
 
-    pub fn create_beq_path_condition(&mut self, decision: bool, lhs: SymbolId, rhs: SymbolId) {
+    pub fn create_beq_path_condition(
+        &mut self,
+        decision: bool,
+        lhs: SymbolicValue,
+        rhs: SymbolicValue,
+    ) {
         let mut pc_idx = self.create_operator(BVOperator::Equals, lhs, rhs);
 
         if !decision {
@@ -238,7 +170,7 @@ where
         self.add_path_condition(pc_idx)
     }
 
-    fn add_path_condition(&mut self, condition: SymbolId) {
+    fn add_path_condition(&mut self, condition: SymbolicValue) {
         let new_condition = if let Some(old_condition) = self.path_condition {
             self.create_operator(BVOperator::BitwiseAnd, old_condition, condition)
         } else {
@@ -264,16 +196,18 @@ where
             }
         };
 
+        let formula = FormulaView::new(&self.data_flow, root);
+
         if log::log_enabled!(Level::Debug) {
             debug!("query to solve:");
 
-            let root_idx = self.print_recursive(root);
+            let root = formula.print_recursive();
 
-            debug!("assert x{} is 1", root_idx.index());
+            debug!("assert x{} is 1", root);
         }
 
-        let result = match self.solver.solve(&self.data_flow, root) {
-            Ok(Some(ref assignment)) => Ok(Some(self.build_witness(root, assignment))),
+        let result = match self.solver.solve(&formula) {
+            Ok(Some(ref assignment)) => Ok(Some(formula.build_witness(assignment))),
             Ok(None) => Ok(None),
             Err(e) => Err(e),
         };
@@ -290,14 +224,14 @@ where
 
     fn append_path_condition(
         &mut self,
-        r: NodeIndex,
-        mut ns: Vec<NodeIndex>,
+        r: SymbolicValue,
+        mut ns: Vec<SymbolicValue>,
         mut es: Vec<EdgeIndex>,
-    ) -> (NodeIndex, Vec<NodeIndex>, Vec<EdgeIndex>) {
+    ) -> (SymbolicValue, Vec<SymbolicValue>, Vec<EdgeIndex>) {
         if let Some(pc_idx) = self.path_condition {
             let con_idx = self
                 .data_flow
-                .add_node(Node::Operator(BVOperator::BitwiseAnd));
+                .add_node(Symbol::Operator(BVOperator::BitwiseAnd));
             let (con_edge_idx1, con_edge_idx2) = self.connect_operator(pc_idx, r, con_idx);
 
             ns.push(con_idx);
@@ -310,12 +244,17 @@ where
         }
     }
 
-    fn prepare_query(&mut self, query: Query) -> (NodeIndex, Vec<NodeIndex>, Vec<EdgeIndex>) {
+    fn prepare_query(
+        &mut self,
+        query: Query,
+    ) -> (SymbolicValue, Vec<SymbolicValue>, Vec<EdgeIndex>) {
         match query {
             Query::Equals((sym, c)) | Query::NotEquals((sym, c)) => {
-                let root_idx = self.data_flow.add_node(Node::Operator(BVOperator::Equals));
+                let root_idx = self
+                    .data_flow
+                    .add_node(Symbol::Operator(BVOperator::Equals));
 
-                let const_idx = self.data_flow.add_node(Node::Constant(c));
+                let const_idx = self.data_flow.add_node(Symbol::Constant(BitVector(c)));
                 let const_edge_idx = self
                     .data_flow
                     .add_edge(const_idx, root_idx, OperandSide::Lhs);
@@ -323,7 +262,7 @@ where
                 let sym_edge_idx = self.data_flow.add_edge(sym, root_idx, OperandSide::Rhs);
 
                 if let Query::NotEquals(_) = query {
-                    let not_idx = self.data_flow.add_node(Node::Operator(BVOperator::Not));
+                    let not_idx = self.data_flow.add_node(Symbol::Operator(BVOperator::Not));
                     let not_edge_idx = self.data_flow.add_edge(root_idx, not_idx, OperandSide::Lhs);
 
                     self.append_path_condition(
@@ -345,9 +284,9 @@ where
 
     fn connect_operator(
         &mut self,
-        lhs: SymbolId,
-        rhs: SymbolId,
-        op: SymbolId,
+        lhs: SymbolicValue,
+        rhs: SymbolicValue,
+        op: SymbolicValue,
     ) -> (EdgeIndex, EdgeIndex) {
         // assert: right hand side edge has to be inserted first
         // solvers depend on edge insertion order!!!
@@ -357,27 +296,38 @@ where
         )
     }
 
-    fn print_recursive(&self, root: NodeIndex) -> NodeIndex {
-        let mut visited = HashMap::<NodeIndex, NodeIndex>::new();
-        let mut printer = Printer {};
-
-        traverse(&self.data_flow, root, &mut visited, &mut printer)
-    }
-
     fn build_trivial_witness(&self) -> Witness {
         let mut witness = Witness::new();
 
         self.data_flow.node_indices().for_each(|idx| {
-            if let Node::Input(name) = &self.data_flow[idx] {
+            if let Symbol::Input(name) = &self.data_flow[idx] {
                 witness.add_variable(name.as_str(), BitVector(0));
             }
         });
 
         witness
     }
+}
 
-    fn build_witness(&self, root: NodeIndex, assignment: &HashMap<SymbolId, BitVector>) -> Witness {
-        let mut visited = HashMap::<NodeIndex, usize>::new();
+pub struct FormulaView<'a> {
+    data_flow: &'a DataFlowGraph,
+    root: SymbolicValue,
+}
+
+impl<'a> FormulaView<'a> {
+    pub fn new(data_flow: &'a DataFlowGraph, root: SymbolicValue) -> Self {
+        Self { data_flow, root }
+    }
+
+    pub fn print_recursive(&self) -> SymbolId {
+        let mut visited = HashMap::<SymbolId, SymbolId>::new();
+        let mut printer = Printer {};
+
+        self.traverse(self.root(), &mut visited, &mut printer)
+    }
+
+    fn build_witness(&self, assignment: &HashMap<SymbolId, BitVector>) -> Witness {
+        let mut visited = HashMap::<SymbolId, usize>::new();
 
         let mut witness = Witness::new();
         let mut builder = WitnessBuilder {
@@ -385,95 +335,145 @@ where
             assignment,
         };
 
-        traverse(&self.data_flow, root, &mut visited, &mut builder);
+        self.traverse(self.root(), &mut visited, &mut builder);
 
         witness
     }
 }
 
-pub fn traverse<V, R>(
-    formula: &Formula,
-    n: SymbolId,
-    visit_map: &mut HashMap<NodeIndex, R>,
-    v: &mut V,
-) -> R
-where
-    V: FormulaVisitor<R>,
-    R: Clone,
-{
-    if let Some(result) = visit_map.get(&n) {
-        return (*result).clone();
+impl<'a> Index<SymbolId> for FormulaView<'a> {
+    type Output = Symbol;
+
+    fn index(&self, idx: SymbolId) -> &Self::Output {
+        &self.data_flow[NodeIndex::new(idx)]
     }
-
-    let result = match &formula[n] {
-        Node::Operator(op) => {
-            let mut operands = formula.neighbors_directed(n, Direction::Incoming).detach();
-
-            if op.is_unary() {
-                let x = operands
-                    .next(formula)
-                    .expect("every unary operator must have 1 operand")
-                    .1;
-
-                let x = traverse(formula, x, visit_map, v);
-
-                v.unary(n, *op, x)
-            } else {
-                let lhs = operands
-                    .next(formula)
-                    .expect("every binary operator must have an lhs operand")
-                    .1;
-
-                let rhs = operands
-                    .next(formula)
-                    .expect("every binary operator must have an rhs operand")
-                    .1;
-
-                let lhs = traverse(formula, lhs, visit_map, v);
-                let rhs = traverse(formula, rhs, visit_map, v);
-
-                v.binary(n, *op, lhs, rhs)
-            }
-        }
-        Node::Constant(c) => v.constant(n, BitVector(*c)),
-        Node::Input(name) => v.input(n, name.as_str()),
-    };
-
-    visit_map.insert(n, result.clone());
-
-    result
 }
 
-pub trait FormulaVisitor<T>: Sized {
-    fn input(&mut self, idx: SymbolId, name: &str) -> T;
-    fn constant(&mut self, idx: SymbolId, v: BitVector) -> T;
-    fn unary(&mut self, idx: SymbolId, op: BVOperator, v: T) -> T;
-    fn binary(&mut self, idx: SymbolId, op: BVOperator, lhs: T, rhs: T) -> T;
+impl<'a> Formula for FormulaView<'a> {
+    type DependencyIter = std::iter::Map<Neighbors<'a, OperandSide>, fn(NodeIndex) -> usize>;
+    type SymbolIdsIter = std::iter::Map<NodeIndices, fn(NodeIndex) -> usize>;
+
+    fn root(&self) -> SymbolId {
+        self.root.index()
+    }
+
+    fn operands(&self, sym: SymbolId) -> (SymbolId, Option<SymbolId>) {
+        let mut iter = self
+            .data_flow
+            .neighbors_directed(NodeIndex::new(sym), Direction::Incoming)
+            .detach();
+
+        let lhs = iter
+            .next(self.data_flow)
+            .expect("get_operands() should not be called on operators without operands")
+            .1
+            .index();
+
+        let rhs = iter.next(self.data_flow).map(|n| n.1.index());
+
+        assert!(
+            iter.next(self.data_flow) == None,
+            "operators with arity 1 or 2 are supported only"
+        );
+
+        (lhs, rhs)
+    }
+
+    fn operand(&self, sym: SymbolId) -> SymbolId {
+        self.data_flow
+            .edges_directed(NodeIndex::new(sym), Direction::Incoming)
+            .next()
+            .expect("every unary operator must have an operand")
+            .source()
+            .index()
+    }
+
+    fn dependencies(&self, sym: SymbolId) -> Self::DependencyIter {
+        self.data_flow
+            .neighbors_directed(NodeIndex::new(sym), Direction::Outgoing)
+            .map(|idx| idx.index())
+    }
+
+    fn symbol_ids(&self) -> Self::SymbolIdsIter {
+        self.data_flow.node_indices().map(|i| i.index())
+    }
+
+    fn is_operand(&self, sym: SymbolId) -> bool {
+        !matches!(self.data_flow[NodeIndex::new(sym)], Symbol::Operator(_))
+    }
+
+    fn traverse<V, R>(&self, n: SymbolId, visit_map: &mut HashMap<SymbolId, R>, v: &mut V) -> R
+    where
+        V: FormulaVisitor<R>,
+        R: Clone,
+    {
+        if let Some(result) = visit_map.get(&n) {
+            return (*result).clone();
+        }
+
+        let result = match &self.data_flow[NodeIndex::new(n)] {
+            Symbol::Operator(op) => {
+                let mut operands = self
+                    .data_flow
+                    .neighbors_directed(NodeIndex::new(n), Direction::Incoming)
+                    .detach();
+
+                if op.is_unary() {
+                    let x = operands
+                        .next(self.data_flow)
+                        .expect("every unary operator must have 1 operand")
+                        .1
+                        .index();
+
+                    let x = self.traverse(x, visit_map, v);
+
+                    v.unary(n, *op, x)
+                } else {
+                    let lhs = operands
+                        .next(self.data_flow)
+                        .expect("every binary operator must have an lhs operand")
+                        .1
+                        .index();
+
+                    let rhs = operands
+                        .next(self.data_flow)
+                        .expect("every binary operator must have an rhs operand")
+                        .1
+                        .index();
+
+                    let lhs = self.traverse(lhs, visit_map, v);
+                    let rhs = self.traverse(rhs, visit_map, v);
+
+                    v.binary(n, *op, lhs, rhs)
+                }
+            }
+            Symbol::Constant(c) => v.constant(n, *c),
+            Symbol::Input(name) => v.input(n, name.as_str()),
+        };
+
+        visit_map.insert(n, result.clone());
+
+        result
+    }
 }
 
 struct Printer {}
 
-impl FormulaVisitor<SymbolId> for Printer {
+impl<'a> FormulaVisitor<SymbolId> for Printer {
     fn input(&mut self, idx: SymbolId, name: &str) -> SymbolId {
-        debug!("x{} := {:?}", idx.index(), name);
+        debug!("x{} := {:?}", idx, name);
         idx
     }
     fn constant(&mut self, idx: SymbolId, v: BitVector) -> SymbolId {
-        debug!("x{} := {}", idx.index(), v.0);
+        debug!("x{} := {}", idx, v.0);
         idx
     }
     fn unary(&mut self, idx: SymbolId, op: BVOperator, v: SymbolId) -> SymbolId {
-        debug!("x{} := {}x{}", idx.index(), op, v.index());
+        debug!("x{} := {}x{}", idx, op, v);
         idx
     }
     fn binary(&mut self, idx: SymbolId, op: BVOperator, lhs: SymbolId, rhs: SymbolId) -> SymbolId {
-        debug!(
-            "x{} := x{} {} x{}",
-            idx.index(),
-            lhs.index(),
-            op,
-            rhs.index()
-        );
+        debug!("x{} := x{} {} x{}", idx, lhs, op, rhs);
         idx
     }
 }
