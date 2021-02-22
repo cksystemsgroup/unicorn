@@ -36,7 +36,7 @@ impl Solver for MonsterSolver {
     ) -> Result<Option<Assignment<BitVector>>, SolverError> {
         let ab = initialize_ab(formula);
 
-        let timeout_time = Duration::new(3, 0);
+        let timeout_time = Duration::new(5, 0);
 
         sat(formula, root, ab, timeout_time)
     }

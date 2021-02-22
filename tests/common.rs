@@ -5,14 +5,20 @@ use std::{
     fs::{canonicalize, read_dir},
     path::{Path, PathBuf},
     process::Command,
-    sync::Arc,
+    sync::{Arc, Once},
     time::Instant,
 };
 use tempfile::{tempdir, TempDir};
 use which::which;
 
+static INIT_LOGGER: Once = Once::new();
+static INIT_SELFIE: Once = Once::new();
+static mut SELFIE_PATH: Option<PathBuf> = None;
+
 pub fn init() {
-    let _ = env_logger::builder().is_test(true).try_init();
+    INIT_LOGGER.call_once(|| {
+        let _ = env_logger::builder().is_test(true).try_init();
+    });
 }
 
 pub fn compile<P>(
@@ -52,34 +58,49 @@ fn ensure_selfie_build_tools_installed() {
 fn ensure_selfie_installed() -> PathBuf {
     ensure_selfie_build_tools_installed();
 
-    let repo_dir = env::temp_dir().join("monster-crate-selfie-installation");
+    unsafe {
+        INIT_SELFIE.call_once(|| {
+            let repo_dir = env::temp_dir().join("monster-crate-selfie-installation");
 
-    if !repo_dir.exists() {
-        std::fs::create_dir(&repo_dir).unwrap();
+            if !repo_dir.exists() {
+                std::fs::create_dir(&repo_dir).unwrap();
 
-        Command::new("git")
-            .arg("clone")
-            .arg("https://github.com/christianmoesl/selfie")
-            .arg(&repo_dir)
-            .output()
-            .expect("Selfie Git repository could not be cloned from Github");
-    }
+                Command::new("git")
+                    .arg("clone")
+                    .arg("https://github.com/christianmoesl/selfie")
+                    .arg(&repo_dir)
+                    .output()
+                    .expect("Selfie Git repository could not be cloned from Github");
+            }
 
-    let mut cmd = Command::new("make");
+            Command::new("git")
+                .arg("pull")
+                .arg("--rebase")
+                .current_dir(&repo_dir)
+                .output()
+                .expect("Selfie Git repository could not be updated");
 
-    if cfg!(target_os = "windows") {
-        cmd.env("CC", "gcc");
-    }
+            let mut cmd = Command::new("make");
 
-    cmd.arg("selfie")
-        .current_dir(&repo_dir)
-        .output()
-        .expect("Selfie can not be compiled");
+            if cfg!(target_os = "windows") {
+                cmd.env("CC", "gcc");
+            }
 
-    if cfg!(target_os = "windows") {
-        repo_dir.join("selfie.exe")
-    } else {
-        repo_dir.join("selfie")
+            cmd.arg("selfie")
+                .current_dir(&repo_dir)
+                .output()
+                .expect("Selfie can not be compiled");
+
+            SELFIE_PATH = Some(repo_dir.join(if cfg!(target_os = "windows") {
+                "selfie.exe"
+            } else {
+                "selfie"
+            }));
+        });
+
+        SELFIE_PATH
+            .clone()
+            .expect("path should be initialized here")
     }
 }
 
