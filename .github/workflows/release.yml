@@ -22,15 +22,15 @@ jobs:
               - os: ubuntu-20.04
                 features: z3-solver,boolector-solver
                 target: x86_64-unknown-linux-gnu
-                binary: monster
+                extension: ""
               - os: macos-10.15
                 features: z3-solver,boolector-solver
                 target: x86_64-apple-darwin
-                binary: monster
+                extension: ""
               - os: windows-2019
                 features: z3-solver
                 target: x86_64-pc-windows-msvc
-                binary: monster.exe
+                extension: ".exe"
         steps:
           - name: Checkout
             uses: actions/checkout@v2
@@ -69,10 +69,14 @@ jobs:
                 command: build
                 args: --release --target ${{ matrix.target }} --features ${{ matrix.features }}
 
+          - name: Rename Binary
+            shell: bash
+            run: mv target/${{ matrix.target }}/release/monster${{ matrix.extension }} ./monster-${{ matrix.target }}${{ matrix.extension }}
+
           - uses: actions/upload-artifact@v2
             with:
               name: monster-${{ matrix.os }}
-              path: target/${{ matrix.target}}/release/${{ matrix.binary }}
+              path: monster-${{ matrix.target }}${{ matrix.extension }}
               if-no-files-found: error
 
     release:
@@ -110,17 +114,14 @@ jobs:
           - uses: actions/download-artifact@v2
             with:
               name: monster-ubuntu-20.04
-              path: ./monster-x86_64-unknown-linux-gnu
               
           - uses: actions/download-artifact@v2
             with:
               name: monster-windows-2019
-              path: ./monster-x86_64-pc-windows-msvc.exe
               
           - uses: actions/download-artifact@v2
             with:
               name: monster-macos-10.15
-              path: ./monster-x86_64-apple-darwin
 
           - name: Semantic Release
             uses: cycjimmy/semantic-release-action@v2
