@@ -29,18 +29,18 @@ byteorder = "~1.4.2"
 clap = "3.0.0-beta.2"
 riscu = "~0.5.0"
 petgraph = "~0.5.1"
-rand = "~0.7.3"
+rand = "~0.8.3"
 modinverse = "~0.1.1"
-log = "~0.4.11"
-env_logger = "~0.8.1"
+log = "~0.4.14"
+env_logger = "~0.8.3"
 bytesize = "~1.0.1"
-itertools = "~0.9.0"
-anyhow = "~1.0.34"
-thiserror = "~1.0.22"
+itertools = "~0.10.0"
+anyhow = "~1.0.38"
+thiserror = "~1.0.24"
 divisors = "~0.2.1"
 const_format = "~0.2.13"
 boolector = { version = "~0.4.2", features = ["vendor-lgl"], optional = true }
-z3 = { version = "~0.7.1", features = ["static-link-z3"], optional = true }
+z3 = { version = "~0.9.0", features = ["static-link-z3"], optional = true }
 
 [dev-dependencies]
 rayon = "~1.5.0"

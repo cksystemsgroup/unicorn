@@ -67,7 +67,7 @@ jobs:
             uses: actions-rs/cargo@v1
             with:
                 command: build
-                args: --release --locked --target ${{ matrix.target }} --features ${{ matrix.features }}
+                args: --release --target ${{ matrix.target }} --features ${{ matrix.features }}
 
           - uses: actions/upload-artifact@v2
             with:
@@ -104,7 +104,7 @@ jobs:
             uses: actions-rs/cargo@v1
             with:
                 command: build
-                args: --release --locked --all-features
+                args: --release --all-features
 
           # Download all binary artifacts to release
           - uses: actions/download-artifact@v2

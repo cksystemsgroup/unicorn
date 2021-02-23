@@ -414,7 +414,7 @@ fn value<F: Formula>(
             if is_invertable(*op, s, t, side) {
                 let inverse = compute_inverse_value(*op, s, t, side);
                 let choose_inverse =
-                    rand::thread_rng().gen_range(0.0_f64, 1.0_f64) < CHOOSE_INVERSE;
+                    rand::thread_rng().gen_range(0.0_f64..=1.0_f64) < CHOOSE_INVERSE;
 
                 if choose_inverse {
                     inverse
