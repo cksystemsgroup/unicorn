@@ -11,8 +11,73 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+    build: 
+        name: Build Release Binary
+        runs-on: ${{ matrix.os }}
+        strategy:
+          matrix:
+            toolchain: [1.50.0]
+            os: [ubuntu-20.04, macos-10.15, windows-2019]
+            include:
+              - os: ubuntu-20.04
+                features: z3-solver,boolector-solver
+                target: x86_64-unknown-linux-musl
+                binary: monster
+              - os: macos-10.15
+                features: z3-solver,boolector-solver
+                target: x86_64-apple-darwin
+                binary: monster
+              - os: windows-2019
+                features: z3-solver
+                target: x86_64-pc-windows-msvc
+                binary: monster.exe
+        steps:
+          - name: Checkout
+            uses: actions/checkout@v2
+            with:
+                fetch-depth: 0
+                persist-credentials: false
+
+          - name: Install Rust ${{ matrix.toolchain }}
+            uses: actions-rs/toolchain@v1
+            with:
+                profile: default
+                toolchain: ${{ matrix.toolchain }}
+                target: ${{ matrix.target }}
+                override: true
+
+          - name: Compute new Version
+            id: compute_version
+            uses: mathieudutour/github-tag-action@v5.2
+            with:
+              github_token: ${{ secrets.GITHUB_TOKEN }}
+              release_branches: .*
+              dry_run: true
+
+          - name: Install Sed on Windows
+            if: ${{ contains(matrix.os, 'windows') }}
+            run: choco install sed -y
+
+          - name: Update Version in Manifest
+            shell: bash
+            run: |
+              ${{ format('sed -i -e "s/^version[[:space:]]*=[[:space:]]*\"[[:digit:]]*.[[:digit:]]*.[[:digit:]]*\"/version = \"{0}\"/g" Cargo.toml', steps.compute_version.outputs.new_version) }}
+
+          - name: Build
+            uses: actions-rs/cargo@v1
+            with:
+                command: build
+                args: --release --locked --target ${{ matrix.target }} --features ${{ matrix.features }}
+
+          - uses: actions/upload-artifact@v2
+            with:
+              name: monster-${{ matrix.os }}
+              path: target/${{ matrix.target}}/release/${{ matrix.binary }}
+              if-no-files-found: error
+
     release:
         name: Semantic Release
+        needs: build
         runs-on: ubuntu-20.04
         steps:
           - name: Checkout
@@ -32,14 +97,30 @@ jobs:
             uses: actions-rs/cargo@v1
             with:
                 command: install
-                args: semantic-release-rust --version 1.0.0-alpha.7 --locked
+                args: semantic-release-rust --version 1.0.0-alpha.8 --locked
 
           # The release build is used in the Semantic Release step
           - name: Build
             uses: actions-rs/cargo@v1
             with:
                 command: build
-                args: --release
+                args: --release --locked --all-features
+
+          # Download all binary artifacts to release
+          - uses: actions/download-artifact@v2
+            with:
+              name: monster-ubuntu-20.04
+              path: ./monster-x86_64-unknown-linux-musl
+              
+          - uses: actions/download-artifact@v2
+            with:
+              name: monster-windows-2019
+              path: ./monster-x86_64-pc-windows-msvc.exe
+              
+          - uses: actions/download-artifact@v2
+            with:
+              name: monster-macos-10.15
+              path: ./monster-x86_64-apple-darwin
 
           - name: Semantic Release
             uses: cycjimmy/semantic-release-action@v2
