@@ -5,6 +5,7 @@
 [![API](https://docs.rs/monster-rs/badge.svg)](https://docs.rs/monster-rs)
 ![Experimental Status](https://img.shields.io/badge/status-experimental-yellow.svg)
 ![Rust Version](https://img.shields.io/badge/Rust-v1.50.0-yellow)
+![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-brightgreen)
 [![Lines of Code](https://img.shields.io/tokei/lines/github/cksystemsgroup/monster)](https://github.com/cksystemsgroup/monster)
 [![License](https://img.shields.io/crates/l/monster-rs)](https://github.com/cksystemsgroup/monster/blob/master/LICENSE)
 
@@ -18,7 +19,7 @@ Popular SMT solvers like Boolector and Z3 are also supported as an optional buil
 
 #### Binary
 
-Once Rust is installed (see step 1-3 in "Toolchain Setup"), you can easily install the latest version of Monster with:
+Once Rust is installed (see step 1 in "Toolchain Setup"), you can easily install the latest version of Monster with:
 ```
 $ cargo install monster-rs --locked
 $ monster --help
@@ -34,20 +35,19 @@ monster-rs = "0"
 ```
 
 ### Toolchain Setup
+Monster can be build and tested on all major platforms.
+Just make sure you build for one of these targets:
+ - x86_64-unknown-linux-gnu
+ - x86_64-apple-darwin
+ - x86_64-pc-windows-msvc
 
-#### Linux and Unix-like OS
-1. Bootstrap Rust v1.50.0
-```
-$ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
+1. Bootstrap Rust v1.50.0 from [https://rustup.rs](https://rustup.rs) and make sure:
+ - you install it with one of the supported host triples and 
+ - add it to your path
 2. Install Rustfmt (formatter) and Clippy (linter)
 ```
 $ rustup component add rustfmt
 $ rustup component add clippy
-```
-3. Add cargo to your $PATH
-```
-$ echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 ```
 4. Install tool for documentation generation
 ```
@@ -55,19 +55,26 @@ $ cargo install mdbook --locked
 $ cargo install mdbook-linkcheck --locked
 $ cargo install mdbook-graphviz --locked
 ```
-##### MacOS
-5. Install Docker for test execution
+5. Install tools to build Selfie with our favorite package manager
+
+MacOs:
 ```
-$ brew cask install docker
+$ brew install make gcc git
 ```
-
-##### Debian based
-5. Install Docker for test execution with [this installation guide](https://docs.docker.com/engine/install/debian/)
-
-#### Windows
-We do not support Windows directly. But someone can use WSL2 to run/develop for Monster.
-
+Linux:
+```
+$ apt install make gcc git
+```
+Windows:
+```
+$ choco install make -y
+$ choco install mingw -y
+$ choco install git -y
+```
 ### Build and Test from Source
+Tests can be executed on all platforms, alltough one
+feature is not supported on Windows: `boolector-solver`
+
 1. Test your toolchain setup by compiling monster:
 ```
 $ cargo build --locked
@@ -76,6 +83,7 @@ $ cargo build --locked
 ```
 $ cargo test --locked
 ```
+
 ## License
 
 Copyright (c) 2020, [the Selfie authors](https://github.com/cksystemsteaching/selfie). All rights reserved.
