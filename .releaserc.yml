@@ -6,9 +6,9 @@ plugins:
   - '@semantic-release/release-notes-generator'
   - - '@semantic-release/github'
     - assets:
-      - path: monster-x86_64-unknown-linux-musl
-      - path: monster-x86_64-pc-windows-msvc.exe
+      - path: monster-x86_64-unknown-linux-gnu
       - path: monster-x86_64-apple-darwin
+      - path: monster-x86_64-pc-windows-msvc.exe
   - - '@semantic-release/exec'
     - verifyConditionsCmd: "semantic-release-rust verify-conditions"
       prepareCmd: "semantic-release-rust prepare ${nextRelease.version}"
