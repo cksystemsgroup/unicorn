@@ -294,6 +294,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "goblin"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "669cdc3826f69a51d3f8fc3f86de81c2378110254f678b8407977736122057a4"
+dependencies = [
+ "log",
+ "plain",
+ "scroll",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -743,7 +754,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a71514874b68cab4623dd0c8ca69eb6a82e3bbe18ba307bae3883b2f1fdca324"
 dependencies = [
  "byteorder",
- "goblin",
+ "goblin 0.3.4",
  "thiserror",
 ]
 
