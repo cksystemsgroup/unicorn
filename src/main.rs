@@ -10,7 +10,6 @@ use monster::{
     engine::{self, EngineOptions},
     execute_elf_with,
     path_exploration::{ControlFlowGraph, ShortestPathStrategy},
-    rarity,
     rarity::{self, MetricType},
     solver,
 };

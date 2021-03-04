@@ -1,10 +1,7 @@
 #![allow(clippy::unnecessary_wraps)]
 #![allow(clippy::too_many_arguments)]
 
-use crate::{
-    bug::Bug as BugDef,
-    engine::{instruction_to_str, SyscallId},
-};
+use crate::engine::{bug::Bug as BugDef, instruction_to_str, SyscallId};
 use byteorder::{ByteOrder, LittleEndian};
 use bytesize::ByteSize;
 use itertools::Itertools;

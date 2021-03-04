@@ -77,7 +77,7 @@ impl fmt::Display for BasicInfo {
 }
 
 #[derive(Debug, Clone)]
-pub enum Term {
+pub(crate) enum Term {
     Constant(u64),
     Variable(String, u64),
     Unary(BVOperator, usize, u64),

@@ -1,9 +1,17 @@
 #![allow(clippy::unnecessary_wraps)]
 
+pub mod bug;
+pub mod symbolic_state;
+
+use self::{
+    bug::{BasicInfo, Bug as GenericBug},
+    symbolic_state::{Query, SymbolicState, SymbolicValue},
+};
 use crate::{
     path_exploration::ExplorationStrategy,
     solver::{BVOperator, Solver, SolverError},
 };
+pub use bug::Witness;
 use byteorder::{ByteOrder, LittleEndian};
 use bytesize::ByteSize;
 use log::{debug, trace};
@@ -17,6 +25,8 @@ use thiserror::Error;
 const INSTRUCTION_SIZE: u64 = INSTR_SIZE as u64;
 pub const DEFAULT_MEMORY_SIZE: ByteSize = ByteSize(bytesize::MB);
 pub const DEFAULT_MAX_EXECUTION_DEPTH: u64 = 1000;
+
+pub type Bug = GenericBug<BasicInfo>;
 
 pub enum SyscallId {
     Exit = 93,
