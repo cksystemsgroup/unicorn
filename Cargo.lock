@@ -404,6 +404,7 @@ dependencies = [
  "riscu",
  "tempfile",
  "thiserror",
+ "utils",
  "which",
  "z3",
 ]
@@ -842,6 +843,17 @@ name = "unicode-xid"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f7fe0bb3479651439c9112f72b6c505038574c9fbb575ed1bf3b797fa39dd564"
+
+[[package]]
+name = "utils"
+version = "0.1.0"
+dependencies = [
+ "env_logger",
+ "log",
+ "rayon",
+ "tempfile",
+ "which",
+]
 
 [[package]]
 name = "vec_map"

@@ -1,10 +1,8 @@
-mod common;
-
-use common::{compile_riscu, convert_dot_to_png_and_check, init, time, with_temp_dir};
 use monster::path_exploration::*;
 use petgraph::dot::Dot;
 use rayon::prelude::*;
 use std::{fs::File, io::prelude::*};
+use utils::{compile_riscu, convert_dot_to_png_and_check, init, time, with_temp_dir};
 
 const GENERATE_CFG_PICTURES: bool = false;
 

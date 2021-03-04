@@ -1,6 +1,3 @@
-mod common;
-
-use common::{compile_riscu, convert_dot_to_png_and_check, init, time, with_temp_dir};
 use monster::path_exploration::*;
 use petgraph::dot::Dot;
 use rayon::prelude::*;
@@ -9,6 +6,7 @@ use std::{
     fs::{metadata, File},
     io::prelude::*,
 };
+use utils::{compile_riscu, convert_dot_to_png_and_check, init, time, with_temp_dir};
 
 #[test]
 fn can_build_control_flow_graph_with_distance_from_exit() {

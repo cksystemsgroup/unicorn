@@ -1,10 +1,8 @@
-mod common;
-
 use bytesize::ByteSize;
-use common::{compile_riscu, init, with_temp_dir};
 use log::trace;
 use monster::{self, rarity::*};
 use rayon::prelude::*;
+use utils::{compile_riscu, init, with_temp_dir};
 
 #[test]
 fn test_rarity_simulation() {

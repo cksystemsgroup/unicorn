@@ -1,7 +1,4 @@
-mod common;
-
 use bytesize::ByteSize;
-use common::{compile_riscu, init, with_temp_dir};
 use log::trace;
 use monster::{
     self,
@@ -16,6 +13,7 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
+use utils::{compile_riscu, init, with_temp_dir};
 
 const TEST_FILES: [&str; 14] = [
     "arithmetic.c",

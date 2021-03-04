@@ -1,8 +1,6 @@
-mod common;
-
-use common::{compile_riscu, init, with_temp_dir};
 use monster::disassemble::*;
 use rayon::prelude::*;
+use utils::{compile_riscu, init, with_temp_dir};
 
 #[test]
 fn can_disassemble_risc_u_binary() {
