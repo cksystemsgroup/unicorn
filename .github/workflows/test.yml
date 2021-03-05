@@ -103,6 +103,12 @@ jobs:
             command: build
             args: --features ${{ matrix.features }} --locked
 
+      - name: Build Benchmarks
+        uses: actions-rs/cargo@v1
+        with:
+            command: bench
+            args: --benches --no-run --features ${{ matrix.features }} --locked
+
       - name: Doc
         uses: actions-rs/cargo@v1
         with:
