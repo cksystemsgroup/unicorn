@@ -1,3 +1,32 @@
+//! Rarity Simulation
+//!
+//! This module contains an implementation of rarity simulation, as descibed in
+//! the paper ["Using Speculation for Sequential Equivalence Checking"
+//! ](https://people.eecs.berkeley.edu/~alanmi/publications/2012/iwls12_sec.pdf) by
+//! Brayton et. al.
+//!
+//!
+//! Rarity simulation is a "guided random simulation" using heuristics to determine interesting
+//! states and which aims to reduce the time required to find bugs in a target application.
+//! Instead of symbolically pursuing all control branches and recording constraints, it concretely
+//! executes a fixed number of states. On each iteration, rarity simulation advances each state by
+//! a fixed amount of instruction cycles and records statistics which values were encountered over
+//! the entire execution state. Furthermore, at the end of the iteration, it uses the recorded
+//! statistics to determine the _rarity_ of each state and only pursues a subset of rarest states,
+//! all other states are discarded and new states are copied from the remaining states or created
+//! to reach the number of states.
+//! Rarity simulation interations are repeated until a bug in any state is encountered or a
+//! specific amount of iterations have been completed.
+//!
+//!
+//! To archive divergent states, the target application shall issue word-granularity `read()`
+//! system calls to receive random input values. Rarity simulation stores a list of subsequent
+//! inputs that were provided to the application. In case a state caused a bug, it is able to
+//! provide a list of inputs which provoke the bug.
+//!
+//! The amount of iterations/cycles and the amount of states allows for a fine-grained control for
+//! finding bugs in depth or in breadth, respectively.
+
 #![allow(clippy::unnecessary_wraps)]
 #![allow(clippy::too_many_arguments)]
 
@@ -29,16 +58,37 @@ const INSTRUCTION_SIZE: u64 = INSTR_SIZE as u64;
 const BYTES_PER_WORD: u64 = size_of::<u64>() as u64;
 const NUMBER_OF_BYTE_VALUES: u64 = 256;
 
+/// Strategy for metric calculation
+///
+/// Based on the value counters, the rarity simulator calculates a score that is used to determine
+/// a state's rarity. This score is essential for the decision which states shall be further
+/// pursued and which shall be discarded.
 #[derive(Debug, Clone, Copy)]
 pub enum MetricType {
+    /// Metric is calculated using the [arithmetic
+    /// mean](https://en.wikipedia.org/wiki/Arithmetic_mean), i.e. the sum of all statistic
+    /// counters divided by the amount of states.
+    /// Lower scores are more rare
     Arithmetic,
+    /// Metric is calculated using the [harmonic mean](https://en.wikipedia.org/wiki/Harmonic_mean),
+    /// i.e. the amount of states divided by the sum of residues of statistic counters.
+    /// Higher scores are more rare.
     Harmonic,
 }
 
+/// The state information of a running target
+///
+/// The [`State`] struct contains all necessary state information of a running target application,
+/// similar to an operating system's context. Values are stored using the [`Value`] type. Only if a
+/// location has been written to, it hosts a concrete value ([`Value::Concrete`]), otherwise it is
+/// [`Value::Uninitialized`].
 #[derive(Debug, Clone)]
 pub struct State {
+    /// Program counter
     pc: u64,
+    /// Processor integer registers x0..x31
     regs: [Value; 32],
+    /// List of touched and untouched memory words
     #[allow(dead_code)]
     memory: Vec<Value>,
 }
@@ -46,6 +96,27 @@ pub struct State {
 type Address = u64;
 type Counter = u64;
 
+/// Calculates all state scores with a given scoring predicate
+///
+/// Using all states executed by the rarity simulation execution, this function constructs the
+/// statistical counters and, based upon these, calculates the rarity score of each state.
+///
+/// The counters work on byte-granularity basis. For each byte contained by a state, 256 counters
+/// are created, one for each possible state a byte can be in. All bytes of all states are iterated
+/// and a corresponding counter is incremented depending on the byte's value.
+/// This is done to count the ocurrences of distinct values for each byte. The smaller a counter
+/// value is, the rarer the value of this specific counter is for a specific byte.
+///
+/// The function then determines the the counter values that are relevant for rarity calculation,
+/// for each state, that is, for each byte it appends the value of the counter relevant to the byte
+/// and the byte's value.
+///
+/// The list of relevant counter values is passed to the scoring function in order to determine the
+/// rarity score of each state.
+///
+/// # Arguments
+/// * states: A list of states.
+/// * score: A function taking the amount of states and relevant statistical counter values and returning a score
 fn compute_scores<F>(states: &[&State], score: F) -> Vec<f64>
 where
     F: Fn(usize, &[Counter]) -> f64,
@@ -90,25 +161,22 @@ fn count_address(scores: &mut HashMap<Address, Counter>, addr: Address) {
     }
 }
 
-/**
- *
- * Based on a state, generates an iterator that contains
- * matching counter `addresses` for each byte.
- *
- * The counter address is a combination of the byte's address and the value of that
- * address in the state.
- *
- * Each byte assumes on of 256 (2^8) values.
- * Thus, each distinct byte i of the state has has 256 different addresses: (i*256)..((i*256) + 255)
- * That is, each byte is `expanded` to 256 addresses.
- *
- * The first 8 bytes are represented by the program counter, in the CPU's native byte ordering
- * Next, 32 64-bit registers are represented.
- * Then, all touched memory regions follow.
- *
- * For each byte i, only one of its 256 different addresses may occur (because a byte can only
- * assume one state at a time)
- */
+/// Based on a state, generates an iterator that contains
+/// matching counter `addresses` for each byte.
+///
+/// The counter address is a combination of the byte's address and the value of that
+/// address in the state.
+///
+/// Each byte assumes one of 256 (2^8) values.
+/// Thus, each distinct byte i of the state has has 256 different addresses: (i*256)..((i*256) + 255)
+/// That is, each byte is `expanded` to 256 addresses.
+///
+/// The first 8 bytes are represented by the program counter, in the CPU's native byte ordering
+/// Next, 32 64-bit registers are represented.
+/// Then, all touched memory regions follow.
+///
+/// For each byte i, only one of its 256 different addresses may occur (because a byte can only
+/// assume one state at a time)
 fn compute_counter_addresses(state: &State) -> Vec<Address> {
     fn offset_for_word(idx: u64) -> u64 {
         idx * BYTES_PER_WORD * NUMBER_OF_BYTE_VALUES
@@ -125,6 +193,18 @@ fn compute_counter_addresses(state: &State) -> Vec<Address> {
     addresses
 }
 
+/// Appends relevant statistic counter addresses from an iterator
+///
+/// Iterates over a collection of [`Value`]s and appends them to the relevant address list if they
+/// contain a concrete value.
+///
+/// # Arguments
+/// * offset: The statistic counter address offset
+/// * iter: The iterator
+/// * addresses: The list where relevant addresses shall be appended to
+///
+/// # See
+/// * [`compute_counter_addresses_for_word`]
 fn compute_counter_addresses_for_iter<'a, Iter>(
     offset: u64,
     iter: Iter,
@@ -146,6 +226,15 @@ fn compute_counter_addresses_for_iter<'a, Iter>(
         });
 }
 
+/// Appends to a counter address list
+///
+/// Splits a 64-bit word into bytes (using the host machine's endianess) and appennds the relevant
+/// counter addresses, depending on their respective values.
+///
+/// # Arguments
+/// * offset:
+/// * word: The word that s
+/// * addresses: The list where relevant addresses shall be appended to
 fn compute_counter_addresses_for_word(offset: u64, word: u64, addresses: &mut Vec<u64>) {
     u64::to_ne_bytes(word)
         .iter()
@@ -158,6 +247,9 @@ fn compute_counter_addresses_for_word(offset: u64, word: u64, addresses: &mut Ve
         });
 }
 
+/// Generates a random value limited by an upper bound
+///
+/// Returns a random value between 0 inclusive and `len` exclusively by using the modulo operator
 fn random_index(len: usize) -> usize {
     rand::random::<usize>() % len
 }
@@ -192,6 +284,26 @@ impl fmt::Display for State {
     }
 }
 
+/// Loads an object file and performs rarity simulation
+///
+/// If one state encountered a bug, execution is terminated and its description is returned. If no
+/// bugs have been encountered after the configured limit has been met, [`None`] is returned.
+///
+/// Please see the [module-level documentation](self) for a detailed description of rarity simulation.
+///
+/// # Arguments
+/// * input: The path to the target object file
+/// * memory_size: The size of the machine's memory
+/// * number_of_states: The number of states to pursue
+/// * selection: Amount of (rarest) states that shall be further considered at the end of each
+///              iteration.
+/// * cycles: The amount of instructions to execute for each state on each iteration
+/// * iterations: The amount of rarity simulation iterations to perform
+/// * copy_ratio: After discarding least rare and exited states, determines how much new states shall
+///               be copied from the remaining (rare) states and, in inverse, how much shall be newly
+///               created relative to the amount of missing states to archive `number_of_states`.
+///               Must be between 0 and 1.
+/// * metric: The metric to use for determining state rarity
 pub fn execute<P>(
     input: P,
     memory_size: ByteSize,
@@ -219,6 +331,9 @@ where
     )
 }
 
+/// Performs rarity simulation on a given program
+///
+/// Please see the public-facing  [`execute`] for more details.
 fn create_and_run(
     program: &Program,
     memory_size: ByteSize,
