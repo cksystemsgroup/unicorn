@@ -49,6 +49,7 @@ use std::{
     path::Path,
     sync::Arc,
 };
+use strum::{EnumString, EnumVariantNames, IntoStaticStr};
 use thiserror::Error;
 
 pub type Bug = BugDef<RarityBugInfo>;
@@ -63,7 +64,8 @@ const NUMBER_OF_BYTE_VALUES: u64 = 256;
 /// Based on the value counters, the rarity simulator calculates a score that is used to determine
 /// a state's rarity. This score is essential for the decision which states shall be further
 /// pursued and which shall be discarded.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug, EnumString, EnumVariantNames, IntoStaticStr)]
+#[strum(serialize_all = "kebab_case")]
 pub enum MetricType {
     /// Metric is calculated using the [arithmetic
     /// mean](https://en.wikipedia.org/wiki/Arithmetic_mean), i.e. the sum of all statistic

@@ -1,23 +1,216 @@
-use crate::engine::{DEFAULT_MAX_EXECUTION_DEPTH, DEFAULT_MEMORY_SIZE};
-use anyhow::Result;
+use crate::{
+    engine::{DEFAULT_MAX_EXECUTION_DEPTH, DEFAULT_MEMORY_SIZE},
+    rarity::MetricType,
+    solver::SolverType,
+};
+use anyhow::{anyhow, Context, Result};
 use clap::{crate_authors, crate_description, crate_version, App, AppSettings, Arg, ArgMatches};
 use const_format::formatcp;
+use std::str::FromStr;
+use strum::{EnumString, EnumVariantNames, IntoStaticStr, VariantNames};
 
-pub const LOGGING_LEVELS: [&str; 5] = ["trace", "debug", "info", "warn", "error"];
-pub const SOLVER: [&str; 4] = ["monster", "boolector", "z3", "external"];
-pub const METRICS: [&str; 2] = ["arithmetic", "harmonic"];
-
-pub fn expect_arg<'a>(m: &'a ArgMatches, arg: &str) -> &'a str {
-    m.value_of(arg)
-        .unwrap_or_else(|| panic!("argument \"{}\" has to be set in CLI at all times", arg))
+#[derive(Debug, PartialEq, EnumString, EnumVariantNames, IntoStaticStr)]
+#[strum(serialize_all = "kebab_case")]
+pub enum LogLevel {
+    Trace,
+    Debug,
+    Info,
+    Warn,
+    Error,
 }
 
-fn is_u64(v: &str) -> Result<(), String> {
+pub fn args() -> App<'static, 'static> {
+    App::new("Monster")
+        .version(crate_version!())
+        .author(crate_authors!(", "))
+        .about(crate_description!())
+        .arg(
+            Arg::with_name("verbose")
+                .short("v")
+                .long("verbose")
+                .help("configure logging level to use")
+                .takes_value(true)
+                .value_name("LEVEL")
+                .possible_values(&LogLevel::VARIANTS)
+                .default_value(LogLevel::Info.into())
+                .global(true),
+        )
+        .subcommand(
+            App::new("disassemble")
+                .about("Disassemble a RISC-V ELF binary")
+                .arg(
+                    Arg::with_name("input-file")
+                        .value_name("FILE")
+                        .help("Binary file to be disassembled")
+                        .takes_value(true)
+                        .required(true),
+                ),
+        )
+        .subcommand(
+            App::new("cfg")
+                .about("Generate control flow graph from RISC-U ELF binary")
+                .arg(
+                    Arg::with_name("input-file")
+                        .help("Source RISC-U binary to be analyzed")
+                        .takes_value(true)
+                        .value_name("FILE")
+                        .required(true),
+                )
+                .arg(
+                    Arg::with_name("output-file")
+                        .help("Output file to write to")
+                        .short("o")
+                        .long("output-file")
+                        .takes_value(true)
+                        .value_name("FILE")
+                        .default_value("cfg.dot"),
+                )
+                .arg(
+                    Arg::with_name("distances")
+                        .help("Compute also shortest path distances from exit")
+                        .short("d")
+                        .long("distances"),
+                ),
+        )
+        .subcommand(
+            App::new("execute")
+                .about("Symbolically execute a RISC-U ELF binary")
+                .arg(
+                    Arg::with_name("input-file")
+                        .help("RISC-U ELF binary to be executed")
+                        .takes_value(true)
+                        .value_name("FILE")
+                        .required(true),
+                )
+                .arg(
+                    Arg::with_name("solver")
+                        .help("SMT solver")
+                        .short("s")
+                        .long("solver")
+                        .takes_value(true)
+                        .value_name("SOLVER")
+                        .possible_values(&SolverType::VARIANTS)
+                        .default_value(SolverType::Monster.into()),
+                )
+                .arg(
+                    Arg::with_name("max-execution-depth")
+                        .help("Number of instructions, where the path execution will be aborted")
+                        .short("d")
+                        .long("execution-depth")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .default_value(formatcp!("{}", DEFAULT_MAX_EXECUTION_DEPTH))
+                        .validator(is_u64),
+                )
+                .arg(
+                    Arg::with_name("memory")
+                        .help("Amount of memory to be used per execution context in megabytes [possible_values: 1 .. 1024]")
+                        .short("m")
+                        .long("memory")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .default_value(formatcp!("{}", DEFAULT_MEMORY_SIZE.0 / bytesize::MB))
+                        .validator(is_valid_memory_size),
+                ),
+        )
+        .subcommand(
+            App::new("rarity")
+                .about("Performs rarity simulation on a RISC-U ELF binary")
+                .arg(
+                    Arg::with_name("input-file")
+                        .help("Source RISC-U binary to be analyzed")
+                        .takes_value(true)
+                        .value_name("FILE")
+                        .required(true),
+                )
+                .arg(
+                    Arg::with_name("memory")
+                        .help("Amount of memory to be used per execution context in megabytes [possible_values: 1 .. 1024]")
+                        .short("m")
+                        .long("memory")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .default_value("1")
+                        .validator(is_valid_memory_size),
+                )
+                .arg(
+                    Arg::with_name("cycles")
+                        .help("Instructions to be executed for each round")
+                        .short("c")
+                        .long("cycles")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .default_value("1000")
+                        .validator(is_u64),
+                )
+                .arg(
+                    Arg::with_name("runs")
+                        .help("Number of distinct runs")
+                        .short("r")
+                        .long("runs")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .default_value("3000")
+                        .validator(is_u64),
+                )
+                .arg(
+                    Arg::with_name("selection")
+                    .help("Number of runs to select in every iteration")
+                    .short("s")
+                    .long("selection")
+                    .takes_value(true)
+                    .value_name("NUMBER")
+                    .default_value("50")
+                    .validator(is_u64))
+                .arg(
+                    Arg::with_name("iterations")
+                    .help("Iterations of rarity simulation to run")
+                    .short("i")
+                    .long("iterations")
+                    .takes_value(true)
+                    .value_name("NUMBER")
+                    .default_value("20")
+                    .validator(is_u64))
+                .arg(
+                    Arg::with_name("copy-init-ratio")
+                        .help("Determines how much new states are copied instead of started from the beginning")
+                        .long("copy-init-ratio")
+                        .takes_value(true)
+                        .value_name("RATIO")
+                        .default_value("0.6")
+                        .validator(is_ratio)
+                    )
+                .arg(
+                    Arg::with_name("metric")
+                    .help("The average to be used for the counts")
+                    .long("metric")
+                    .takes_value(true)
+                    .value_name("METRIC")
+                    .possible_values(&MetricType::VARIANTS)
+                    .default_value(MetricType::Harmonic.into())
+                    )
+        )
+        .setting(AppSettings::SubcommandRequiredElseHelp)
+        .global_setting(AppSettings::GlobalVersion)
+}
+
+pub fn expect_arg<T: FromStr>(m: &ArgMatches, arg: &str) -> Result<T>
+where
+    <T as FromStr>::Err: Send + Sync + std::error::Error + 'static,
+{
+    m.value_of(arg)
+        .ok_or_else(|| anyhow!("argument \"{}\" has to be set in CLI at all times", arg))
+        .and_then(|s| {
+            T::from_str(s).with_context(|| format!("argument \"{}\" has wrong format", arg))
+        })
+}
+
+fn is_u64(v: String) -> Result<(), String> {
     v.parse::<u64>().map(|_| ()).map_err(|e| e.to_string())
 }
 
-fn is_valid_memory_size(v: &str) -> Result<(), String> {
-    is_u64(v).and_then(|_| {
+fn is_valid_memory_size(v: String) -> Result<(), String> {
+    is_u64(v.clone()).and_then(|_| {
         let memory_size = v.parse::<u64>().expect("have checked that already");
 
         let valid_range = 1_u64..=1024_u64;
@@ -30,7 +223,7 @@ fn is_valid_memory_size(v: &str) -> Result<(), String> {
     })
 }
 
-fn is_ratio(v: &str) -> Result<(), String> {
+fn is_ratio(v: String) -> Result<(), String> {
     let valid_range = 0.0_f64..=1.0f64;
 
     match v.parse::<f64>() {
@@ -45,181 +238,6 @@ fn is_ratio(v: &str) -> Result<(), String> {
     }
 }
 
-pub fn args() -> App<'static> {
-    App::new("Monster")
-        .version(crate_version!())
-        .author(crate_authors!(", "))
-        .about(crate_description!())
-        .arg(
-            Arg::new("verbose")
-                .short('v')
-                .long("verbose")
-                .about("configure logging level to use")
-                .takes_value(true)
-                .value_name("LEVEL")
-                .possible_values(&LOGGING_LEVELS)
-                .default_value(LOGGING_LEVELS[2])
-                .global(true),
-        )
-        .subcommand(
-            App::new("disassemble")
-                .about("Disassemble a RISC-V ELF binary")
-                .arg(
-                    Arg::new("input-file")
-                        .value_name("FILE")
-                        .about("Binary file to be disassembled")
-                        .takes_value(true)
-                        .required(true),
-                ),
-        )
-        .subcommand(
-            App::new("cfg")
-                .about("Generate control flow graph from RISC-U ELF binary")
-                .arg(
-                    Arg::new("input-file")
-                        .about("Source RISC-U binary to be analyzed")
-                        .takes_value(true)
-                        .value_name("FILE")
-                        .required(true),
-                )
-                .arg(
-                    Arg::new("output-file")
-                        .about("Output file to write to")
-                        .short('o')
-                        .long("output-file")
-                        .takes_value(true)
-                        .value_name("FILE")
-                        .default_value("cfg.dot"),
-                )
-                .arg(
-                    Arg::new("distances")
-                        .about("Compute also shortest path distances from exit")
-                        .short('d')
-                        .long("distances"),
-                ),
-        )
-        .subcommand(
-            App::new("execute")
-                .about("Symbolically execute a RISC-U ELF binary")
-                .arg(
-                    Arg::new("input-file")
-                        .about("RISC-U ELF binary to be executed")
-                        .takes_value(true)
-                        .value_name("FILE")
-                        .required(true),
-                )
-                .arg(
-                    Arg::new("solver")
-                        .about("SMT solver")
-                        .short('s')
-                        .long("solver")
-                        .takes_value(true)
-                        .value_name("SOLVER")
-                        .possible_values(&SOLVER)
-                        .default_value(SOLVER[0]),
-                )
-                .arg(
-                    Arg::new("max-execution-depth")
-                        .about("Number of instructions, where the path execution will be aborted")
-                        .short('d')
-                        .long("execution-depth")
-                        .takes_value(true)
-                        .value_name("NUMBER")
-                        .default_value(formatcp!("{}", DEFAULT_MAX_EXECUTION_DEPTH))
-                        .validator(is_u64),
-                )
-                .arg(
-                    Arg::new("memory")
-                        .about("Amount of memory to be used per execution context in megabytes [possible_values: 1 .. 1024]")
-                        .short('m')
-                        .long("memory")
-                        .takes_value(true)
-                        .value_name("NUMBER")
-                        .default_value(formatcp!("{}", DEFAULT_MEMORY_SIZE.0 / bytesize::MB))
-                        .validator(is_valid_memory_size),
-                ),
-        )
-        .subcommand(
-            App::new("rarity")
-                .about("Performs rarity simulation on a RISC-U ELF binary")
-                .arg(
-                    Arg::new("input-file")
-                        .about("Source RISC-U binary to be analyzed")
-                        .takes_value(true)
-                        .value_name("FILE")
-                        .required(true),
-                )
-                .arg(
-                    Arg::new("memory")
-                        .about("Amount of memory to be used per execution context in megabytes [possible_values: 1 .. 1024]")
-                        .short('m')
-                        .long("memory")
-                        .takes_value(true)
-                        .value_name("NUMBER")
-                        .default_value("1")
-                        .validator(is_valid_memory_size),
-                )
-                .arg(
-                    Arg::new("cycles")
-                        .about("Instructions to be executed for each round")
-                        .short('c')
-                        .long("cycles")
-                        .takes_value(true)
-                        .value_name("NUMBER")
-                        .default_value("1000")
-                        .validator(is_u64),
-                )
-                .arg(
-                    Arg::new("runs")
-                        .about("Number of distinct runs")
-                        .short('r')
-                        .long("runs")
-                        .takes_value(true)
-                        .value_name("NUMBER")
-                        .default_value("3000")
-                        .validator(is_u64),
-                )
-                .arg(
-                    Arg::new("selection")
-                    .about("Number of runs to select in every iteration")
-                    .short('s')
-                    .long("selection")
-                    .takes_value(true)
-                    .value_name("NUMBER")
-                    .default_value("50")
-                    .validator(is_u64))
-                .arg(
-                    Arg::new("iterations")
-                    .about("Iterations of rarity simulation to run")
-                    .short('i')
-                    .long("iterations")
-                    .takes_value(true)
-                    .value_name("NUMBER")
-                    .default_value("20")
-                    .validator(is_u64))
-                .arg(
-                    Arg::new("copy-init-ratio")
-                        .about("Determines how much new states are copied instead of started from the beginning")
-                        .long("copy-init-ratio")
-                        .takes_value(true)
-                        .value_name("RATIO")
-                        .default_value("0.6")
-                        .validator(is_ratio)
-                    )
-                .arg(
-                    Arg::new("metric")
-                    .about("The average to be used for the counts")
-                    .long("metric")
-                    .takes_value(true)
-                    .value_name("METRIC")
-                    .possible_values(&METRICS)
-                    .default_value(METRICS[1])
-                    )
-        )
-        .setting(AppSettings::SubcommandRequiredElseHelp)
-        .global_setting(AppSettings::GlobalVersion)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,7 +246,7 @@ mod tests {
     where
         F: Fn(&ArgMatches),
     {
-        let matches = args().try_get_matches_from(a.clone()).unwrap();
+        let matches = args().get_matches_from(a.clone());
 
         f(matches.subcommand_matches(a[1]).unwrap())
     }
@@ -249,21 +267,21 @@ mod tests {
     fn test_execute_memory_size_argument() {
         assert!(
             args()
-                .try_get_matches_from(vec!["monster", "execute", "-m", "0", "file.o"])
+                .get_matches_from_safe(vec!["monster", "execute", "-m", "0", "file.o"])
                 .is_err(),
             "Memory size 0 is invalid"
         );
 
         assert!(
             args()
-                .try_get_matches_from(vec!["monster", "execute", "-m", "-23424", "file.o"])
+                .get_matches_from_safe(vec!["monster", "execute", "-m", "-23424", "file.o"])
                 .is_err(),
             "Negative memory size is invalid"
         );
 
         assert!(
             args()
-                .try_get_matches_from(vec!["monster", "execute", "-m", "23424", "file.o"])
+                .get_matches_from_safe(vec!["monster", "execute", "-m", "23424", "file.o"])
                 .is_err(),
             "memory size is invalid (out of range)"
         );

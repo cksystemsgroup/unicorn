@@ -16,10 +16,10 @@ use std::{
 use tempfile::{tempdir, TempDir};
 use utils::compile_riscu;
 
-#[cfg(feature = "boolector-solver")]
+#[cfg(feature = "boolector")]
 use monster::solver::Boolector;
 
-#[cfg(feature = "z3-solver")]
+#[cfg(feature = "z3")]
 use monster::solver::Z3;
 
 const TEST_FILES: [&str; 4] = [
@@ -50,11 +50,11 @@ fn bench_demonstration(c: &mut Criterion) {
     group.bench_function("Monster", |b| {
         b.iter(|| execute_single::<MonsterSolver, &PathBuf>(&object_file))
     });
-    #[cfg(feature = "boolector-solver")]
+    #[cfg(feature = "boolector")]
     group.bench_function("Boolector", |b| {
         b.iter(|| execute_single::<Boolector, &PathBuf>(&object_file))
     });
-    #[cfg(feature = "z3-solver")]
+    #[cfg(feature = "z3")]
     group.bench_function("Z3", |b| {
         b.iter(|| execute_single::<Z3, &PathBuf>(&object_file))
     });
@@ -69,11 +69,11 @@ fn bench_solver_avg(c: &mut Criterion) {
     group.bench_function("Monster", |b| {
         b.iter(|| execute_all::<MonsterSolver>(&object_files))
     });
-    #[cfg(feature = "boolector-solver")]
+    #[cfg(feature = "boolector")]
     group.bench_function("Boolector", |b| {
         b.iter(|| execute_all::<Boolector>(&object_files))
     });
-    #[cfg(feature = "z3-solver")]
+    #[cfg(feature = "z3")]
     group.bench_function("Z3", |b| b.iter(|| execute_all::<Z3>(&object_files)));
 }
 
@@ -94,7 +94,7 @@ fn bench_solver_individual(c: &mut Criterion) {
         });
     }
 
-    #[cfg(feature = "boolector-solver")]
+    #[cfg(feature = "boolector")]
     {
         let mut boolector_grp = c.benchmark_group("Boolector");
         boolector_grp
@@ -108,7 +108,7 @@ fn bench_solver_individual(c: &mut Criterion) {
         });
     }
 
-    #[cfg(feature = "z3-solver")]
+    #[cfg(feature = "z3")]
     {
         let mut z3_grp = c.benchmark_group("Z3");
         z3_grp.warm_up_time(Duration::from_secs(2)).sample_size(30);
@@ -126,7 +126,7 @@ fn compile_test_files() -> Vec<PathBuf> {
             TEMP_DIR = Some(tmp_dir.clone());
 
             TEST_OBJECT_FILES = Some(
-                compile_riscu(tmp_dir.clone(), Some(&TEST_FILES))
+                compile_riscu(tmp_dir, Some(&TEST_FILES))
                     .map(|(_source, object)| object)
                     .collect(),
             );

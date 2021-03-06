@@ -24,15 +24,15 @@ jobs:
         experimental: [false]
         include:
           - os: ubuntu-20.04
-            features: z3-solver,boolector-solver
+            features: z3,boolector
           - os: macos-10.15
-            features: z3-solver,boolector-solver
+            features: z3,boolector
           - os: windows-2019
-            features: z3-solver
+            features: z3
           - toolchain: stable
             os: ubuntu-latest
             experimental: true
-            features: z3-solver,boolector-solver
+            features: z3,boolector
     steps:
       - name: Checkout
         uses: actions/checkout@v2

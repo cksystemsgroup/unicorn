@@ -73,7 +73,7 @@ $ choco install git -y
 ```
 ### Build and Test from Source
 Tests can be executed on all platforms, alltough one
-feature is not supported on Windows: `boolector-solver`
+feature is not supported on Windows: `boolector`
 
 1. Test your toolchain setup by compiling monster:
 ```

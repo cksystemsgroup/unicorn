@@ -42,7 +42,7 @@ fn execute_riscu_with_monster_solver() {
 }
 
 #[test]
-#[cfg(feature = "boolector-solver")]
+#[cfg(feature = "boolector")]
 fn execute_riscu_with_boolector_solver() {
     use monster::solver::Boolector;
 
@@ -52,7 +52,7 @@ fn execute_riscu_with_boolector_solver() {
 }
 
 #[test]
-#[cfg(feature = "z3-solver")]
+#[cfg(feature = "z3")]
 fn execute_riscu_with_z3_solver() {
     use monster::solver::Z3;
 

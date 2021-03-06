@@ -13,8 +13,6 @@ version ="0.2.0"
 
 [features]
 default = []
-boolector-solver = ["boolector"]
-z3-solver = ["z3"]
 
 [lib]
 name = "monster"
@@ -30,7 +28,8 @@ harness = false
 
 [dependencies]
 byteorder = "~1.4.2"
-clap = "3.0.0-beta.2"
+clap = "~2.33.3"
+strum = { version = "~0.20.0", features = ["derive"] }
 riscu = "~0.5.0"
 petgraph = "~0.5.1"
 rand = "~0.8.3"

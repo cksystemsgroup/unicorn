@@ -2,16 +2,16 @@ mod bitvec;
 mod external;
 mod monster;
 
-#[cfg(feature = "boolector-solver")]
+#[cfg(feature = "boolector")]
 mod boolector;
 
-#[cfg(feature = "z3-solver")]
+#[cfg(feature = "z3")]
 mod z3;
 
-#[cfg(feature = "boolector-solver")]
+#[cfg(feature = "boolector")]
 pub use self::boolector::*;
 
-#[cfg(feature = "z3-solver")]
+#[cfg(feature = "z3")]
 pub use self::z3::*;
 
 pub use self::{bitvec::*, external::*, monster::*};
@@ -19,6 +19,7 @@ pub use self::{bitvec::*, external::*, monster::*};
 use log::debug;
 use std::marker::Sync;
 use std::{collections::HashMap, convert::From, fmt, io, ops::Index};
+use strum::{EnumString, EnumVariantNames, IntoStaticStr};
 use thiserror::Error;
 
 pub type Assignment = HashMap<SymbolId, BitVector>;
@@ -45,6 +46,17 @@ pub enum SolverError {
 
     #[error("solver failed with IO error")]
     IoError(String),
+}
+
+#[derive(Debug, EnumString, EnumVariantNames, IntoStaticStr)]
+#[strum(serialize_all = "kebab_case")]
+pub enum SolverType {
+    Monster,
+    #[cfg(feature = "boolector")]
+    Boolector,
+    #[cfg(feature = "z3")]
+    Z3,
+    External,
 }
 
 impl From<io::Error> for SolverError {

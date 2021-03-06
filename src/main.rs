@@ -2,7 +2,7 @@ mod cli;
 
 use anyhow::{Context, Result};
 use bytesize::ByteSize;
-use cli::expect_arg;
+use cli::{expect_arg, LogLevel};
 use env_logger::{Env, TimestampPrecision};
 use log::info;
 use monster::{
@@ -11,29 +11,36 @@ use monster::{
     execute_elf_with,
     path_exploration::{ControlFlowGraph, ShortestPathStrategy},
     rarity::{self, MetricType},
-    solver,
+    solver::{self, SolverType},
 };
 use riscu::load_object_file;
-use std::{env, fmt::Display, fs::File, io::Write, path::Path};
+use std::{
+    env,
+    fmt::Display,
+    fs::File,
+    io::Write,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 fn main() -> Result<()> {
     let matches = cli::args().get_matches();
 
     // process global flags
-    let log_level = expect_arg(&matches, "verbose");
+    let log_level = expect_arg::<LogLevel>(&matches, "verbose")?;
 
     init_logger(log_level)?;
 
     // process subcommands
     match matches.subcommand() {
-        Some(("disassemble", args)) => {
-            let input = Path::new(expect_arg(&args, "input-file"));
+        ("disassemble", Some(args)) => {
+            let input = expect_arg::<PathBuf>(args, "input-file")?;
 
-            disassemble(Path::new(input))
+            disassemble(input)
         }
-        Some(("cfg", args)) => {
-            let input = Path::new(expect_arg(&args, "input-file"));
-            let output = Path::new(expect_arg(&args, "output-file"));
+        ("cfg", Some(args)) => {
+            let input = expect_arg::<PathBuf>(args, "input-file")?;
+            let output = expect_arg::<PathBuf>(args, "output-file")?;
             let distances = args.is_present("distances");
 
             let program = load_object_file(input)?;
@@ -48,47 +55,42 @@ fn main() -> Result<()> {
                 write_to_file(output, &cfg)
             }
         }
-        Some(("execute", args)) => {
-            let input = Path::new(expect_arg(&args, "input-file"));
-            let solver = expect_arg(&args, "solver");
-
-            let depth = args
-                .value_of_t::<u64>("max-execution-depth")
-                .expect("value is validated already");
-
-            let megabytes = args
-                .value_of_t::<u64>("memory")
-                .expect("value is validated already");
+        ("execute", Some(args)) => {
+            let input = expect_arg::<PathBuf>(&args, "input-file")?;
+            let solver = expect_arg::<SolverType>(&args, "solver")?;
+            let depth = expect_arg::<u64>(args, "max-execution-depth")?;
+            let megabytes = expect_arg::<u64>(args, "memory")?;
 
             let options = EngineOptions {
                 max_exection_depth: depth,
                 memory_size: ByteSize::mb(megabytes),
             };
 
-            let program = load_object_file(input)?;
+            let program = load_object_file(&input)?;
 
             let strategy = ShortestPathStrategy::compute_for(&program)?;
 
             if let Some(bug) = match solver {
-                "monster" => execute_elf_with(
-                    input,
+                SolverType::Monster => execute_elf_with(
+                    &input,
                     &options,
                     &strategy,
                     &solver::MonsterSolver::default(),
                 ),
-                "external" => execute_elf_with(
-                    input,
+                SolverType::External => execute_elf_with(
+                    &input,
                     &options,
                     &strategy,
                     &solver::ExternalSolver::default(),
                 ),
-                #[cfg(feature = "boolector-solver")]
-                "boolector" => {
-                    execute_elf_with(input, &options, &strategy, &solver::Boolector::default())
+                #[cfg(feature = "boolector")]
+                SolverType::Boolector => {
+                    execute_elf_with(&input, &options, &strategy, &solver::Boolector::default())
                 }
-                #[cfg(feature = "z3-solver")]
-                "z3" => execute_elf_with(input, &options, &strategy, &solver::Z3::default()),
-                _ => unreachable!(),
+                #[cfg(feature = "z3")]
+                SolverType::Z3 => {
+                    execute_elf_with(&input, &options, &strategy, &solver::Z3::default())
+                }
             }
             .with_context(|| format!("Execution of {} failed", input.display()))?
             {
@@ -99,38 +101,15 @@ fn main() -> Result<()> {
 
             Ok(())
         }
-        Some(("rarity", args)) => {
-            let input = Path::new(expect_arg(&args, "input-file"));
-
-            let megabytes = args
-                .value_of_t::<u64>("memory")
-                .expect("value is validated already");
-
-            let cycles = args
-                .value_of_t::<u64>("cycles")
-                .expect("value is validated already");
-
-            let iterations = args
-                .value_of_t::<u64>("iterations")
-                .expect("value is validated already");
-
-            let runs = args
-                .value_of_t::<u64>("runs")
-                .expect("value is validated already");
-
-            let selection = args
-                .value_of_t::<u64>("selection")
-                .expect("value is validated already");
-
-            let copy_ratio = args
-                .value_of_t::<f64>("copy-init-ratio")
-                .expect("value is validated already");
-
-            let metric = match expect_arg(&args, "metric") {
-                "arithmetic" => MetricType::Arithmetic,
-                "harmonic" => MetricType::Harmonic,
-                _ => unreachable!(),
-            };
+        ("rarity", Some(args)) => {
+            let input = expect_arg::<PathBuf>(args, "input-file")?;
+            let megabytes = expect_arg::<u64>(args, "memory")?;
+            let cycles = expect_arg::<u64>(args, "cycles")?;
+            let iterations = expect_arg::<u64>(args, "iterations")?;
+            let runs = expect_arg::<u64>(args, "runs")?;
+            let selection = expect_arg::<u64>(args, "selection")?;
+            let copy_ratio = expect_arg::<f64>(args, "copy-init-ratio")?;
+            let metric = expect_arg::<MetricType>(args, "metric")?;
 
             if let Some(bug) = rarity::execute(
                 input,
@@ -153,18 +132,24 @@ fn main() -> Result<()> {
     }
 }
 
-fn init_logger(cli_log_level: &str) -> Result<()> {
+fn init_logger(cli_log_level: LogLevel) -> Result<()> {
+    let log_level_env_var = "MONSTER_LOG";
+    let log_style_env_var = "MONSTER_LOG_STYLE";
+
     let env = Env::new()
-        .filter_or("MONSTER_LOG", cli_log_level)
-        .write_style_or("MONSTER_LOG_STYLE", "always");
+        .filter_or::<&'static str, &'static str>(log_level_env_var, (&cli_log_level).into())
+        .write_style_or(log_style_env_var, "always");
 
     let mut builder = env_logger::Builder::from_env(env);
 
     builder.format_timestamp(Some(TimestampPrecision::Millis));
 
-    let level = env::var("MONSTER_LOG").unwrap_or_else(|_| cli_log_level.to_owned());
+    let level = env::var(log_style_env_var)
+        .map_err(|e| e.to_string())
+        .and_then(|s| LogLevel::from_str(s.as_str()).map_err(|e| e.to_string()))
+        .unwrap_or(cli_log_level);
 
-    if level == "info" {
+    if level == LogLevel::Info {
         builder.format(|buf, record| writeln!(buf, "{}", record.args()));
     }
 
