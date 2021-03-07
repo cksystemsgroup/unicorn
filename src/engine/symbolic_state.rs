@@ -1,4 +1,3 @@
-use super::bug::Witness;
 use crate::solver::{
     BVOperator, BitVector, Formula, FormulaVisitor, OperandSide, Solver, SolverError, Symbol,
     SymbolId,
@@ -525,5 +524,83 @@ impl<'a> FormulaVisitor<usize> for WitnessBuilder<'a> {
                 .get(&idx)
                 .expect("assignment should be available"),
         )
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum Term {
+    Constant(u64),
+    Variable(String, u64),
+    Unary(BVOperator, usize, u64),
+    Binary(usize, BVOperator, usize, u64),
+}
+
+#[derive(Debug, Clone)]
+pub struct Witness {
+    assignments: Vec<Term>,
+}
+
+impl Default for Witness {
+    fn default() -> Self {
+        Self {
+            assignments: Vec::new(),
+        }
+    }
+}
+
+impl Witness {
+    pub fn new() -> Self {
+        Witness::default()
+    }
+
+    pub fn add_constant(&mut self, value: BitVector) -> usize {
+        self.assignments.push(Term::Constant(value.0));
+
+        self.assignments.len() - 1
+    }
+
+    pub fn add_variable(&mut self, name: &str, result: BitVector) -> usize {
+        self.assignments
+            .push(Term::Variable(name.to_owned(), result.0));
+
+        self.assignments.len() - 1
+    }
+
+    pub fn add_unary(&mut self, op: BVOperator, v: usize, result: BitVector) -> usize {
+        self.assignments.push(Term::Unary(op, v, result.0));
+
+        self.assignments.len() - 1
+    }
+
+    pub fn add_binary(
+        &mut self,
+        lhs: usize,
+        op: BVOperator,
+        rhs: usize,
+        result: BitVector,
+    ) -> usize {
+        self.assignments.push(Term::Binary(lhs, op, rhs, result.0));
+
+        self.assignments.len() - 1
+    }
+}
+
+impl fmt::Display for Witness {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "[").and_then(|_| {
+            self.assignments
+                .clone()
+                .into_iter()
+                .enumerate()
+                .try_for_each(|(id, a)| match a {
+                    Term::Constant(c) => writeln!(f, "  x{} := {},", id, c),
+                    Term::Variable(name, v) => writeln!(f, "  x{} := {:?} ({}),", id, name, v),
+                    Term::Unary(op, x, v) => writeln!(f, "  x{} := {}x{} ({}),", id, op, x, v),
+                    Term::Binary(lhs, op, rhs, v) => {
+                        writeln!(f, "  x{} := x{} {} x{} ({}),", id, lhs, op, rhs, v)
+                    }
+                })
+                .and_then(|_| writeln!(f, "]"))
+        })
     }
 }

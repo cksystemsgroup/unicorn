@@ -1,6 +1,5 @@
-use bytesize::ByteSize;
 use log::trace;
-use monster::{self, rarity::*};
+use monster::{self, engine::rarity_simulation::*, rarity_simulate_elf_with};
 use rayon::prelude::*;
 use utils::{compile_riscu, init, with_temp_dir};
 
@@ -11,15 +10,14 @@ fn test_rarity_simulation() {
     with_temp_dir(|dir| {
         compile_riscu(dir, Some(&["three-level-nested-loop-1-35.c"])).for_each(
             |(source, object)| {
-                let result = execute(
+                let result = rarity_simulate_elf_with(
                     &object,
-                    ByteSize::mb(1),
-                    1,
-                    1,
-                    1,
-                    1,
-                    0.6,
-                    MetricType::Harmonic,
+                    &RaritySimulationOptions {
+                        amount_of_states: 1,
+                        selection: 1,
+                        iterations: 1,
+                        ..Default::default()
+                    },
                 );
 
                 trace!("execution finished: {:?}", result);

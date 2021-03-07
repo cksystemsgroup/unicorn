@@ -4,10 +4,13 @@ pub mod util;
 pub mod disassemble;
 pub mod engine;
 pub mod path_exploration;
-pub mod rarity;
 pub mod solver;
 
-use engine::{Bug, Engine, EngineError, EngineOptions};
+pub use engine::{
+    BugFinder, RaritySimulation, RaritySimulationBug, RaritySimulationError,
+    RaritySimulationOptions, SymbolicExecutionBug, SymbolicExecutionEngine, SymbolicExecutionError,
+    SymbolicExecutionOptions,
+};
 use riscu::{load_object_file, Program};
 use std::path::Path;
 use thiserror::Error;
@@ -20,8 +23,11 @@ pub enum MonsterError {
     #[error("preprocessing failed with error")]
     Preprocessing(anyhow::Error),
 
-    #[error("execution stopped with error")]
-    Execution(EngineError),
+    #[error("symbolic execution stopped with error")]
+    SymbolicExecution(SymbolicExecutionError),
+
+    #[error("rarity simulation stopped with error")]
+    RaritySimulation(RaritySimulationError),
 }
 
 pub fn load_elf<P>(input: P) -> Result<Program, MonsterError>
@@ -33,42 +39,46 @@ where
     })
 }
 
-pub fn execute(program: &Program) -> Result<Option<Bug>, MonsterError> {
-    let options = EngineOptions::default();
+pub fn symbolically_execute(
+    program: &Program,
+) -> Result<Option<SymbolicExecutionBug>, MonsterError> {
+    let options = SymbolicExecutionOptions::default();
     let solver = solver::MonsterSolver::default();
     let strategy = path_exploration::ShortestPathStrategy::compute_for(program)
         .map_err(MonsterError::Preprocessing)?;
 
-    execute_with(program, &options, &strategy, &solver)
+    symbolically_execute_with(program, &options, &strategy, &solver)
 }
 
-pub fn execute_elf<P: AsRef<Path>>(input: P) -> Result<Option<Bug>, MonsterError> {
+pub fn symbollically_execute_elf<P: AsRef<Path>>(
+    input: P,
+) -> Result<Option<SymbolicExecutionBug>, MonsterError> {
     let program = load_elf(input)?;
 
-    execute(&program)
+    symbolically_execute(&program)
 }
 
-pub fn execute_with<Solver, Strategy>(
+pub fn symbolically_execute_with<Solver, Strategy>(
     program: &Program,
-    options: &EngineOptions,
+    options: &SymbolicExecutionOptions,
     strategy: &Strategy,
     solver: &Solver,
-) -> Result<Option<Bug>, MonsterError>
+) -> Result<Option<SymbolicExecutionBug>, MonsterError>
 where
     Strategy: path_exploration::ExplorationStrategy,
     Solver: solver::Solver,
 {
-    let mut engine = Engine::new(&program, &options, strategy, solver);
+    let mut engine = SymbolicExecutionEngine::new(&program, &options, strategy, solver);
 
-    engine.run().map_err(MonsterError::Execution)
+    engine.run().map_err(MonsterError::SymbolicExecution)
 }
 
-pub fn execute_elf_with<P, Solver, Strategy>(
+pub fn symbolically_execute_elf_with<P, Solver, Strategy>(
     input: P,
-    options: &EngineOptions,
+    options: &SymbolicExecutionOptions,
     strategy: &Strategy,
     solver: &Solver,
-) -> Result<Option<Bug>, MonsterError>
+) -> Result<Option<SymbolicExecutionBug>, MonsterError>
 where
     P: AsRef<Path>,
     Strategy: path_exploration::ExplorationStrategy,
@@ -76,5 +86,38 @@ where
 {
     let program = load_elf(input)?;
 
-    execute_with(&program, options, strategy, solver)
+    symbolically_execute_with(&program, options, strategy, solver)
+}
+
+pub fn rarity_simulate(program: &Program) -> Result<Option<RaritySimulationBug>, MonsterError> {
+    rarity_simulate_with(program, &RaritySimulationOptions::default())
+}
+
+pub fn rarity_simulate_elf<P: AsRef<Path>>(
+    input: P,
+) -> Result<Option<RaritySimulationBug>, MonsterError> {
+    let program = load_elf(input)?;
+
+    rarity_simulate(&program)
+}
+
+pub fn rarity_simulate_with(
+    program: &Program,
+    options: &RaritySimulationOptions,
+) -> Result<Option<RaritySimulationBug>, MonsterError> {
+    RaritySimulation::new(&options)
+        .search_for_bugs(program)
+        .map_err(MonsterError::RaritySimulation)
+}
+
+pub fn rarity_simulate_elf_with<P>(
+    input: P,
+    options: &RaritySimulationOptions,
+) -> Result<Option<RaritySimulationBug>, MonsterError>
+where
+    P: AsRef<Path>,
+{
+    let program = load_elf(input)?;
+
+    rarity_simulate_with(&program, options)
 }

@@ -7,11 +7,10 @@ use env_logger::{Env, TimestampPrecision};
 use log::info;
 use monster::{
     disassemble::disassemble,
-    engine::{self, EngineOptions},
-    execute_elf_with,
     path_exploration::{ControlFlowGraph, ShortestPathStrategy},
-    rarity::{self, MetricType},
+    rarity_simulate_elf_with,
     solver::{self, SolverType},
+    symbolically_execute_elf_with, RaritySimulationOptions, SymbolicExecutionOptions,
 };
 use riscu::load_object_file;
 use std::{
@@ -58,12 +57,10 @@ fn main() -> Result<()> {
         ("execute", Some(args)) => {
             let input = expect_arg::<PathBuf>(&args, "input-file")?;
             let solver = expect_arg::<SolverType>(&args, "solver")?;
-            let depth = expect_arg::<u64>(args, "max-execution-depth")?;
-            let megabytes = expect_arg::<u64>(args, "memory")?;
 
-            let options = EngineOptions {
-                max_exection_depth: depth,
-                memory_size: ByteSize::mb(megabytes),
+            let options = SymbolicExecutionOptions {
+                max_exection_depth: expect_arg(args, "max-execution-depth")?,
+                memory_size: ByteSize::mb(expect_arg(args, "memory")?),
             };
 
             let program = load_object_file(&input)?;
@@ -71,26 +68,32 @@ fn main() -> Result<()> {
             let strategy = ShortestPathStrategy::compute_for(&program)?;
 
             if let Some(bug) = match solver {
-                SolverType::Monster => execute_elf_with(
+                SolverType::Monster => symbolically_execute_elf_with(
                     &input,
                     &options,
                     &strategy,
                     &solver::MonsterSolver::default(),
                 ),
-                SolverType::External => execute_elf_with(
+                SolverType::External => symbolically_execute_elf_with(
                     &input,
                     &options,
                     &strategy,
                     &solver::ExternalSolver::default(),
                 ),
                 #[cfg(feature = "boolector")]
-                SolverType::Boolector => {
-                    execute_elf_with(&input, &options, &strategy, &solver::Boolector::default())
-                }
+                SolverType::Boolector => symbolically_execute_elf_with(
+                    &input,
+                    &options,
+                    &strategy,
+                    &solver::Boolector::default(),
+                ),
                 #[cfg(feature = "z3")]
-                SolverType::Z3 => {
-                    execute_elf_with(&input, &options, &strategy, &solver::Z3::default())
-                }
+                SolverType::Z3 => symbolically_execute_elf_with(
+                    &input,
+                    &options,
+                    &strategy,
+                    &solver::Z3::default(),
+                ),
             }
             .with_context(|| format!("Execution of {} failed", input.display()))?
             {
@@ -103,24 +106,18 @@ fn main() -> Result<()> {
         }
         ("rarity", Some(args)) => {
             let input = expect_arg::<PathBuf>(args, "input-file")?;
-            let megabytes = expect_arg::<u64>(args, "memory")?;
-            let cycles = expect_arg::<u64>(args, "cycles")?;
-            let iterations = expect_arg::<u64>(args, "iterations")?;
-            let runs = expect_arg::<u64>(args, "runs")?;
-            let selection = expect_arg::<u64>(args, "selection")?;
-            let copy_ratio = expect_arg::<f64>(args, "copy-init-ratio")?;
-            let metric = expect_arg::<MetricType>(args, "metric")?;
 
-            if let Some(bug) = rarity::execute(
-                input,
-                ByteSize::mb(megabytes),
-                runs,
-                selection,
-                cycles,
-                iterations,
-                copy_ratio,
-                metric,
-            )? {
+            let options = RaritySimulationOptions {
+                memory_size: ByteSize::mb(expect_arg(args, "memory")?),
+                amount_of_states: expect_arg(args, "states")?,
+                step_size: expect_arg(args, "step-size")?,
+                selection: expect_arg(args, "iterations")?,
+                iterations: expect_arg(args, "selection")?,
+                copy_init_ratio: expect_arg(args, "copy-init-ratio")?,
+                mean: expect_arg(args, "mean")?,
+            };
+
+            if let Some(bug) = rarity_simulate_elf_with(input, &options)? {
                 info!("bug found:\n{}", bug);
             } else {
                 info!("no bug found in binary");

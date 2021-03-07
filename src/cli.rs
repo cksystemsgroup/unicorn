@@ -1,11 +1,14 @@
-use crate::{
-    engine::{DEFAULT_MAX_EXECUTION_DEPTH, DEFAULT_MEMORY_SIZE},
-    rarity::MetricType,
-    solver::SolverType,
-};
 use anyhow::{anyhow, Context, Result};
 use clap::{crate_authors, crate_description, crate_version, App, AppSettings, Arg, ArgMatches};
 use const_format::formatcp;
+use lazy_static::lazy_static;
+use monster::{
+    engine::{
+        rarity_simulation::{defaults as rarity_defaults, MeanType},
+        symbolic_execution::defaults as symbolic_defaults,
+    },
+    solver::SolverType,
+};
 use std::str::FromStr;
 use strum::{EnumString, EnumVariantNames, IntoStaticStr, VariantNames};
 
@@ -17,6 +20,10 @@ pub enum LogLevel {
     Info,
     Warn,
     Error,
+}
+
+lazy_static! {
+    static ref COPY_INIT_RATIO: String = format!("{}", rarity_defaults::COPY_INIT_RATIO);
 }
 
 pub fn args() -> App<'static, 'static> {
@@ -99,8 +106,8 @@ pub fn args() -> App<'static, 'static> {
                         .long("execution-depth")
                         .takes_value(true)
                         .value_name("NUMBER")
-                        .default_value(formatcp!("{}", DEFAULT_MAX_EXECUTION_DEPTH))
-                        .validator(is_u64),
+                        .default_value(formatcp!("{}", symbolic_defaults::MAX_EXECUTION_DEPTH))
+                        .validator(is::<u64>),
                 )
                 .arg(
                     Arg::with_name("memory")
@@ -109,7 +116,7 @@ pub fn args() -> App<'static, 'static> {
                         .long("memory")
                         .takes_value(true)
                         .value_name("NUMBER")
-                        .default_value(formatcp!("{}", DEFAULT_MEMORY_SIZE.0 / bytesize::MB))
+                        .default_value(formatcp!("{}", symbolic_defaults::MEMORY_SIZE.0 / bytesize::MB))
                         .validator(is_valid_memory_size),
                 ),
         )
@@ -130,28 +137,26 @@ pub fn args() -> App<'static, 'static> {
                         .long("memory")
                         .takes_value(true)
                         .value_name("NUMBER")
-                        .default_value("1")
+                        .default_value(formatcp!("{}", rarity_defaults::MEMORY_SIZE.0 / bytesize::MB))
                         .validator(is_valid_memory_size),
                 )
                 .arg(
-                    Arg::with_name("cycles")
+                    Arg::with_name("step-size")
                         .help("Instructions to be executed for each round")
-                        .short("c")
-                        .long("cycles")
+                        .long("step-size")
                         .takes_value(true)
                         .value_name("NUMBER")
-                        .default_value("1000")
-                        .validator(is_u64),
+                        .default_value(formatcp!("{}", rarity_defaults::STEP_SIZE))
+                        .validator(is::<u64>),
                 )
                 .arg(
-                    Arg::with_name("runs")
-                        .help("Number of distinct runs")
-                        .short("r")
-                        .long("runs")
+                    Arg::with_name("states")
+                        .help("Number of distinct states")
+                        .long("states")
                         .takes_value(true)
                         .value_name("NUMBER")
-                        .default_value("3000")
-                        .validator(is_u64),
+                        .default_value(formatcp!("{}", rarity_defaults::AMOUNT_OF_STATES))
+                        .validator(is::<usize>),
                 )
                 .arg(
                     Arg::with_name("selection")
@@ -160,8 +165,8 @@ pub fn args() -> App<'static, 'static> {
                     .long("selection")
                     .takes_value(true)
                     .value_name("NUMBER")
-                    .default_value("50")
-                    .validator(is_u64))
+                    .default_value(formatcp!("{}", rarity_defaults::SELECTION))
+                    .validator(is::<usize>))
                 .arg(
                     Arg::with_name("iterations")
                     .help("Iterations of rarity simulation to run")
@@ -169,25 +174,25 @@ pub fn args() -> App<'static, 'static> {
                     .long("iterations")
                     .takes_value(true)
                     .value_name("NUMBER")
-                    .default_value("20")
-                    .validator(is_u64))
+                    .default_value(formatcp!("{}", rarity_defaults::ITERATIONS))
+                    .validator(is::<u64>))
                 .arg(
                     Arg::with_name("copy-init-ratio")
                         .help("Determines how much new states are copied instead of started from the beginning")
                         .long("copy-init-ratio")
                         .takes_value(true)
                         .value_name("RATIO")
-                        .default_value("0.6")
+                        .default_value(COPY_INIT_RATIO.as_str())
                         .validator(is_ratio)
                     )
                 .arg(
-                    Arg::with_name("metric")
+                    Arg::with_name("mean")
                     .help("The average to be used for the counts")
-                    .long("metric")
+                    .long("mean")
                     .takes_value(true)
-                    .value_name("METRIC")
-                    .possible_values(&MetricType::VARIANTS)
-                    .default_value(MetricType::Harmonic.into())
+                    .value_name("MEAN")
+                    .possible_values(&MeanType::VARIANTS)
+                    .default_value(rarity_defaults::MEAN_TYPE.into())
                     )
         )
         .setting(AppSettings::SubcommandRequiredElseHelp)
@@ -205,12 +210,15 @@ where
         })
 }
 
-fn is_u64(v: String) -> Result<(), String> {
-    v.parse::<u64>().map(|_| ()).map_err(|e| e.to_string())
+fn is<T: FromStr>(v: String) -> Result<(), String>
+where
+    <T as FromStr>::Err: std::fmt::Display,
+{
+    v.parse::<T>().map(|_| ()).map_err(|e| e.to_string())
 }
 
 fn is_valid_memory_size(v: String) -> Result<(), String> {
-    is_u64(v.clone()).and_then(|_| {
+    is::<u64>(v.clone()).and_then(|_| {
         let memory_size = v.parse::<u64>().expect("have checked that already");
 
         let valid_range = 1_u64..=1024_u64;

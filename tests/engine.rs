@@ -1,12 +1,10 @@
 use bytesize::ByteSize;
 use log::trace;
 use monster::{
-    self,
-    engine::{Bug, EngineOptions},
-    execute_with, load_elf,
+    self, load_elf,
     path_exploration::ShortestPathStrategy,
     solver::{MonsterSolver, Solver},
-    MonsterError,
+    symbolically_execute_with, MonsterError, SymbolicExecutionBug, SymbolicExecutionOptions,
 };
 use rayon::prelude::*;
 use std::{
@@ -69,7 +67,7 @@ fn execute_with_different_memory_sizes() {
     with_temp_dir(|dir| {
         compile_riscu(dir, Some(&["recursive-fibonacci-1-35.c"])).for_each(|(source, object)| {
             [1, 64, 512, 1024].iter().for_each(move |size| {
-                let options = EngineOptions {
+                let options = SymbolicExecutionOptions {
                     max_exection_depth: 200,
                     memory_size: ByteSize::mb(*size),
                 };
@@ -94,7 +92,7 @@ fn execute_engine_for_endless_loops() {
 
     with_temp_dir(|dir| {
         compile_riscu(dir, Some(&["endless-loop.c"])).for_each(|(_, object)| {
-            let options = EngineOptions {
+            let options = SymbolicExecutionOptions {
                 max_exection_depth: 5,
                 ..Default::default()
             };
@@ -109,8 +107,8 @@ fn execute_engine_for_endless_loops() {
 
 fn execute_default_with<P: AsRef<Path>>(
     object: P,
-    options: &EngineOptions,
-) -> Result<Option<Bug>, MonsterError> {
+    options: &SymbolicExecutionOptions,
+) -> Result<Option<SymbolicExecutionBug>, MonsterError> {
     // need a big timeout because of the slow Github runners
     let solver = MonsterSolver::new(Duration::new(5, 0));
 
@@ -119,13 +117,13 @@ fn execute_default_with<P: AsRef<Path>>(
 
 fn execute_default_with_solver<P: AsRef<Path>, S: Solver>(
     object: P,
-    options: &EngineOptions,
+    options: &SymbolicExecutionOptions,
     solver: &S,
-) -> Result<Option<Bug>, MonsterError> {
+) -> Result<Option<SymbolicExecutionBug>, MonsterError> {
     let program = load_elf(object).unwrap();
     let strategy = ShortestPathStrategy::compute_for(&program).unwrap();
 
-    execute_with(&program, options, &strategy, solver)
+    symbolically_execute_with(&program, options, &strategy, solver)
 }
 
 fn execute_riscu_examples<S: Solver>(names: &'static [&str], solver: &S) {
@@ -140,7 +138,7 @@ fn execute_riscu_examples<S: Solver>(names: &'static [&str], solver: &S) {
 fn execute_riscu<S: Solver>(source: PathBuf, object: PathBuf, solver: &S) {
     let file_name = source.file_name().unwrap().to_str().unwrap();
 
-    let options = EngineOptions {
+    let options = SymbolicExecutionOptions {
         max_exection_depth: match file_name {
             "two-level-nested-loop-1-35.c" => 230,
             "recursive-fibonacci-1-10.c" => 300,
@@ -173,22 +171,22 @@ fn execute_riscu<S: Solver>(source: PathBuf, object: PathBuf, solver: &S) {
     assert!(
         matches!(
             (file_name, bug.clone()),
-            ("arithmetic.c", Bug::ExitCodeGreaterZero { .. }) |
-                ("invalid-memory-access-2-35.c", Bug::AccessToOutOfRangeAddress { .. }) |
-                ("if-else.c", Bug::ExitCodeGreaterZero { .. }) |
-                ("division-by-zero-3-35.c", Bug::DivisionByZero { .. }) |
-                ("simple-assignment-1-35.c", Bug::ExitCodeGreaterZero { .. }) |
-                ("test-sltu.c", Bug::ExitCodeGreaterZero { .. }) |
+            ("arithmetic.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
+                ("invalid-memory-access-2-35.c", SymbolicExecutionBug::AccessToOutOfRangeAddress { .. }) |
+                ("if-else.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
+                ("division-by-zero-3-35.c", SymbolicExecutionBug::DivisionByZero { .. }) |
+                ("simple-assignment-1-35.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
+                ("test-sltu.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
                 //("memory-access-1-35.c", Bug::
-                ("nested-if-else-reverse-1-35", Bug::ExitCodeGreaterZero { .. }) |
-                ("nested-recursion-1-35.c", Bug::ExitCodeGreaterZero { .. }) |
-                ("recursive-ackermann-1-35.c", Bug::ExitCodeGreaterZero { .. }) |
-                ("recursive-factorial-1-35.c", Bug::ExitCodeGreaterZero { .. }) |
-                ("recursive-fibonacci-1-10.c", Bug::ExitCodeGreaterZero { .. }) |
-                ("simple-if-else-1-35.c", Bug::ExitCodeGreaterZero { .. }) |
-                ("simple-increasing-loop-1-35.c", Bug::ExitCodeGreaterZero { .. }) |
-                ("two-level-nested-loop-1-35.c", Bug::ExitCodeGreaterZero { .. }) |
-                ("multiple-read.c", Bug::ExitCodeGreaterZero { .. })
+                ("nested-if-else-reverse-1-35", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
+                ("nested-recursion-1-35.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
+                ("recursive-ackermann-1-35.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
+                ("recursive-factorial-1-35.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
+                ("recursive-fibonacci-1-10.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
+                ("simple-if-else-1-35.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
+                ("simple-increasing-loop-1-35.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
+                ("two-level-nested-loop-1-35.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
+                ("multiple-read.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. })
         ),
         "found right bug type (actual: {}) for {}",
         bug,
