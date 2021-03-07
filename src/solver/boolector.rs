@@ -107,7 +107,12 @@ fn traverse<'a, F: Formula>(
                 if let Some(value) = bvs.get(&sym) {
                     value.clone()
                 } else {
-                    BV::new(solver.clone(), 64, Some(name))
+                    // input names are not unique in the formula, but symbol-ids are unique
+                    BV::new(
+                        solver.clone(),
+                        64,
+                        Some(format!("x{}: {}", sym, name).as_str()),
+                    )
                 }
             }
             Constant(c) => BV::from_u64(solver.clone(), (*c).0, 64),

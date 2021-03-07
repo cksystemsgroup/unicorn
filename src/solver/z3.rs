@@ -171,7 +171,8 @@ impl<'a, 'ctx, F: Formula> Z3Translator<'a, 'ctx, F> {
                 if let Some(value) = self.bvs.get(&sym) {
                     value.clone()
                 } else {
-                    Dynamic::from(BV::new_const(self.ctx, name.clone(), 64))
+                    // input names are not unique in the formula, but symbol-ids are unique
+                    Dynamic::from(BV::new_const(self.ctx, format!("x{}: {}", sym, name), 64))
                 }
             }
             Constant(cst) => Dynamic::from(BV::from_u64(self.ctx, (*cst).0, 64)),

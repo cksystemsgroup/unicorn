@@ -15,7 +15,7 @@ use std::{
 };
 use utils::{compile_riscu, init, with_temp_dir};
 
-const TEST_FILES: [&str; 14] = [
+const TEST_FILES: [&str; 15] = [
     "arithmetic.c",
     "if-else.c", // needs timeout
     "invalid-memory-access-2-35.c",
@@ -32,6 +32,7 @@ const TEST_FILES: [&str; 14] = [
     "simple-increasing-loop-1-35.c",
     "two-level-nested-loop-1-35.c",
     //"three-level-nested-loop-1-35",
+    "multiple-read.c",
 ];
 
 #[test]
@@ -141,7 +142,7 @@ fn execute_riscu<S: Solver>(source: PathBuf, object: PathBuf, solver: &S) {
 
     let options = EngineOptions {
         max_exection_depth: match file_name {
-            "two-level-nested-loop-1-35.c" => 200,
+            "two-level-nested-loop-1-35.c" => 230,
             "recursive-fibonacci-1-10.c" => 300,
             _ => 1000,
         },
@@ -186,7 +187,8 @@ fn execute_riscu<S: Solver>(source: PathBuf, object: PathBuf, solver: &S) {
                 ("recursive-fibonacci-1-10.c", Bug::ExitCodeGreaterZero { .. }) |
                 ("simple-if-else-1-35.c", Bug::ExitCodeGreaterZero { .. }) |
                 ("simple-increasing-loop-1-35.c", Bug::ExitCodeGreaterZero { .. }) |
-                ("two-level-nested-loop-1-35.c", Bug::ExitCodeGreaterZero { .. })
+                ("two-level-nested-loop-1-35.c", Bug::ExitCodeGreaterZero { .. }) |
+                ("multiple-read.c", Bug::ExitCodeGreaterZero { .. })
         ),
         "found right bug type (actual: {}) for {}",
         bug,
