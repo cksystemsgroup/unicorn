@@ -7,6 +7,7 @@ use monster::{
         rarity_simulation::{defaults as rarity_defaults, MeanType},
         symbolic_execution::defaults as symbolic_defaults,
     },
+    path_exploration::ExplorationStrategyType,
     solver::SolverType,
 };
 use std::str::FromStr;
@@ -118,6 +119,15 @@ pub fn args() -> App<'static, 'static> {
                         .value_name("NUMBER")
                         .default_value(formatcp!("{}", symbolic_defaults::MEMORY_SIZE.0 / bytesize::MB))
                         .validator(is_valid_memory_size),
+                )
+                .arg(
+                    Arg::with_name("strategy")
+                    .help("Path exploration strategy to use when exploring state search space")
+                    .long("strategy")
+                    .takes_value(true)
+                    .value_name("STRATEGY")
+                    .default_value(ExplorationStrategyType::ShortestPaths.into())
+                    .possible_values(ExplorationStrategyType::VARIANTS)
                 ),
         )
         .subcommand(

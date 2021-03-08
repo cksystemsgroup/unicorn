@@ -24,7 +24,7 @@ use thiserror::Error;
 
 pub type Assignment = HashMap<SymbolId, BitVector>;
 
-pub trait Solver: Default + Sync {
+pub trait Solver: Default + Sync + Sized {
     fn name() -> &'static str;
 
     fn solve<F: Formula>(&self, formula: &F) -> Result<Option<Assignment>, SolverError> {

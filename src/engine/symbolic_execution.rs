@@ -27,6 +27,8 @@ pub mod defaults {
 }
 
 pub type SymbolicExecutionBug = GenericBug<SymbolicExecutionErrorInfo>;
+pub type SymbolicExecutionResult = Result<Option<SymbolicExecutionBug>, SymbolicExecutionError>;
+
 type Bug = SymbolicExecutionBug;
 
 pub struct SymbolicExecutionOptions {

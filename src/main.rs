@@ -7,9 +7,16 @@ use env_logger::{Env, TimestampPrecision};
 use log::info;
 use monster::{
     disassemble::disassemble,
-    path_exploration::{ControlFlowGraph, ShortestPathStrategy},
+    path_exploration::{
+        CoinFlipStrategy, ControlFlowGraph,
+        ExplorationStrategyType::{self, CoinFlip, ShortestPaths},
+        ShortestPathStrategy,
+    },
     rarity_simulate_elf_with,
-    solver::{self, SolverType},
+    solver::{
+        self,
+        SolverType::{self, External, Monster},
+    },
     symbolically_execute_elf_with, RaritySimulationOptions, SymbolicExecutionOptions,
 };
 use riscu::load_object_file;
@@ -21,6 +28,11 @@ use std::{
     path::{Path, PathBuf},
     str::FromStr,
 };
+
+#[cfg(feature = "boolector")]
+use monster::solver::SolverType::Boolector;
+#[cfg(feature = "z3")]
+use monster::solver::SolverType::Z3;
 
 fn main() -> Result<()> {
     let matches = cli::args().get_matches();
@@ -57,7 +69,7 @@ fn main() -> Result<()> {
         ("execute", Some(args)) => {
             let input = expect_arg::<PathBuf>(&args, "input-file")?;
             let solver = expect_arg::<SolverType>(&args, "solver")?;
-
+            let strategy = expect_arg::<ExplorationStrategyType>(&args, "strategy")?;
             let options = SymbolicExecutionOptions {
                 max_exection_depth: expect_arg(args, "max-execution-depth")?,
                 memory_size: ByteSize::mb(expect_arg(args, "memory")?),
@@ -65,33 +77,57 @@ fn main() -> Result<()> {
 
             let program = load_object_file(&input)?;
 
-            let strategy = ShortestPathStrategy::compute_for(&program)?;
-
-            if let Some(bug) = match solver {
-                SolverType::Monster => symbolically_execute_elf_with(
+            if let Some(bug) = match (strategy, solver) {
+                (ShortestPaths, Monster) => symbolically_execute_elf_with(
                     &input,
                     &options,
-                    &strategy,
+                    &ShortestPathStrategy::compute_for(&program)?,
                     &solver::MonsterSolver::default(),
                 ),
-                SolverType::External => symbolically_execute_elf_with(
+                (ShortestPaths, External) => symbolically_execute_elf_with(
                     &input,
                     &options,
-                    &strategy,
+                    &ShortestPathStrategy::compute_for(&program)?,
                     &solver::ExternalSolver::default(),
                 ),
                 #[cfg(feature = "boolector")]
-                SolverType::Boolector => symbolically_execute_elf_with(
+                (ShortestPaths, Boolector) => symbolically_execute_elf_with(
                     &input,
                     &options,
-                    &strategy,
+                    &ShortestPathStrategy::compute_for(&program)?,
                     &solver::Boolector::default(),
                 ),
                 #[cfg(feature = "z3")]
-                SolverType::Z3 => symbolically_execute_elf_with(
+                (ShortestPaths, Z3) => symbolically_execute_elf_with(
                     &input,
                     &options,
-                    &strategy,
+                    &ShortestPathStrategy::compute_for(&program)?,
+                    &solver::Z3::default(),
+                ),
+                (CoinFlip, Monster) => symbolically_execute_elf_with(
+                    &input,
+                    &options,
+                    &CoinFlipStrategy::default(),
+                    &solver::MonsterSolver::default(),
+                ),
+                (CoinFlip, External) => symbolically_execute_elf_with(
+                    &input,
+                    &options,
+                    &CoinFlipStrategy::default(),
+                    &solver::ExternalSolver::default(),
+                ),
+                #[cfg(feature = "boolector")]
+                (CoinFlip, Boolector) => symbolically_execute_elf_with(
+                    &input,
+                    &options,
+                    &CoinFlipStrategy::default(),
+                    &solver::Boolector::default(),
+                ),
+                #[cfg(feature = "z3")]
+                (CoinFlip, Z3) => symbolically_execute_elf_with(
+                    &input,
+                    &options,
+                    &CoinFlipStrategy::default(),
                     &solver::Z3::default(),
                 ),
             }
