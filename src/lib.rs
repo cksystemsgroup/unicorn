@@ -23,7 +23,7 @@ pub enum MonsterError {
     #[error("preprocessing failed with error")]
     Preprocessing(anyhow::Error),
 
-    #[error("symbolic execution stopped with error")]
+    #[error("symbolic execution stopped with error, {0}")]
     SymbolicExecution(SymbolicExecutionError),
 
     #[error("rarity simulation stopped with error")]

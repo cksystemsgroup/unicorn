@@ -1,7 +1,7 @@
 [package] 
 name = "monster-rs"
 description = "Monster is a symbolic execution engine for 64-bit RISC-U code"
-authors = ["Alexander Lackner <monster@a.lfweb.org>", "Alexander Linz <linzalexander@gmail.com>", "Christian Mösl <christian.moesl@live.at>", "Fabian Nedoluha <monster@onders.org>"]
+authors = ["Alexander Lackner <monster@a.lfweb.org>", "Alexander Linz <linzalexander@gmail.com>", "Christian Mösl <christian.moesl@live.at>", "Fabian Nedoluha <monster@onders.org>", "Michael Starzinger <michael.starzinger@antforge.org>"]
 documentation = "https://docs.rs/monster"
 repository = "https://github.com/cksystemsgroup/monster"
 homepage = "https://cksystemsgroup.github.io/monster"

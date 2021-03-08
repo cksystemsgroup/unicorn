@@ -13,14 +13,18 @@ use std::{
 };
 use utils::{compile_riscu, init, with_temp_dir};
 
-const TEST_FILES: [&str; 15] = [
+const TEST_FILES: [&str; 19] = [
     "arithmetic.c",
+    "echo-line.c",
     "if-else.c", // needs timeout
     "invalid-memory-access-2-35.c",
     "division-by-zero-3-35.c",
     "simple-assignment-1-35.c",
     "test-sltu.c",
     //"memory-access-1-35.c",
+    "memory-invalid-read.c",
+    "memory-invalid-write.c",
+    "memory-uninitialized-write.c",
     "nested-if-else-reverse-1-35",
     "nested-recursion-1-35.c",
     "recursive-ackermann-1-35.c",
@@ -172,12 +176,16 @@ fn execute_riscu<S: Solver>(source: PathBuf, object: PathBuf, solver: &S) {
         matches!(
             (file_name, bug.clone()),
             ("arithmetic.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
+                ("echo-line.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
                 ("invalid-memory-access-2-35.c", SymbolicExecutionBug::AccessToOutOfRangeAddress { .. }) |
                 ("if-else.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
                 ("division-by-zero-3-35.c", SymbolicExecutionBug::DivisionByZero { .. }) |
                 ("simple-assignment-1-35.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
                 ("test-sltu.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
                 //("memory-access-1-35.c", Bug::
+                ("memory-invalid-read.c", SymbolicExecutionBug::AccessToOutOfRangeAddress { .. }) |
+                ("memory-invalid-write.c", SymbolicExecutionBug::AccessToOutOfRangeAddress { .. }) |
+                ("memory-uninitialized-write.c", SymbolicExecutionBug::AccessToUnitializedMemory { .. }) |
                 ("nested-if-else-reverse-1-35", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
                 ("nested-recursion-1-35.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
                 ("recursive-ackermann-1-35.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |

@@ -466,7 +466,7 @@ impl Executor {
 
     fn execute(&mut self, instruction: Instruction) -> Result<Option<Bug>, RaritySimulationError> {
         match instruction {
-            Instruction::Ecall(_) => self.execute_ecall(),
+            Instruction::Ecall(_) => self.execute_ecall(instruction),
             Instruction::Lui(utype) => self.execute_lui(utype),
             Instruction::Addi(itype) => self.execute_itype(instruction, itype, u64::wrapping_add),
             Instruction::Add(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_add),
@@ -541,6 +541,34 @@ impl Executor {
                 "{}: address {:#x} out of virtual address range (0x0 - {:#x}) => computing reachability",
                 instruction,
                 address,
+                self.state.memory.len() * 8,
+            );
+
+            self.is_running = false;
+
+            Some(Bug::AccessToOutOfRangeAddress {
+                info: RarityBugInfo {
+                    inputs: self.concrete_inputs.clone(),
+                    pc: self.state.pc,
+                },
+            })
+        } else {
+            None
+        }
+    }
+
+    fn check_for_valid_memory_range(
+        &mut self,
+        instruction: &str,
+        address: u64,
+        size: u64,
+    ) -> Option<Bug> {
+        if !self.is_in_vaddr_range(address) || !self.is_in_vaddr_range(address + size) {
+            trace!(
+                "{}: buffer {:#x} - {:#x} out of virtual address range (0x0 - {:#x}) => computing reachability",
+                instruction,
+                address,
+                address + size,
                 self.state.memory.len() * 8,
             );
 
@@ -653,7 +681,7 @@ impl Executor {
             _ => {
                 let bug = self.access_to_uninitialized_memory(instruction, lhs, rhs);
 
-                trace!("could not find input assignment => exeting this context");
+                trace!("could not find input assignment => exiting this context");
 
                 self.is_running = false;
 
@@ -722,8 +750,9 @@ impl Executor {
 
         trace!("read: fd={} buffer={:#x} size={}", 0, buffer, size,);
 
-        if !self.is_in_vaddr_range(buffer) || !self.is_in_vaddr_range(buffer + size) {
-            return not_supported("read syscall failed to");
+        let bug = self.check_for_valid_memory_range("read", buffer, size);
+        if bug.is_some() {
+            return Ok(bug);
         }
 
         let size_of_u64 = size_of::<u64>() as u64;
@@ -782,6 +811,63 @@ impl Executor {
         Ok(None)
     }
 
+    fn execute_write(
+        &mut self,
+        instruction: Instruction,
+    ) -> Result<Option<Bug>, RaritySimulationError> {
+        if !matches!(self.state.regs[Register::A0 as usize], Value::Concrete(1)) {
+            return not_supported("can not handle other fd than stdout in write syscall");
+        }
+
+        let buffer = if let Value::Concrete(b) = self.state.regs[Register::A1 as usize] {
+            b
+        } else {
+            return not_supported(
+                "can not handle symbolic or uninitialized buffer address in write syscall",
+            );
+        };
+
+        let size = if let Value::Concrete(s) = self.state.regs[Register::A2 as usize] {
+            s
+        } else {
+            return not_supported("can not handle symbolic or uinitialized size in write syscall");
+        };
+
+        trace!("write: fd={} buffer={:#x} size={}", 1, buffer, size,);
+
+        let bug = self.check_for_valid_memory_range("write", buffer, size);
+        if bug.is_some() {
+            return Ok(bug);
+        }
+
+        let size_of_u64 = size_of::<u64>() as u64;
+        let start = buffer / size_of_u64;
+        let bytes_to_read = size + buffer % size_of_u64;
+        let words_to_read = (bytes_to_read + size_of_u64 - 1) / size_of_u64;
+
+        for word_count in 0..words_to_read {
+            if self.state.memory[(start + word_count) as usize] == Value::Uninitialized {
+                trace!(
+                    "write: access to uninitialized memory at {:#x} => computing reachability",
+                    (start + word_count) * size_of_u64,
+                );
+
+                return Ok(Some(Bug::AccessToUnitializedMemory {
+                    info: RarityBugInfo {
+                        inputs: self.concrete_inputs.clone(),
+                        pc: self.state.pc,
+                    },
+                    instruction,
+                    operands: vec![],
+                }));
+            }
+        }
+
+        self.state.regs[Register::A0 as usize] = Value::Concrete(size);
+
+        Ok(None)
+    }
+
     #[allow(clippy::unnecessary_wraps)]
     fn execute_beq(&mut self, btype: BType) -> Result<Option<Bug>, RaritySimulationError> {
         let lhs = self.state.regs[btype.rs1() as usize];
@@ -811,7 +897,7 @@ impl Executor {
 
                 let result = self.access_to_uninitialized_memory(Instruction::Beq(btype), v1, v2);
 
-                trace!("access to uninitialized memory => exeting this context");
+                trace!("access to uninitialized memory => exiting this context");
 
                 Ok(Some(result))
             }
@@ -845,7 +931,10 @@ impl Executor {
         }
     }
 
-    fn execute_ecall(&mut self) -> Result<Option<Bug>, RaritySimulationError> {
+    fn execute_ecall(
+        &mut self,
+        instruction: Instruction,
+    ) -> Result<Option<Bug>, RaritySimulationError> {
         trace!("[{:#010x}] ecall", self.state.pc);
 
         let result = match self.state.regs[Register::A7 as usize] {
@@ -854,6 +943,9 @@ impl Executor {
             }
             Value::Concrete(syscall_id) if syscall_id == (SyscallId::Read as u64) => {
                 self.execute_read()
+            }
+            Value::Concrete(syscall_id) if syscall_id == (SyscallId::Write as u64) => {
+                self.execute_write(instruction)
             }
             Value::Concrete(syscall_id) if syscall_id == (SyscallId::Exit as u64) => {
                 self.execute_exit()
