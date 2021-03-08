@@ -1,10 +1,11 @@
 use bytesize::ByteSize;
 use criterion::{criterion_group, criterion_main, Criterion};
 use monster::{
-    engine::EngineOptions,
-    execute_with, load_elf,
+    engine::SymbolicExecutionOptions,
+    load_elf,
     path_exploration::ShortestPathStrategy,
     solver::{MonsterSolver, Solver},
+    symbolically_execute_with,
 };
 use rayon::prelude::*;
 use std::{
@@ -158,12 +159,12 @@ fn execute_all<S: Solver>(objects: &[PathBuf]) {
 
 fn execute_single<S: Solver, P: AsRef<Path>>(object_path: P) {
     let program = load_elf(object_path).unwrap();
-    let options = EngineOptions {
+    let options = SymbolicExecutionOptions {
         max_exection_depth: 5000000,
         memory_size: ByteSize(400000),
     };
     let solver = S::default();
     let strategy = ShortestPathStrategy::compute_for(&program).unwrap();
 
-    let _result = execute_with(&program, &options, &strategy, &solver);
+    let _result = symbolically_execute_with(&program, &options, &strategy, &solver);
 }
