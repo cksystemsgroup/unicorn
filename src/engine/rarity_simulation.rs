@@ -38,14 +38,7 @@ use riscu::{
     decode, types::*, DecodingError, Instruction, Program, ProgramSegment, Register,
     INSTRUCTION_SIZE as INSTR_SIZE,
 };
-use std::{
-    cmp::{min, Ordering},
-    collections::HashMap,
-    fmt,
-    iter::IntoIterator,
-    mem::size_of,
-    sync::Arc,
-};
+use std::{cmp::min, collections::HashMap, fmt, iter::IntoIterator, mem::size_of, sync::Arc};
 use strum::{EnumString, EnumVariantNames, IntoStaticStr};
 use thiserror::Error;
 
@@ -209,7 +202,7 @@ impl BugFinder<RarityBugInfo, RaritySimulationError> for RaritySimulation {
                 self.options.amount_of_states - running.len()
             );
 
-            let (scores, ordering) = time_info!("Scoring states", {
+            let scores = time_info!("Scoring states", {
                 let states: Vec<_> = running.iter().map(|e| e.state()).collect();
 
                 score_with_mean(&states[..], self.options.mean)
@@ -217,7 +210,7 @@ impl BugFinder<RarityBugInfo, RaritySimulationError> for RaritySimulation {
 
             let selection = min(self.options.selection, running.len());
 
-            executors = select_rarest(running, selection, scores, ordering);
+            executors = select_rarest(running, selection, scores);
 
             info!("selecting rarest {} states", selection);
         }
@@ -299,35 +292,24 @@ fn select_rarest(
     executors: impl IntoIterator<Item = Box<Executor>>,
     selection: usize,
     scores: Vec<f64>,
-    ord: Ordering,
 ) -> Vec<Box<Executor>> {
-    let iter = executors.into_iter().zip(scores);
-
-    let sorted = if ord == Ordering::Less {
-        iter.sorted_unstable_by(|l, r| l.1.partial_cmp(&r.1).expect("no NaN in scores"))
-    } else {
-        iter.sorted_unstable_by(|l, r| r.1.partial_cmp(&l.1).expect("no NaN in scores"))
-    };
-
-    sorted.map(|x| x.0).take(selection).collect()
+    executors
+        .into_iter()
+        .zip(scores)
+        .sorted_unstable_by(|l, r| l.1.partial_cmp(&r.1).expect("no NaN in scores"))
+        .map(|x| x.0)
+        .take(selection)
+        .collect()
 }
 
-fn score_with_mean(states: &[&State], mean: MeanType) -> (Vec<f64>, Ordering) {
+fn score_with_mean(states: &[&State], mean: MeanType) -> Vec<f64> {
     match mean {
-        MeanType::Harmonic => {
-            let scores = compute_scores(states, |cs| {
-                (cs.len() as f64) / cs.iter().map(|c| 1_f64 / (*c as f64)).sum::<f64>()
-            });
-
-            (scores, Ordering::Greater)
-        }
-        MeanType::Arithmetic => {
-            let scores = compute_scores(states, |cs| {
-                cs.iter().sum::<u64>() as f64 / (cs.len() as f64)
-            });
-
-            (scores, Ordering::Less)
-        }
+        MeanType::Harmonic => compute_scores(states, |cs| {
+            (cs.len() as f64) / cs.iter().map(|c| 1_f64 / (*c as f64)).sum::<f64>()
+        }),
+        MeanType::Arithmetic => compute_scores(states, |cs| {
+            cs.iter().sum::<u64>() as f64 / (cs.len() as f64)
+        }),
     }
 }
 
