@@ -315,14 +315,16 @@ fn select_rarest(
 fn score_with_mean(states: &[&State], mean: MeanType) -> (Vec<f64>, Ordering) {
     match mean {
         MeanType::Harmonic => {
-            let scores = compute_scores(states, |n, cs| {
-                (n as f64) / cs.iter().map(|c| 1_f64 / (*c as f64)).sum::<f64>()
+            let scores = compute_scores(states, |cs| {
+                (cs.len() as f64) / cs.iter().map(|c| 1_f64 / (*c as f64)).sum::<f64>()
             });
 
             (scores, Ordering::Greater)
         }
         MeanType::Arithmetic => {
-            let scores = compute_scores(states, |n, cs| cs.iter().sum::<u64>() as f64 / (n as f64));
+            let scores = compute_scores(states, |cs| {
+                cs.iter().sum::<u64>() as f64 / (cs.len() as f64)
+            });
 
             (scores, Ordering::Less)
         }
@@ -1145,7 +1147,7 @@ impl fmt::Display for RarityBugInfo {
 /// * score: A function taking the amount of states and relevant statistical counter values and returning a score
 fn compute_scores<F>(states: &[&State], score: F) -> Vec<f64>
 where
-    F: Fn(usize, &[Counter]) -> f64,
+    F: Fn(&[Counter]) -> f64,
 {
     let counter_addresses: Vec<Vec<Address>> = states
         .iter()
@@ -1161,8 +1163,6 @@ where
         .for_each(|address| count_address(&mut overall_counts, *address));
 
     // create counters per state based on overall counts
-    let n = states.len();
-
     counter_addresses
         .iter()
         .map(|addresses| {
@@ -1175,7 +1175,7 @@ where
                 })
                 .collect_vec()
         })
-        .map(|addresses| score(n, &addresses[..]))
+        .map(|addresses| score(&addresses[..]))
         .collect()
 }
 
