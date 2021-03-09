@@ -2,6 +2,7 @@ use log::info;
 use rayon::{iter::ParallelBridge, prelude::*};
 use std::{
     env,
+    ffi::OsStr,
     fs::read_dir,
     path::{Path, PathBuf},
     process::Command,
@@ -65,7 +66,7 @@ fn ensure_selfie_installed() -> PathBuf {
 
                 Command::new("git")
                     .arg("clone")
-                    .arg("https://github.com/christianmoesl/selfie")
+                    .arg("https://github.com/cksystemsgroup/selfie")
                     .arg(&repo_dir)
                     .output()
                     .expect("Selfie Git repository could not be cloned from Github");
@@ -186,4 +187,53 @@ pub fn compile_riscu(
 
             (source_file, result_path)
         })
+}
+
+pub struct TestFileCompiler {
+    source_files: Vec<PathBuf>,
+    object_files: Vec<PathBuf>,
+    _temp_dir: Arc<TempDir>,
+}
+
+impl TestFileCompiler {
+    pub fn new(source_files: &'static [&'static str]) -> Self {
+        let temp_dir = Arc::new(tempdir().unwrap());
+
+        let results: Vec<_> = compile_riscu(temp_dir.clone(), Some(source_files)).collect();
+
+        let source_files: Vec<_> = results.iter().map(|(s, _)| s).cloned().collect();
+        let object_files: Vec<_> = results.iter().map(|(_, o)| o).cloned().collect();
+
+        Self {
+            source_files,
+            object_files,
+            _temp_dir: temp_dir,
+        }
+    }
+
+    pub fn objects(&self) -> &[PathBuf] {
+        &self.object_files
+    }
+
+    pub fn sources(&self) -> &[PathBuf] {
+        &self.source_files
+    }
+
+    pub fn object(&self, source_file_name: &'static str) -> &PathBuf {
+        let mut file_name = PathBuf::from(source_file_name);
+        file_name.set_extension("o");
+        let file_name = file_name.to_str().unwrap();
+
+        self.object_files
+            .iter()
+            .find(|p| p.file_name() == Some(OsStr::new(file_name)))
+            .unwrap()
+    }
+
+    pub fn source(&self, source_file_name: &'static str) -> &PathBuf {
+        self.source_files
+            .iter()
+            .find(|p| p.file_name() == Some(OsStr::new(source_file_name)))
+            .unwrap()
+    }
 }

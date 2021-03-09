@@ -26,6 +26,11 @@ path = "src/main.rs"
 name = "engine"
 harness = false
 
+[[bench]]
+name = "path_exploration"
+harness = false
+required-features = ["z3"]
+
 [dependencies]
 byteorder = "~1.4.2"
 clap = "~2.33.3"
@@ -50,7 +55,6 @@ z3 = { version = "~0.9.0", features = ["static-link-z3"], optional = true }
 utils = { path = "utils" }
 rayon = "~1.5.0"
 tempfile = "~3.1.0"
-which = "~4.0.2"
 criterion = { version = "~0.3.4", features = ["html_reports", "cargo_bench_support", "csv_output"] }
 
 [dev-dependencies.cargo-husky]

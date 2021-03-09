@@ -1,5 +1,6 @@
 use bytesize::ByteSize;
 use criterion::{criterion_group, criterion_main, Criterion};
+use lazy_static::lazy_static;
 use monster::{
     engine::SymbolicExecutionOptions,
     load_elf,
@@ -7,15 +8,11 @@ use monster::{
     solver::{MonsterSolver, Solver},
     symbolically_execute_with,
 };
-use rayon::prelude::*;
 use std::{
-    ffi::OsStr,
     path::{Path, PathBuf},
-    sync::{Arc, Once},
     time::Duration,
 };
-use tempfile::{tempdir, TempDir};
-use utils::compile_riscu;
+use utils::TestFileCompiler;
 
 #[cfg(feature = "boolector")]
 use monster::solver::Boolector;
@@ -29,9 +26,10 @@ const TEST_FILES: [&str; 4] = [
     "sum01-1.c",
     "demonstration.c",
 ];
-static mut TEST_OBJECT_FILES: Option<Vec<PathBuf>> = None;
-static mut TEMP_DIR: Option<Arc<TempDir>> = None;
-static COMPILE_TEST_FILES: Once = Once::new();
+
+lazy_static! {
+    static ref COMPILER: TestFileCompiler = TestFileCompiler::new(&TEST_FILES);
+}
 
 criterion_group!(
     benches,
@@ -42,52 +40,49 @@ criterion_group!(
 criterion_main!(benches);
 
 fn bench_demonstration(c: &mut Criterion) {
-    let object_file = compile_test_file("demonstration.c");
+    let object_file = COMPILER.object("demonstration.c");
 
     let mut group = c.benchmark_group("Engine");
 
     group.sample_size(1000).warm_up_time(Duration::from_secs(3));
 
     group.bench_function("Monster", |b| {
-        b.iter(|| execute_single::<MonsterSolver, &PathBuf>(&object_file))
+        b.iter(|| execute_single::<MonsterSolver, &PathBuf>(object_file))
     });
     #[cfg(feature = "boolector")]
     group.bench_function("Boolector", |b| {
-        b.iter(|| execute_single::<Boolector, &PathBuf>(&object_file))
+        b.iter(|| execute_single::<Boolector, &PathBuf>(object_file))
     });
     #[cfg(feature = "z3")]
     group.bench_function("Z3", |b| {
-        b.iter(|| execute_single::<Z3, &PathBuf>(&object_file))
+        b.iter(|| execute_single::<Z3, &PathBuf>(object_file))
     });
 }
 
 fn bench_solver_avg(c: &mut Criterion) {
     let mut group = c.benchmark_group("Engine");
-    let object_files = compile_test_files();
 
     group.sample_size(100).warm_up_time(Duration::from_secs(1));
 
     group.bench_function("Monster", |b| {
-        b.iter(|| execute_all::<MonsterSolver>(&object_files))
+        b.iter(|| execute_all::<MonsterSolver>(COMPILER.objects()))
     });
     #[cfg(feature = "boolector")]
     group.bench_function("Boolector", |b| {
-        b.iter(|| execute_all::<Boolector>(&object_files))
+        b.iter(|| execute_all::<Boolector>(COMPILER.objects()))
     });
     #[cfg(feature = "z3")]
-    group.bench_function("Z3", |b| b.iter(|| execute_all::<Z3>(&object_files)));
+    group.bench_function("Z3", |b| b.iter(|| execute_all::<Z3>(COMPILER.objects())));
 }
 
 fn bench_solver_individual(c: &mut Criterion) {
-    let object_files = compile_test_files();
-
     {
         let mut monster_grp = c.benchmark_group("Monster");
         monster_grp
             .warm_up_time(Duration::from_secs(2))
             .sample_size(30);
 
-        object_files.iter().for_each(|source| {
+        COMPILER.objects().iter().for_each(|source| {
             let id = source.file_name().unwrap().to_str().unwrap();
             monster_grp.bench_function(id, |b| {
                 b.iter(|| execute_single::<MonsterSolver, &PathBuf>(source))
@@ -101,7 +96,8 @@ fn bench_solver_individual(c: &mut Criterion) {
         boolector_grp
             .warm_up_time(Duration::from_secs(2))
             .sample_size(30);
-        object_files.iter().for_each(|source| {
+
+        COMPILER.objects().iter().for_each(|source| {
             let id = source.file_name().unwrap().to_str().unwrap();
             boolector_grp.bench_function(id, |b| {
                 b.iter(|| execute_single::<Boolector, &PathBuf>(source))
@@ -113,42 +109,12 @@ fn bench_solver_individual(c: &mut Criterion) {
     {
         let mut z3_grp = c.benchmark_group("Z3");
         z3_grp.warm_up_time(Duration::from_secs(2)).sample_size(30);
-        object_files.iter().for_each(|source| {
+
+        COMPILER.objects().iter().for_each(|source| {
             let id = source.file_name().unwrap().to_str().unwrap();
             z3_grp.bench_function(id, |b| b.iter(|| execute_single::<Z3, &PathBuf>(source)));
         });
     }
-}
-
-fn compile_test_files() -> Vec<PathBuf> {
-    unsafe {
-        COMPILE_TEST_FILES.call_once(|| {
-            let tmp_dir = Arc::new(tempdir().unwrap());
-            TEMP_DIR = Some(tmp_dir.clone());
-
-            TEST_OBJECT_FILES = Some(
-                compile_riscu(tmp_dir, Some(&TEST_FILES))
-                    .map(|(_source, object)| object)
-                    .collect(),
-            );
-        });
-
-        TEST_OBJECT_FILES.clone().unwrap()
-    }
-}
-
-fn compile_test_file(file_name: &str) -> PathBuf {
-    let object_files = compile_test_files();
-
-    let mut file_name = PathBuf::from(file_name);
-    file_name.set_extension("o");
-    let file_name = file_name.to_str().unwrap();
-
-    object_files
-        .iter()
-        .find(|p| p.file_name() == Some(OsStr::new(file_name)))
-        .unwrap()
-        .clone()
 }
 
 fn execute_all<S: Solver>(objects: &[PathBuf]) {

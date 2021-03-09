@@ -515,7 +515,6 @@ dependencies = [
  "tempfile",
  "thiserror",
  "utils",
- "which",
  "z3",
 ]
 
