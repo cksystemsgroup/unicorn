@@ -147,8 +147,8 @@ fn main() -> Result<()> {
                 memory_size: ByteSize::mb(expect_arg(args, "memory")?),
                 amount_of_states: expect_arg(args, "states")?,
                 step_size: expect_arg(args, "step-size")?,
-                selection: expect_arg(args, "iterations")?,
-                iterations: expect_arg(args, "selection")?,
+                selection: expect_arg(args, "selection")?,
+                iterations: expect_arg(args, "iterations")?,
                 copy_init_ratio: expect_arg(args, "copy-init-ratio")?,
                 mean: expect_arg(args, "mean")?,
             };

@@ -1130,12 +1130,12 @@ impl fmt::Display for RarityBugInfo {
 /// The counters work on byte-granularity basis. For each byte contained by a state, 256 counters
 /// are created, one for each possible state a byte can be in. All bytes of all states are iterated
 /// and a corresponding counter is incremented depending on the byte's value.
-/// This is done to count the ocurrences of distinct values for each byte. The smaller a counter
+/// This is done to count the occurrences of distinct values for each byte. The smaller a counter
 /// value is, the rarer the value of this specific counter is for a specific byte.
 ///
-/// The function then determines the the counter values that are relevant for rarity calculation,
-/// for each state, that is, for each byte it appends the value of the counter relevant to the byte
-/// and the byte's value.
+/// The function then determines the counter values that are relevant for rarity calculation, for
+/// each state, that is, for each byte it appends the value of the counter relevant to the byte and
+/// the byte's value.
 ///
 /// The list of relevant counter values is passed to the scoring function in order to determine the
 /// rarity score of each state.
@@ -1171,7 +1171,7 @@ where
                 .map(|address| {
                     *overall_counts
                         .get(address)
-                        .expect("cound should be available")
+                        .expect("count should be available")
                 })
                 .collect_vec()
         })
