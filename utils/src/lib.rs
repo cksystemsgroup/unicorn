@@ -66,7 +66,7 @@ fn ensure_selfie_installed() -> PathBuf {
 
                 Command::new("git")
                     .arg("clone")
-                    .arg("https://github.com/cksystemsgroup/selfie")
+                    .arg("https://github.com/cksystemsteaching/selfie")
                     .arg(&repo_dir)
                     .output()
                     .expect("Selfie Git repository could not be cloned from Github");
