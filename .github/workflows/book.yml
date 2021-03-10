@@ -3,10 +3,10 @@ name: Book
 on:
   push:
     branches-ignore:
-      - 'gh-pages'
+    - 'gh-pages'
     paths:
-      - 'book/**'
-      - '.github/workflows/book.yml'
+    - 'book/**'
+    - '.github/workflows/book.yml'
   workflow_dispatch:
 
 env:
@@ -17,36 +17,36 @@ jobs:
     name: Generate HTML with MdBook
     runs-on: ubuntu-20.04
     steps:
-      - uses: actions/checkout@v2
+    - uses: actions/checkout@v2
 
-      - name: Cache Cargo Dependencies
-        uses: actions/cache@v2
-        env:
-          cache-name: cache-cargo-dependencies
-        # disable cache four daily builds
-        if: ${{ github.event_name != 'schedule' }}
-        with:
-          # cargo cache files are stored in `~/.cargo` on Linux/macOS
-          # source for paths: https://doc.rust-lang.org/cargo/guide/cargo-home.html#caching-the-cargo-home-in-ci
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target
-          key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    - name: Cache Cargo Dependencies
+      uses: actions/cache@v2
+      env:
+        cache-name: cache-cargo-dependencies
+      # disable cache four daily builds
+      if: ${{ github.event_name != 'schedule' }}
+      with:
+        # cargo cache files are stored in `~/.cargo` on Linux/macOS
+        # source for paths: https://doc.rust-lang.org/cargo/guide/cargo-home.html#caching-the-cargo-home-in-ci
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target
+        key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Install Graphviz
-        run: |
-          echo "$GITHUB_REF"
-          sudo apt-get update
-          sudo apt-get install -y graphviz
+    - name: Install Graphviz
+      run: |
+        echo "$GITHUB_REF"
+        sudo apt-get update
+        sudo apt-get install -y graphviz
 
-      - name: Install mdbook and Dependencies
-        run: |
-          cargo install mdbook --locked || true
-          cargo install mdbook-linkcheck --locked || true
-          cargo install --git https://github.com/dylanowen/mdbook-graphviz || true
+    - name: Install mdbook and Dependencies
+      run: |
+        cargo install mdbook --locked || true
+        cargo install mdbook-linkcheck --locked || true
+        cargo install --git https://github.com/dylanowen/mdbook-graphviz || true
 
-      - name: Generate Book as Html
-        run: mdbook build book
+    - name: Generate Book as Html
+      run: mdbook build book

@@ -3,9 +3,9 @@ name: Test
 on:
   push:
   schedule:
-    # trigger weekly at 12am
-    # this build should run with caches disabled
-    - cron: '0 0 * * 0'
+  # trigger weekly at 12am
+  # this build should run with caches disabled
+  - cron: '0 0 * * 0'
   workflow_dispatch:
 
 env:
@@ -17,10 +17,10 @@ jobs:
     name: Security Scan of Dependencies
     runs-on: ubuntu-20.04
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/audit-check@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+    - uses: actions/checkout@v2
+    - uses: actions-rs/audit-check@v1
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
 
   build-and-test:
     name: Build and Test on ${{ matrix.platform }}
@@ -32,104 +32,104 @@ jobs:
         os: [ubuntu-20.04, macos-10.15, windows-2019]
         experimental: [false]
         include:
-          - platform: Linux
-            os: ubuntu-20.04
-            features: z3,boolector
-          - platform: MacOs
-            os: macos-10.15
-            features: z3,boolector
-          - platform: Windows
-            os: windows-2019
-            features: z3
-          - platform: latest Rust
-            toolchain: stable
-            os: ubuntu-latest
-            experimental: true
-            features: z3,boolector
+        - platform: Linux
+          os: ubuntu-20.04
+          features: z3,boolector
+        - platform: MacOs
+          os: macos-10.15
+          features: z3,boolector
+        - platform: Windows
+          os: windows-2019
+          features: z3
+        - platform: latest Rust
+          toolchain: stable
+          os: ubuntu-latest
+          experimental: true
+          features: z3,boolector
     steps:
-      - name: Checkout
-        uses: actions/checkout@v2
+    - name: Checkout
+      uses: actions/checkout@v2
 
-      - name: Install Rust ${{ matrix.toolchain }}
-        uses: actions-rs/toolchain@v1
-        with:
-            profile: minimal
-            toolchain: ${{ matrix.toolchain }}
-            components: rustfmt, clippy
-            override: true
+    - name: Install Rust ${{ matrix.toolchain }}
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: ${{ matrix.toolchain }}
+        components: rustfmt, clippy
+        override: true
 
-      - name: Setup Windows Environment
-        if: ${{ contains(matrix.os, 'windows') }}
-        # MinGw64 and Git is already installed
-        # https://github.com/actions/virtual-environments/blob/main/images/win/Windows2019-Readme.md
-        run: |
-          choco install make -y
-          echo "TEMP=$env:USERPROFILE\AppData\Local\Temp" >> $env:GITHUB_ENV
-          echo "TMP=$env:USERPROFILE\AppData\Local\Temp" >> $env:GITHUB_ENV
+    - name: Setup Windows Environment
+      if: ${{ contains(matrix.os, 'windows') }}
+      # MinGw64 and Git is already installed
+      # https://github.com/actions/virtual-environments/blob/main/images/win/Windows2019-Readme.md
+      run: |
+        choco install make -y
+        echo "TEMP=$env:USERPROFILE\AppData\Local\Temp" >> $env:GITHUB_ENV
+        echo "TMP=$env:USERPROFILE\AppData\Local\Temp" >> $env:GITHUB_ENV
 
-      - name: Cache Cargo Dependencies
-        uses: actions/cache@v2
-        env:
-          cache-name: cache-cargo-dependencies
-        # disable cache for scheduled builds
-        # Unfortunately MacOs in combination with the Github Cache action has a bug:
-        # https://github.com/actions/virtual-environments/issues/2619
-        # This is a workaround to fix curroption of cached cargo dependencies
-        if: ${{ github.event_name != 'schedule' && !contains(matrix.os, 'macos') }}
-        with:
-          # cargo cache files are stored in `~/.cargo` on Linux/macOS
-          # source for paths: https://doc.rust-lang.org/cargo/guide/cargo-home.html#caching-the-cargo-home-in-ci
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target
-          key: ${{ runner.os }}-${{ github.job }}-${{ matrix.toolchain }}-${{ hashFiles('**/Cargo.lock') }}
+    - name: Cache Cargo Dependencies
+      uses: actions/cache@v2
+      env:
+        cache-name: cache-cargo-dependencies
+      # disable cache for scheduled builds
+      # Unfortunately MacOs in combination with the Github Cache action has a bug:
+      # https://github.com/actions/virtual-environments/issues/2619
+      # This is a workaround to fix curroption of cached cargo dependencies
+      if: ${{ github.event_name != 'schedule' && !contains(matrix.os, 'macos') }}
+      with:
+        # cargo cache files are stored in `~/.cargo` on Linux/macOS
+        # source for paths: https://doc.rust-lang.org/cargo/guide/cargo-home.html#caching-the-cargo-home-in-ci
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target
+        key: ${{ runner.os }}-${{ github.job }}-${{ matrix.toolchain }}-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Check Format
-        uses: actions-rs/cargo@v1
-        with:
-            command: fmt
-            args: -- --check
+    - name: Check Format
+      uses: actions-rs/cargo@v1
+      with:
+        command: fmt
+        args: -- --check
 
-      - name: Clippy
-        uses: actions-rs/clippy-check@v1
-        # execute Clippy with Github integration for the target platform (Linux with fixed toolchain version)
-        if: ${{ contains(matrix.os, 'ubuntu') && !matrix.experimental }}
-        with:
-            token: ${{ secrets.GITHUB_TOKEN }}
-            args: --all-targets --features ${{ matrix.features }} -- -D warnings
-            name: Clippy
+    - name: Clippy
+      uses: actions-rs/clippy-check@v1
+      # execute Clippy with Github integration for the target platform (Linux with fixed toolchain version)
+      if: ${{ contains(matrix.os, 'ubuntu') && !matrix.experimental }}
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        args: --all-targets --features ${{ matrix.features }} -- -D warnings
+        name: Clippy
 
-      - name: Clippy CLI
-        uses: actions-rs/cargo@v1
-        # execute CLI-only version of Clippy for all platforms besides the target platform
-        if: ${{ !(contains(matrix.os, 'ubuntu') && !matrix.experimental) }}
-        with:
-            command: clippy
-            args: --all-targets --features ${{ matrix.features }} -- -D warnings
+    - name: Clippy CLI
+      uses: actions-rs/cargo@v1
+      # execute CLI-only version of Clippy for all platforms besides the target platform
+      if: ${{ !(contains(matrix.os, 'ubuntu') && !matrix.experimental) }}
+      with:
+        command: clippy
+        args: --all-targets --features ${{ matrix.features }} -- -D warnings
 
-      - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-            command: build
-            args: --features ${{ matrix.features }} --locked
+    - name: Build
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+        args: --features ${{ matrix.features }} --locked
 
-      - name: Build Benchmarks
-        uses: actions-rs/cargo@v1
-        with:
-            command: bench
-            args: --benches --no-run --features ${{ matrix.features }} --locked
+    - name: Build Benchmarks
+      uses: actions-rs/cargo@v1
+      with:
+        command: bench
+        args: --benches --no-run --features ${{ matrix.features }} --locked
 
-      - name: Doc
-        uses: actions-rs/cargo@v1
-        with:
-            command: doc
-            args: --features ${{ matrix.features }} --locked
+    - name: Doc
+      uses: actions-rs/cargo@v1
+      with:
+        command: doc
+        args: --features ${{ matrix.features }} --locked
 
-      - name: Test
-        uses: actions-rs/cargo@v1
-        with:
-            command: test
-            args: --features ${{ matrix.features }} --locked
+    - name: Test
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
+        args: --features ${{ matrix.features }} --locked
