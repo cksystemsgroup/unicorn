@@ -50,10 +50,3 @@ jobs:
 
       - name: Generate Book as Html
         run: mdbook build book
-
-      - name: Deploy on Github Pages
-        uses: peaceiris/actions-gh-pages@v3
-        if: ${{ github.repository == 'cksystemsgroup/monster' && github.ref == 'refs/heads/master' }}
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./book/book/html

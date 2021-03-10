@@ -12,31 +12,31 @@ env:
 
 jobs:
     build: 
-        name: Build Release Binary
+        name: Build Release
         runs-on: ${{ matrix.os }}
         strategy:
           matrix:
             toolchain: [1.50.0]
             os: [ubuntu-20.04, macos-10.15, windows-2019]
             include:
-              - os: ubuntu-20.04
+              - platform: linux
+                os: ubuntu-20.04
                 features: z3,boolector
                 target: x86_64-unknown-linux-gnu
                 extension: ""
-              - os: macos-10.15
+              - platform: macos
+                os: macos-10.15
                 features: z3,boolector
                 target: x86_64-apple-darwin
                 extension: ""
-              - os: windows-2019
+              - platform: windows
+                os: windows-2019
                 features: z3
                 target: x86_64-pc-windows-msvc
                 extension: ".exe"
         steps:
           - name: Checkout
             uses: actions/checkout@v2
-            with:
-                fetch-depth: 0
-                persist-credentials: false
 
           - name: Install Rust ${{ matrix.toolchain }}
             uses: actions-rs/toolchain@v1
@@ -73,22 +73,33 @@ jobs:
             shell: bash
             run: mv target/${{ matrix.target }}/release/monster${{ matrix.extension }} ./monster-${{ matrix.target }}${{ matrix.extension }}
 
-          - uses: actions/upload-artifact@v2
+          - name: Upload Binary Artifact
+            uses: actions/upload-artifact@v2
             with:
-              name: monster-${{ matrix.os }}
+              name: monster-${{ matrix.platform }}
               path: monster-${{ matrix.target }}${{ matrix.extension }}
               if-no-files-found: error
 
     release:
         name: Semantic Release
         needs: build
+        # secrets of this environment are needed
+        environment: Release
         runs-on: ubuntu-20.04
         steps:
           - name: Checkout
             uses: actions/checkout@v2
             with:
+                # use credentials, that are allowed to commit to release branch
+                ssh-key: ${{ secrets.ACTIONS_DEPLOY_KEY }}
+                # full history needed by semantic release (analysis commit messages)
                 fetch-depth: 0
-                persist-credentials: false
+
+          # Setup Git credentials with Github deploy key saved in environment Release
+          - name: webfactory/ssh-agent
+            uses: webfactory/ssh-agent@v0.5.1
+            with:
+              ssh-private-key: ${{ secrets.ACTIONS_DEPLOY_KEY }}
 
           - name: Install Rust
             uses: actions-rs/toolchain@v1
@@ -113,15 +124,15 @@ jobs:
           # Download all binary artifacts to release
           - uses: actions/download-artifact@v2
             with:
-              name: monster-ubuntu-20.04
+              name: monster-linux
               
           - uses: actions/download-artifact@v2
             with:
-              name: monster-windows-2019
+              name: monster-windows
               
           - uses: actions/download-artifact@v2
             with:
-              name: monster-macos-10.15
+              name: monster-macos
 
           - name: Semantic Release
             uses: cycjimmy/semantic-release-action@v2
@@ -134,3 +145,36 @@ jobs:
             env:
                 GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                 CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+    publish-book:
+        name: Publish Book
+        # secrets of this environment are needed
+        environment: github-pages
+        runs-on: ubuntu-20.04
+        steps:
+          - name: Checkout
+            uses: actions/checkout@v2
+            with:
+                # use credentials, that are allowed to commit to gh-pages branch
+                ssh-key: ${{ secrets.ACTIONS_DEPLOY_KEY }}
+
+          - name: Install Graphviz
+            run: |
+              echo "$GITHUB_REF"
+              sudo apt-get update
+              sudo apt-get install -y graphviz
+
+          - name: Install mdbook and Dependencies
+            run: |
+              cargo install mdbook --locked || true
+              cargo install mdbook-linkcheck --locked || true
+              cargo install --git https://github.com/dylanowen/mdbook-graphviz || true
+
+          - name: Generate Book as Html
+            run: mdbook build book
+
+          - name: Deploy on Github Pages
+            uses: peaceiris/actions-gh-pages@v3
+            with:
+              deploy_key: ${{ secrets.ACTIONS_DEPLOY_KEY }}
+              publish_dir: ./book/book/html
