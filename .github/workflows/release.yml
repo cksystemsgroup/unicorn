@@ -95,12 +95,6 @@ jobs:
         # full history needed by semantic release (analysis commit messages)
         fetch-depth: 0
 
-    # Setup Git credentials with Github deploy key saved in environment Release
-    - name: webfactory/ssh-agent
-      uses: webfactory/ssh-agent@v0.5.1
-      with:
-        ssh-private-key: ${{ secrets.ACTIONS_DEPLOY_KEY }}
-
     - name: Install Rust
       uses: actions-rs/toolchain@v1
       with:
@@ -148,9 +142,11 @@ jobs:
 
     - name: Merge Release Commit into Main
       run: |
+        git add Cargo.lock
+        git commit -m "chore(release): update lock version of Monster [skip ci]"
         git switch main
         git pull --rebase
-        git merge release -m "chore: merge successfull release into main [skip ci]"
+        git merge release -m "chore(release): merge successfull release into main [skip ci]"
         git push
 
   publish-book:
