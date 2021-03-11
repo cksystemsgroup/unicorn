@@ -21,3 +21,7 @@ plugins:
     plugins:
     - - '@semantic-release/exec'
       - successCmd: "cargo update --package monster-rs && git add Cargo.lock"
+- - 'semantic-release-slack-bot'
+  - notifyOnSuccess: true
+    notifyOnFail: true
+    packageName: monster

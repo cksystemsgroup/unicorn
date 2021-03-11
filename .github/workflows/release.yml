@@ -143,18 +143,30 @@ jobs:
       with:
         name: monster-macos
 
+    # Executes the following sub steps:
+    # 1. analyze Git commit messages (conventional commits) and tags
+    # 2. compute a new version based on commit message types and the latest git tag
+    # 3. compute the release notes based on commit messages (feat and fix types are included)
+    # 4. adjust the version in the manifest (Cargo.toml)
+    # 5. create a Git tag with new version
+    # 6. create a Github Release with version, release notes and release binaries
+    # 7. publish the package monster-rs on crates.io
+    # 8. commit modified Cargo.toml and Cargo.lock on release branch
+    # 9. merge release branch back into main
+    # 10. notify developers in Slack
     - name: Semantic Release
       uses: cycjimmy/semantic-release-action@v2
-      id: semantic
       with:
-        semantic_version: 17.1.1
+        semantic_version: 17.4.1
         extra_plugins: |
             @semantic-release/exec@5.0
             @semantic-release/git@9.0
             @saithodev/semantic-release-backmerge@1.2
+            semantic-release-slack-bot@2.1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        SLACK_WEBHOOK: ${{ secrets.SEMANTIC_RELEASE_SLACK_WEBHOOK }}
 
   publish-book:
     name: Publish Book
@@ -170,7 +182,6 @@ jobs:
 
     - name: Install Graphviz
       run: |
-        echo "$GITHUB_REF"
         sudo apt-get update
         sudo apt-get install -y graphviz
 
