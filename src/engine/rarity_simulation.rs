@@ -179,13 +179,15 @@ impl BugFinder<RarityBugInfo, RaritySimulationError> for RaritySimulation {
         for iteration in 0..self.options.iterations {
             info!("Running rarity simulation round {}...", iteration + 1);
 
-            create_missing_executors(
-                &mut executors,
-                self.options.amount_of_states,
-                self.options.copy_init_ratio,
-                self.options.memory_size,
-                program,
-            );
+            time_info!("Creating states", {
+                create_missing_executors(
+                    &mut executors,
+                    self.options.amount_of_states,
+                    self.options.copy_init_ratio,
+                    self.options.memory_size,
+                    program,
+                )
+            });
 
             let results = time_info!("Running engines", {
                 match run_all(&mut executors, self.options.step_size) {
