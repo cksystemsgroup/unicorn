@@ -1,17 +1,23 @@
 branches:
-  - name: release
+- name: release
 
 plugins:
-  - '@semantic-release/commit-analyzer'
-  - '@semantic-release/release-notes-generator'
-  - - '@semantic-release/github'
-    - assets:
-      - path: monster-x86_64-unknown-linux-gnu
-      - path: monster-x86_64-apple-darwin
-      - path: monster-x86_64-pc-windows-msvc.exe
-  - - '@semantic-release/exec'
-    - verifyConditionsCmd: "semantic-release-rust verify-conditions"
-      prepareCmd: "semantic-release-rust prepare ${nextRelease.version}"
-      publishCmd: "semantic-release-rust publish"
-  - - '@semantic-release/git'
-    - assets: Cargo.toml
+- '@semantic-release/commit-analyzer'
+- '@semantic-release/release-notes-generator'
+- - '@semantic-release/github'
+  - assets:
+    - path: monster-x86_64-unknown-linux-gnu
+    - path: monster-x86_64-apple-darwin
+    - path: monster-x86_64-pc-windows-msvc.exe
+- - '@semantic-release/exec'
+  - verifyConditionsCmd: "semantic-release-rust verify-conditions"
+    prepareCmd: "semantic-release-rust prepare ${nextRelease.version}"
+    publishCmd: "semantic-release-rust publish"
+- - '@semantic-release/git'
+  - assets: Cargo.toml
+- - '@saithodev/semantic-release-backmerge'
+  - branchName: 'main'
+    message: 'chore(release): merge successfull release back into main [skip ci]'
+    plugins:
+    - - '@semantic-release/exec'
+      - successCmd: "cargo update --package monster-rs && git add Cargo.lock"

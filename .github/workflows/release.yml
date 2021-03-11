@@ -63,11 +63,18 @@ jobs:
       run: |
         ${{ format('sed -i -e "s/^version[[:space:]]*=[[:space:]]*\"[[:digit:]]*.[[:digit:]]*.[[:digit:]]*\"/version = \"{0}\"/g" Cargo.toml', steps.compute_version.outputs.new_version) }}
 
+    # Sync lock file for build with --locked flag
+    - name: Update Lock File to New Manifest Version
+      uses: actions-rs/cargo@v1
+      with:
+          command: update
+          args: --package monster-rs
+
     - name: Build
       uses: actions-rs/cargo@v1
       with:
           command: build
-          args: --release --target ${{ matrix.target }} --features ${{ matrix.features }}
+          args: --release --target ${{ matrix.target }} --features ${{ matrix.features }} --locked
 
     - name: Rename Binary
       shell: bash
@@ -80,12 +87,20 @@ jobs:
         path: monster-${{ matrix.target }}${{ matrix.extension }}
         if-no-files-found: error
 
+  # TODO: Sign bot commits, once this is supported:
+  # https://github.com/actions/runner/issues/667
   release:
     name: Semantic Release
     needs: build
     # secrets of this environment are needed
     environment: Release
     runs-on: ubuntu-20.04
+    env:
+      # Configure author for bot commits using the github-actions bot credentials
+      GIT_AUTHOR_NAME: "Github Action"
+      GIT_AUTHOR_EMAIL: "action@github.com"
+      GIT_COMMITTER_NAME: "Github Action"
+      GIT_COMMITTER_EMAIL: "action@github.com"
     steps:
     - name: Checkout
       uses: actions/checkout@v2
@@ -113,7 +128,7 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: build
-        args: --release --all-features
+        args: --release --all-features --locked
 
     # Download all binary artifacts to release
     - uses: actions/download-artifact@v2
@@ -136,18 +151,10 @@ jobs:
         extra_plugins: |
             @semantic-release/exec@5.0
             @semantic-release/git@9.0
+            @saithodev/semantic-release-backmerge@1.2
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-
-    - name: Merge Release Commit into Main
-      run: |
-        git add Cargo.lock
-        git commit -m "chore(release): update lock version of Monster [skip ci]"
-        git switch main
-        git pull --rebase
-        git merge release -m "chore(release): merge successfull release into main [skip ci]"
-        git push
 
   publish-book:
     name: Publish Book
@@ -181,3 +188,5 @@ jobs:
       with:
         deploy_key: ${{ secrets.ACTIONS_DEPLOY_KEY }}
         publish_dir: ./book/book/html
+        user_name: "Github Action"
+        user_email: "action@github.com"
