@@ -72,7 +72,7 @@ fn main() -> Result<()> {
             let strategy = expect_arg::<ExplorationStrategyType>(&args, "strategy")?;
             let options = SymbolicExecutionOptions {
                 max_exection_depth: expect_arg(args, "max-execution-depth")?,
-                memory_size: ByteSize::mb(expect_arg(args, "memory")?),
+                memory_size: ByteSize::mib(expect_arg(args, "memory")?),
             };
 
             let program = load_object_file(&input)?;
@@ -144,7 +144,7 @@ fn main() -> Result<()> {
             let input = expect_arg::<PathBuf>(args, "input-file")?;
 
             let options = RaritySimulationOptions {
-                memory_size: ByteSize::mb(expect_arg(args, "memory")?),
+                memory_size: ByteSize::mib(expect_arg(args, "memory")?),
                 amount_of_states: expect_arg(args, "states")?,
                 step_size: expect_arg(args, "step-size")?,
                 selection: expect_arg(args, "selection")?,

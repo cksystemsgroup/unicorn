@@ -117,7 +117,7 @@ pub fn args() -> App<'static, 'static> {
                         .long("memory")
                         .takes_value(true)
                         .value_name("NUMBER")
-                        .default_value(formatcp!("{}", symbolic_defaults::MEMORY_SIZE.0 / bytesize::MB))
+                        .default_value(formatcp!("{}", symbolic_defaults::MEMORY_SIZE.0 / bytesize::MIB))
                         .validator(is_valid_memory_size),
                 )
                 .arg(
@@ -147,7 +147,7 @@ pub fn args() -> App<'static, 'static> {
                         .long("memory")
                         .takes_value(true)
                         .value_name("NUMBER")
-                        .default_value(formatcp!("{}", rarity_defaults::MEMORY_SIZE.0 / bytesize::MB))
+                        .default_value(formatcp!("{}", rarity_defaults::MEMORY_SIZE.0 / bytesize::MIB))
                         .validator(is_valid_memory_size),
                 )
                 .arg(

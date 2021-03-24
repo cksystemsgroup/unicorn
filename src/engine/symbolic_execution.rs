@@ -22,7 +22,7 @@ const INSTRUCTION_SIZE: u64 = INSTR_SIZE as u64;
 pub mod defaults {
     use super::*;
 
-    pub const MEMORY_SIZE: ByteSize = ByteSize(bytesize::MB);
+    pub const MEMORY_SIZE: ByteSize = ByteSize(bytesize::MIB);
     pub const MAX_EXECUTION_DEPTH: u64 = 1000;
 }
 

@@ -28,7 +28,7 @@
 
 use super::{
     system::{instruction_to_str, SyscallId},
-    Bug as GenericBug, BugFinder, BugInfo,
+    Bug as GenericBug, BugFinder, BugInfo, VirtualMemory,
 };
 use byteorder::{ByteOrder, LittleEndian};
 use bytesize::ByteSize;
@@ -55,7 +55,7 @@ const NUMBER_OF_BYTE_VALUES: u64 = 256;
 pub mod defaults {
     use super::*;
 
-    pub const MEMORY_SIZE: ByteSize = ByteSize(bytesize::MB);
+    pub const MEMORY_SIZE: ByteSize = ByteSize(bytesize::MIB);
     pub const AMOUNT_OF_STATES: usize = 3000;
     pub const STEP_SIZE: u64 = 1000;
     pub const SELECTION: usize = 50;
@@ -146,7 +146,7 @@ pub struct State {
     /// Processor integer registers x0..x31
     regs: [Value; 32],
     /// List of touched and untouched memory words
-    memory: Vec<Value>,
+    memory: VirtualMemory<Value>,
 }
 
 type Address = u64;
@@ -321,6 +321,12 @@ pub enum Value {
     Uninitialized,
 }
 
+impl Default for Value {
+    fn default() -> Self {
+        Value::Uninitialized
+    }
+}
+
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -349,7 +355,10 @@ impl Executor {
         );
 
         let mut regs = [Value::Uninitialized; 32];
-        let mut memory = vec![Value::Uninitialized; memory_size.as_u64() as usize / 8];
+        let mut memory = VirtualMemory::new(
+            memory_size.as_u64() as usize / 8,
+            bytesize::KIB as usize / 8,
+        );
 
         let sp = memory_size.as_u64() - 8;
         regs[Register::Sp as usize] = Value::Concrete(sp);
@@ -500,7 +509,7 @@ impl Executor {
     }
 
     fn is_in_vaddr_range(&self, vaddr: u64) -> bool {
-        vaddr as usize / size_of::<u64>() < self.state.memory.len()
+        vaddr as usize / size_of::<u64>() < self.state.memory.size()
     }
 
     fn check_for_valid_memory_address(&mut self, instruction: &str, address: u64) -> Option<Bug> {
@@ -527,7 +536,7 @@ impl Executor {
                 "{}: address {:#x} out of virtual address range (0x0 - {:#x}) => computing reachability",
                 instruction,
                 address,
-                self.state.memory.len() * 8,
+                self.state.memory.size() * 8,
             );
 
             self.is_running = false;
@@ -555,7 +564,7 @@ impl Executor {
                 instruction,
                 address,
                 address + size,
-                self.state.memory.len() * 8,
+                self.state.memory.size() * 8,
             );
 
             self.is_running = false;
@@ -1075,7 +1084,7 @@ impl Executor {
     }
 }
 
-fn load_segment(memory: &mut Vec<Value>, segment: &ProgramSegment<u8>) {
+fn load_segment(memory: &mut VirtualMemory<Value>, segment: &ProgramSegment<u8>) {
     let start = segment.address as usize / size_of::<u64>();
     let end = start + segment.content.len() / size_of::<u64>();
 

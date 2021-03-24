@@ -1,10 +1,12 @@
 pub mod bug;
+pub mod memory;
 pub mod rarity_simulation;
 pub mod symbolic_execution;
 pub mod symbolic_state;
 pub mod system;
 
 pub use bug::*;
+pub use memory::*;
 pub use rarity_simulation::*;
 pub use symbolic_execution::*;
 
