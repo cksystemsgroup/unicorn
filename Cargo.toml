@@ -50,7 +50,7 @@ itertools = "~0.10.0"
 anyhow = "~1.0.40"
 thiserror = "~1.0.24"
 divisors = "~0.2.1"
-const_format = "~0.2.13"
+const_format = "~0.2.14"
 lazy_static = "~1.4.0"
 boolector = { version = "~0.4.2", features = ["vendor-lgl"], optional = true }
 z3 = { version = "~0.10.0", features = ["static-link-z3"], optional = true }
