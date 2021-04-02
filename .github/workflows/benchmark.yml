@@ -1,0 +1,44 @@
+name: Benchmark
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build-and-bench:
+    name: Build and Benchmark on big-iron8
+    # The secret runner token is referenced in the environment in order
+    # to be sent along with the job to our runners. Note that validity
+    # of the token will be checked by our forked runner:
+    # https://github.com/cksystemsgroup/github-actions-runner/tree/main-hard
+    env:
+      TOKEN: ${{ secrets.RUNNER_TOKEN }}
+    runs-on: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Install Rust 1.50.0
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: 1.50.0
+          override: true
+
+      - name: Build Benchmarks
+        uses: actions-rs/cargo@v1
+        with:
+          command: bench
+          args: --benches --no-run --features z3,boolector --locked
+
+      - name: Run Benchmarks
+        uses: actions-rs/cargo@v1
+        with:
+          command: bench
+          args: --benches --features z3,boolector --locked
