@@ -62,7 +62,8 @@ fn bench_shortes_paths_vs_coin_flip(c: &mut Criterion) {
                 max_exection_depth: match source.file_name().unwrap().to_str().unwrap() {
                     "two-level-nested-loop-1-35.c" => 230,
                     "recursive-fibonacci-1-10.c" => 300,
-                    _ => 1000000,
+                    "count_up_down-1.c" => 1000000,
+                    _ => 1000,
                 },
                 ..Default::default()
             };
@@ -97,6 +98,7 @@ fn bench_shortes_paths_vs_coin_flip(c: &mut Criterion) {
                 max_exection_depth: match source.file_name().unwrap().to_str().unwrap() {
                     "two-level-nested-loop-1-35.c" => 230,
                     "recursive-fibonacci-1-10.c" => 300,
+                    "count_up_down-1.c" => 1000000,
                     _ => 1000,
                 },
                 ..Default::default()

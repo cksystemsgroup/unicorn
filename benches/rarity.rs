@@ -7,19 +7,27 @@ use std::{
 };
 use utils::TestFileCompiler;
 
-const TEST_FILES: [&str; 3] = ["if-simple.c", "long-loop-fixed.c", "select-rare.c"];
+const TEST_FILES: [&str; 4] = [
+    "demonstration.c",
+    "if-simple.c",
+    "long-loop-fixed.c",
+    "select-rare.c",
+];
+
+const SAMPLE_SIZE: usize = 50;
+const WARM_UP_TIME: Duration = Duration::from_secs(1);
 
 lazy_static! {
     static ref COMPILER: TestFileCompiler = TestFileCompiler::new(&TEST_FILES);
 }
 
-criterion_group!(benches, bench_rarity,);
+criterion_group!(benches, bench_rarity);
 criterion_main!(benches);
 
 fn bench_rarity(c: &mut Criterion) {
     let mut group = c.benchmark_group("Rarity");
 
-    group.sample_size(50).warm_up_time(Duration::from_secs(1));
+    group.sample_size(SAMPLE_SIZE).warm_up_time(WARM_UP_TIME);
 
     COMPILER.objects().iter().for_each(|object| {
         let id = object.file_name().unwrap().to_str().unwrap();

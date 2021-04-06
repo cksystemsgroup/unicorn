@@ -21,24 +21,23 @@ use monster::solver::Boolector;
 use monster::solver::Z3;
 
 const TEST_FILES: [&str; 4] = [
-    "count_up_down-1.c",
-    "simple_3-1.c",
-    "sum01-1.c",
     "demonstration.c",
+    "if-simple.c",
+    "long-loop-fixed.c",
+    "select-rare.c",
 ];
+
+const SAMPLE_SIZE: usize = 100;
+const WARM_UP_TIME: Duration = Duration::from_secs(1);
 
 lazy_static! {
     static ref COMPILER: TestFileCompiler = TestFileCompiler::new(&TEST_FILES);
 }
 
-criterion_group!(
-    benches,
-    bench_demonstration,
-    bench_solver_avg,
-    bench_solver_individual
-);
+criterion_group!(benches, bench_solver_individual);
 criterion_main!(benches);
 
+#[allow(dead_code)] // disabled, kept for demonstration
 fn bench_demonstration(c: &mut Criterion) {
     let object_file = COMPILER.object("demonstration.c");
 
@@ -59,10 +58,11 @@ fn bench_demonstration(c: &mut Criterion) {
     });
 }
 
+#[allow(dead_code)] // disabled, kept for demonstration
 fn bench_solver_avg(c: &mut Criterion) {
     let mut group = c.benchmark_group("Engine");
 
-    group.sample_size(100).warm_up_time(Duration::from_secs(1));
+    group.sample_size(SAMPLE_SIZE).warm_up_time(WARM_UP_TIME);
 
     group.bench_function("Monster", |b| {
         b.iter(|| execute_all::<MonsterSolver>(COMPILER.objects()))
@@ -79,8 +79,8 @@ fn bench_solver_individual(c: &mut Criterion) {
     {
         let mut monster_grp = c.benchmark_group("Monster");
         monster_grp
-            .warm_up_time(Duration::from_secs(2))
-            .sample_size(30);
+            .sample_size(SAMPLE_SIZE)
+            .warm_up_time(WARM_UP_TIME);
 
         COMPILER.objects().iter().for_each(|source| {
             let id = source.file_name().unwrap().to_str().unwrap();
@@ -94,8 +94,8 @@ fn bench_solver_individual(c: &mut Criterion) {
     {
         let mut boolector_grp = c.benchmark_group("Boolector");
         boolector_grp
-            .warm_up_time(Duration::from_secs(2))
-            .sample_size(30);
+            .sample_size(SAMPLE_SIZE)
+            .warm_up_time(WARM_UP_TIME);
 
         COMPILER.objects().iter().for_each(|source| {
             let id = source.file_name().unwrap().to_str().unwrap();
@@ -108,7 +108,7 @@ fn bench_solver_individual(c: &mut Criterion) {
     #[cfg(feature = "z3")]
     {
         let mut z3_grp = c.benchmark_group("Z3");
-        z3_grp.warm_up_time(Duration::from_secs(2)).sample_size(30);
+        z3_grp.sample_size(SAMPLE_SIZE).warm_up_time(WARM_UP_TIME);
 
         COMPILER.objects().iter().for_each(|source| {
             let id = source.file_name().unwrap().to_str().unwrap();
