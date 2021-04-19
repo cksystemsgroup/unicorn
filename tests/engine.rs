@@ -13,7 +13,7 @@ use std::{
 };
 use utils::{compile_riscu, init, with_temp_dir};
 
-const TEST_FILES: [&str; 20] = [
+const TEST_FILES: [&str; 21] = [
     "arithmetic.c",
     "echo-line.c",
     "if-else.c", // needs timeout
@@ -22,6 +22,7 @@ const TEST_FILES: [&str; 20] = [
     "simple-assignment-1-35.c",
     "test-remu.c",
     "test-sltu.c",
+    "test-sltu-2.c",
     //"memory-access-1-35.c",
     "memory-invalid-read.c",
     "memory-invalid-write.c",
@@ -184,6 +185,7 @@ fn execute_riscu<S: Solver>(source: PathBuf, object: PathBuf, solver: &S) {
                 ("simple-assignment-1-35.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
                 ("test-remu.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
                 ("test-sltu.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
+                ("test-sltu-2.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
                 //("memory-access-1-35.c", Bug::
                 ("memory-invalid-read.c", SymbolicExecutionBug::AccessToOutOfRangeAddress { .. }) |
                 ("memory-invalid-write.c", SymbolicExecutionBug::AccessToOutOfRangeAddress { .. }) |

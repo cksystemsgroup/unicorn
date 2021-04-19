@@ -66,21 +66,22 @@ fn is_invertable(op: BVOperator, s: BitVector, t: BitVector, d: OperandSide) -> 
                 }
             }
         },
-        BVOperator::Sltu => {
-            // (x<s) = t
-            if d == OperandSide::Lhs {
-                if t == BitVector(1) {
+        BVOperator::Sltu => match d {
+            OperandSide::Lhs => {
+                if t != BitVector(0) {
                     !(s == BitVector(0))
                 } else {
                     true
                 }
-            // (s<x) = t
-            } else if t == BitVector(1) {
-                !(s == BitVector::ones())
-            } else {
-                true
             }
-        }
+            OperandSide::Rhs => {
+                if t != BitVector(0) {
+                    !(s == BitVector::ones())
+                } else {
+                    true
+                }
+            }
+        },
         BVOperator::Remu => match d {
             OperandSide::Lhs => !(s <= t),
             OperandSide::Rhs => {
@@ -93,7 +94,7 @@ fn is_invertable(op: BVOperator, s: BitVector, t: BitVector, d: OperandSide) -> 
     }
 }
 
-// initialize bit vectors with a consistent intial assignment to the formula
+// initialize bit vectors with a consistent initial assignment to the formula
 // inputs are initialized with random values
 fn initialize_ab<F: Formula>(formula: &F) -> Vec<BitVector> {
     // Initialize values for all input/const nodes
@@ -197,27 +198,28 @@ fn compute_inverse_value(op: BVOperator, s: BitVector, t: BitVector, d: OperandS
 
             result | arbitrary_bits
         }
-        BVOperator::Sltu => {
-            if d == OperandSide::Lhs {
+        BVOperator::Sltu => match d {
+            OperandSide::Lhs => {
                 if t == BitVector(0) {
-                    // x<s == false
-                    // therefore we need a random x>=s
+                    // x<s == false; therefore we need a random x>=s
                     BitVector(thread_rng().sample(Uniform::new_inclusive(s.0, BitVector::ones().0)))
                 } else {
-                    // x<s == true
-                    // therefore we need a random x<s
+                    // x<s == true; therefore we need a random x<s
                     BitVector(thread_rng().sample(Uniform::new(0, s.0)))
                 }
-            } else if t == BitVector(0) {
-                // s<x == false
-                // therefore we need a random x<=s
-                BitVector(thread_rng().sample(Uniform::new_inclusive(0, s.0)))
-            } else {
-                // s<x == true
-                // therefore we need a random x>s
-                BitVector(thread_rng().sample(Uniform::new_inclusive(s.0 + 1, BitVector::ones().0)))
             }
-        }
+            OperandSide::Rhs => {
+                if t == BitVector(0) {
+                    // s<x == false; therefore we need a random x<=s
+                    BitVector(thread_rng().sample(Uniform::new_inclusive(0, s.0)))
+                } else {
+                    // s<x == true; therefore we need a random x>s
+                    BitVector(
+                        thread_rng().sample(Uniform::new_inclusive(s.0 + 1, BitVector::ones().0)),
+                    )
+                }
+            }
+        },
         BVOperator::Divu => match d {
             OperandSide::Lhs => {
                 if (t == BitVector::ones()) && (s == BitVector(1)) {
@@ -346,8 +348,8 @@ fn compute_consistent_value(op: BVOperator, t: BitVector, d: OperandSide) -> Bit
                 }
             }
         },
-        BVOperator::Sltu => {
-            if d == OperandSide::Lhs {
+        BVOperator::Sltu => match d {
+            OperandSide::Lhs => {
                 if t == BitVector(0) {
                     // x<s == false
                     BitVector(thread_rng().sample(Uniform::new_inclusive(0, BitVector::ones().0)))
@@ -355,14 +357,17 @@ fn compute_consistent_value(op: BVOperator, t: BitVector, d: OperandSide) -> Bit
                     // x<s == true
                     BitVector(thread_rng().sample(Uniform::new(0, BitVector::ones().0)))
                 }
-            } else if t == BitVector(0) {
-                // s<x == false
-                BitVector(thread_rng().sample(Uniform::new_inclusive(0, BitVector::ones().0)))
-            } else {
-                // s<x == true
-                BitVector(thread_rng().sample(Uniform::new(1, BitVector::ones().0)))
             }
-        }
+            OperandSide::Rhs => {
+                if t == BitVector(0) {
+                    // s<x == false
+                    BitVector(thread_rng().sample(Uniform::new_inclusive(0, BitVector::ones().0)))
+                } else {
+                    // s<x == true
+                    BitVector(thread_rng().sample(Uniform::new(1, BitVector::ones().0)))
+                }
+            }
+        },
         BVOperator::Remu => match d {
             OperandSide::Lhs => {
                 if t == BitVector::ones() {
