@@ -250,12 +250,18 @@ fn compute_inverse_value(op: BVOperator, s: BitVector, t: BitVector, d: OperandS
         BVOperator::Remu => match d {
             OperandSide::Lhs => {
                 let y = BitVector(
-                    thread_rng().sample(Uniform::new_inclusive(1, (BitVector::ones() - t / s).0)),
+                    thread_rng().sample(Uniform::new_inclusive(1, ((BitVector::ones() - t) / s).0)),
                 );
-                if !(s.0.overflowing_mul(y.0).1) && !(t.0.overflowing_add(y.0 * s.0).1) {
-                    return y;
-                }
-                panic!("Big Error in REMU Inverse Value (LHS)")
+                // below computation cannot overflow due to how `y` was chosen
+                assert!(
+                    !s.0.overflowing_mul(y.0).1,
+                    "multiplication overflow in REMU inverse"
+                );
+                assert!(
+                    !t.0.overflowing_add(y.0 * s.0).1,
+                    "addition overflow in REMU inverse"
+                );
+                y * s + t
             }
             OperandSide::Rhs => {
                 if s == t {
@@ -859,6 +865,7 @@ mod tests {
     const MUL: BVOperator = BVOperator::Mul;
     const SLTU: BVOperator = BVOperator::Sltu;
     const DIVU: BVOperator = BVOperator::Divu;
+    const REMU: BVOperator = BVOperator::Remu;
 
     #[test]
     fn check_invertability_condition_for_divu() {
@@ -912,20 +919,6 @@ mod tests {
             true,
             "operand with undetermined bits and no inverse value",
         );
-    }
-
-    #[test]
-    fn compute_inverse_values_for_divu() {
-        fn f(l: BitVector, r: BitVector) -> BitVector {
-            l / r
-        }
-
-        // test only for values which are actually invertable
-        test_inverse_value_computation(DIVU, 0b1, 0b1, OperandSide::Lhs, f);
-        test_inverse_value_computation(DIVU, 0b1, 0b1, OperandSide::Rhs, f);
-
-        test_inverse_value_computation(DIVU, 2, 3, OperandSide::Lhs, f);
-        test_inverse_value_computation(DIVU, 6, 2, OperandSide::Rhs, f);
     }
 
     #[test]
@@ -1002,6 +995,39 @@ mod tests {
         test_inverse_value_computation(SLTU, 0, 0, side, f);
         test_inverse_value_computation(SLTU, u64::max_value() - 1, 1, side, f);
         test_inverse_value_computation(SLTU, 1, 1, side, f);
+    }
+
+    #[test]
+    fn compute_inverse_values_for_divu() {
+        fn f(l: BitVector, r: BitVector) -> BitVector {
+            l / r
+        }
+
+        // test only for values which are actually invertable
+        test_inverse_value_computation(DIVU, 0b1, 0b1, OperandSide::Lhs, f);
+        test_inverse_value_computation(DIVU, 0b1, 0b1, OperandSide::Rhs, f);
+
+        test_inverse_value_computation(DIVU, 2, 3, OperandSide::Lhs, f);
+        test_inverse_value_computation(DIVU, 6, 2, OperandSide::Rhs, f);
+    }
+
+    #[test]
+    fn compute_inverse_values_for_remu() {
+        fn f(l: BitVector, r: BitVector) -> BitVector {
+            l % r
+        }
+
+        // test only for values which are actually invertable
+        test_inverse_value_computation(REMU, u64::max_value(), 0, OperandSide::Lhs, f);
+        test_inverse_value_computation(
+            REMU,
+            u64::max_value() - 1,
+            u64::max_value() - 1,
+            OperandSide::Rhs,
+            f,
+        );
+        test_inverse_value_computation(REMU, 3, 2, OperandSide::Lhs, f);
+        test_inverse_value_computation(REMU, 5, 2, OperandSide::Rhs, f);
     }
 
     #[test]
