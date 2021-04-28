@@ -42,3 +42,25 @@ jobs:
         with:
           command: bench
           args: --benches --features z3,boolector --locked
+
+      - name: Generate Metadata
+        run: |
+          echo "::set-output name=SHORT_SHA::$(echo $GITHUB_SHA | cut -c-8)"
+          echo $COMMIT_JSON > ./target/criterion/commit.json
+        id: metadata
+        env:
+          COMMIT_JSON: ${{ toJson(github.event.head_commit) }}
+
+      - name: Deploy Results
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          deploy_key: ${{ secrets.PERF_DEPLOY_KEY }}
+          # TODO: Move to "cksystemsgroup" once everything works.
+          external_repository: mstarzinger/monster-perf
+          destination_dir: data/commit-${{ steps.metadata.outputs.SHORT_SHA }}
+          publish_branch: main
+          publish_dir: ./target/criterion
+          user_name: "github-actions[bot]"
+          user_email: "github-actions[bot]@users.noreply.github.com"
+          commit_message: "add benchmark data"
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
