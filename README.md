@@ -4,7 +4,7 @@
 [![Crate](https://img.shields.io/crates/v/monster-rs.svg)](https://crates.io/crates/monster-rs)
 [![API](https://docs.rs/monster-rs/badge.svg)](https://docs.rs/monster-rs)
 ![Experimental Status](https://img.shields.io/badge/status-experimental-yellow.svg)
-![Rust Version](https://img.shields.io/badge/Rust-v1.50.0-yellow)
+![Rust Version](https://img.shields.io/badge/Rust-v1.52.0-yellow)
 ![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-brightgreen)
 [![Lines of Code](https://img.shields.io/tokei/lines/github/cksystemsgroup/monster)](https://github.com/cksystemsgroup/monster)
 [![License](https://img.shields.io/crates/l/monster-rs)](https://github.com/cksystemsgroup/monster/blob/master/LICENSE)
@@ -41,7 +41,7 @@ Just make sure you build for one of these targets:
  - x86_64-apple-darwin
  - x86_64-pc-windows-msvc
 
-1. Bootstrap Rust v1.50.0 from [https://rustup.rs](https://rustup.rs) and make sure:
+1. Bootstrap Rust v1.52.0 from [https://rustup.rs](https://rustup.rs) and make sure:
  - you install it with one of the supported host triples and 
  - add it to your path
 2. Install Rustfmt (formatter) and Clippy (linter)

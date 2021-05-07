@@ -108,13 +108,7 @@ pub fn compute_distances(cfg: &ControlFlowGraph) -> HashMap<NodeIndex, u64> {
 
         let distances_for_idx = unrolled
             .node_indices()
-            .filter_map(|i| {
-                if let Some(d) = distances.get(&i) {
-                    Some((unrolled[i], *d))
-                } else {
-                    None
-                }
-            })
+            .filter_map(|i| distances.get(&i).map(|d| (unrolled[i], *d)))
             .into_group_map();
 
         distances_for_idx

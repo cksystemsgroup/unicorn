@@ -38,7 +38,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        toolchain: [1.50.0]
+        toolchain: [1.52.0]
         os: [ubuntu-20.04, macos-10.15, windows-2019]
         experimental: [false]
         include:

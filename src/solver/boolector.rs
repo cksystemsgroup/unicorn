@@ -43,18 +43,16 @@ impl Solver for Boolector {
                 let assignments = formula
                     .symbol_ids()
                     .filter_map(|i| {
-                        if let Some(bv) = bvs.get(&i) {
-                            Some((
+                        bvs.get(&i).map(|bv| {
+                            (
                                 i,
                                 BitVector(
                                     bv.get_a_solution()
                                         .as_u64()
                                         .expect("BV always fits in 64 bits for our machine"),
                                 ),
-                            ))
-                        } else {
-                            None
-                        }
+                            )
+                        })
                     })
                     .collect();
 

@@ -24,10 +24,8 @@ impl BitVector {
     }
 
     pub fn modinverse(&self) -> Option<BitVector> {
-        match modinverse::modinverse((self.0 as u128) as i128, 2_i128.pow(64)) {
-            Some(res) => Some(BitVector(res as u64)),
-            None => None,
-        }
+        modinverse::modinverse((self.0 as u128) as i128, 2_i128.pow(64))
+            .map(|res| BitVector(res as u64))
     }
 
     pub fn addo(&self, t: BitVector) -> bool {

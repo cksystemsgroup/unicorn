@@ -43,9 +43,9 @@ impl Disassembly {
     }
 }
 
-impl Into<DecodedProgram> for Disassembly {
-    fn into(self) -> DecodedProgram {
-        self.decoded
+impl From<Disassembly> for DecodedProgram {
+    fn from(disassembly: Disassembly) -> DecodedProgram {
+        disassembly.decoded
     }
 }
 

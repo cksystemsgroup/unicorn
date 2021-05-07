@@ -49,10 +49,7 @@ impl Solver for Z3 {
                 Ok(Some(
                     formula
                         .symbol_ids()
-                        .filter_map(|i| match bv_for_node_idx(i, translation, &model) {
-                            Some(bv) => Some((i, bv)),
-                            None => None,
-                        })
+                        .filter_map(|i| bv_for_node_idx(i, translation, &model).map(|bv| (i, bv)))
                         .collect(),
                 ))
             }

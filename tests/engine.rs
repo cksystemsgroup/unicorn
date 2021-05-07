@@ -82,10 +82,8 @@ fn execute_with_different_memory_sizes() {
 
                 assert!(
                     result.is_ok(),
-                    format!(
-                        "can symbolically execute '{}' without error",
-                        source.to_str().unwrap()
-                    )
+                    "can symbolically execute '{}' without error",
+                    source.to_str().unwrap()
                 );
             });
         });
@@ -159,17 +157,16 @@ fn execute_riscu<S: Solver>(source: PathBuf, object: PathBuf, solver: &S) {
 
     assert!(
         result.is_ok(),
-        format!(
-            "can symbolically execute '{}' without error",
-            source.to_str().unwrap()
-        )
+        "can symbolically execute '{}' without error",
+        source.to_str().unwrap()
     );
 
     let possible_bug = result.unwrap();
 
     assert!(
         possible_bug.is_some(),
-        format!("found a bug in '{}'", source.to_str().unwrap())
+        "found a bug in '{}'",
+        source.to_str().unwrap()
     );
 
     let bug = possible_bug.unwrap();
