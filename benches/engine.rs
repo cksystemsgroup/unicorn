@@ -1,10 +1,12 @@
 use bytesize::ByteSize;
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use lazy_static::lazy_static;
 use monster::{
+    engine::rarity_simulation::*,
     engine::SymbolicExecutionOptions,
     load_elf,
     path_exploration::ShortestPathStrategy,
+    rarity_simulate_elf_with,
     solver::{MonsterSolver, Solver},
     symbolically_execute_with,
 };
@@ -41,89 +43,89 @@ criterion_main!(benches);
 fn bench_demonstration(c: &mut Criterion) {
     let object_file = COMPILER.object("demonstration.c");
 
-    let mut group = c.benchmark_group("Engine");
+    let mut group = c.benchmark_group("EngineDemo");
 
     group.sample_size(1000).warm_up_time(Duration::from_secs(3));
 
     group.bench_function("Monster", |b| {
-        b.iter(|| execute_single::<MonsterSolver, &PathBuf>(object_file))
+        b.iter(|| execute_symbolically::<MonsterSolver, &PathBuf>(object_file))
     });
     #[cfg(feature = "boolector")]
     group.bench_function("Boolector", |b| {
-        b.iter(|| execute_single::<Boolector, &PathBuf>(object_file))
+        b.iter(|| execute_symbolically::<Boolector, &PathBuf>(object_file))
     });
     #[cfg(feature = "z3")]
     group.bench_function("Z3", |b| {
-        b.iter(|| execute_single::<Z3, &PathBuf>(object_file))
+        b.iter(|| execute_symbolically::<Z3, &PathBuf>(object_file))
     });
+
+    group.finish();
 }
 
 #[allow(dead_code)] // disabled, kept for demonstration
 fn bench_solver_avg(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Engine");
+    let mut group = c.benchmark_group("EngineAvg");
 
     group.sample_size(SAMPLE_SIZE).warm_up_time(WARM_UP_TIME);
 
     group.bench_function("Monster", |b| {
-        b.iter(|| execute_all::<MonsterSolver>(COMPILER.objects()))
+        b.iter(|| execute_symbolically_all::<MonsterSolver>(COMPILER.objects()))
     });
     #[cfg(feature = "boolector")]
     group.bench_function("Boolector", |b| {
-        b.iter(|| execute_all::<Boolector>(COMPILER.objects()))
+        b.iter(|| execute_symbolically_all::<Boolector>(COMPILER.objects()))
     });
     #[cfg(feature = "z3")]
-    group.bench_function("Z3", |b| b.iter(|| execute_all::<Z3>(COMPILER.objects())));
+    group.bench_function("Z3", |b| {
+        b.iter(|| execute_symbolically_all::<Z3>(COMPILER.objects()))
+    });
+
+    group.finish();
 }
 
 fn bench_solver_individual(c: &mut Criterion) {
-    {
-        let mut monster_grp = c.benchmark_group("Monster");
-        monster_grp
-            .sample_size(SAMPLE_SIZE)
-            .warm_up_time(WARM_UP_TIME);
+    let mut group = c.benchmark_group("Engine");
 
-        COMPILER.objects().iter().for_each(|source| {
-            let id = source.file_name().unwrap().to_str().unwrap();
-            monster_grp.bench_function(id, |b| {
-                b.iter(|| execute_single::<MonsterSolver, &PathBuf>(source))
-            });
+    group.sample_size(SAMPLE_SIZE).warm_up_time(WARM_UP_TIME);
+
+    COMPILER.objects().iter().for_each(|source| {
+        let id = BenchmarkId::new("Monster", source.file_name().unwrap().to_str().unwrap());
+        group.bench_function(id, |b| {
+            b.iter(|| execute_symbolically::<MonsterSolver, &PathBuf>(source))
         });
-    }
+    });
 
     #[cfg(feature = "boolector")]
-    {
-        let mut boolector_grp = c.benchmark_group("Boolector");
-        boolector_grp
-            .sample_size(SAMPLE_SIZE)
-            .warm_up_time(WARM_UP_TIME);
-
-        COMPILER.objects().iter().for_each(|source| {
-            let id = source.file_name().unwrap().to_str().unwrap();
-            boolector_grp.bench_function(id, |b| {
-                b.iter(|| execute_single::<Boolector, &PathBuf>(source))
-            });
+    COMPILER.objects().iter().for_each(|source| {
+        let id = BenchmarkId::new("Boolector", source.file_name().unwrap().to_str().unwrap());
+        group.bench_function(id, |b| {
+            b.iter(|| execute_symbolically::<Boolector, &PathBuf>(source))
         });
-    }
+    });
 
     #[cfg(feature = "z3")]
-    {
-        let mut z3_grp = c.benchmark_group("Z3");
-        z3_grp.sample_size(SAMPLE_SIZE).warm_up_time(WARM_UP_TIME);
-
-        COMPILER.objects().iter().for_each(|source| {
-            let id = source.file_name().unwrap().to_str().unwrap();
-            z3_grp.bench_function(id, |b| b.iter(|| execute_single::<Z3, &PathBuf>(source)));
+    COMPILER.objects().iter().for_each(|source| {
+        let id = BenchmarkId::new("Z3", source.file_name().unwrap().to_str().unwrap());
+        group.bench_function(id, |b| {
+            b.iter(|| execute_symbolically::<Z3, &PathBuf>(source))
         });
-    }
+    });
+
+    COMPILER.objects().iter().for_each(|object| {
+        let id = BenchmarkId::new("Rarity", object.file_name().unwrap().to_str().unwrap());
+        group.bench_function(id, |b| b.iter(|| execute_rarity::<&PathBuf>(object)));
+    });
+
+    group.finish();
 }
 
-fn execute_all<S: Solver>(objects: &[PathBuf]) {
+fn execute_symbolically_all<S: Solver>(objects: &[PathBuf]) {
     objects.iter().for_each(|object_path| {
-        let _result = execute_single::<S, &PathBuf>(object_path);
+        execute_symbolically::<S, &PathBuf>(object_path);
     })
 }
 
-fn execute_single<S: Solver, P: AsRef<Path>>(object_path: P) {
+fn execute_symbolically<S: Solver, P: AsRef<Path>>(object_path: P) {
     let program = load_elf(object_path).unwrap();
     let options = SymbolicExecutionOptions {
         max_exection_depth: 5000000,
@@ -131,6 +133,14 @@ fn execute_single<S: Solver, P: AsRef<Path>>(object_path: P) {
     };
     let solver = S::default();
     let strategy = ShortestPathStrategy::compute_for(&program).unwrap();
-
     let _result = symbolically_execute_with(&program, &options, &strategy, &solver);
+}
+
+fn execute_rarity<P: AsRef<Path>>(object_path: P) {
+    let options = RaritySimulationOptions {
+        amount_of_states: 10,
+        iterations: 2,
+        ..Default::default()
+    };
+    let _result = rarity_simulate_elf_with(&object_path, &options);
 }

@@ -31,10 +31,6 @@ name = "path_exploration"
 harness = false
 required-features = ["z3"]
 
-[[bench]]
-name = "rarity"
-harness = false
-
 [dependencies]
 byteorder = "~1.4.2"
 clap = "~2.33.3"
