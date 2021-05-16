@@ -58,7 +58,7 @@ jobs:
           # TODO: Move to "cksystemsgroup" once everything works.
           external_repository: mstarzinger/monster-perf
           destination_dir: data/commit-${{ steps.metadata.outputs.SHORT_SHA }}
-          publish_branch: main
+          publish_branch: data
           publish_dir: ./target/criterion
           user_name: "github-actions[bot]"
           user_email: "github-actions[bot]@users.noreply.github.com"
