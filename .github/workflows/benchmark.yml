@@ -55,8 +55,7 @@ jobs:
         uses: peaceiris/actions-gh-pages@v3
         with:
           deploy_key: ${{ secrets.PERF_DEPLOY_KEY }}
-          # TODO: Move to "cksystemsgroup" once everything works.
-          external_repository: mstarzinger/monster-perf
+          external_repository: cksystemsgroup/monster-perf
           destination_dir: data/commit-${{ steps.metadata.outputs.SHORT_SHA }}
           publish_branch: data
           publish_dir: ./target/criterion
