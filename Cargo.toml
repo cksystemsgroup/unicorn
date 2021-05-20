@@ -57,7 +57,7 @@ z3 = { version = "~0.10.0", features = ["static-link-z3"], optional = true }
 
 [dev-dependencies]
 utils = { path = "utils" }
-rayon = "~1.5.0"
+rayon = "~1.5.1"
 tempfile = "~3.1.0"
 criterion = { version = "~0.3.4", features = ["html_reports", "cargo_bench_support", "csv_output"] }
 
