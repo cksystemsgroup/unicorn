@@ -31,7 +31,11 @@ impl ExternalSolver {
 }
 
 fn write_init<W: Write>(writer: &mut W) -> Result<(), SolverError> {
-    writeln!(writer, "(set-logic QF_BV)").map_err(SolverError::from)
+    writeln!(
+        writer,
+        "(set-option :incremental true)\n(set-option :produce-models true)\n(set-logic QF_BV)"
+    )
+    .map_err(SolverError::from)
 }
 
 impl Default for ExternalSolver {
@@ -103,19 +107,18 @@ impl FormulaVisitor<Result<SymbolId, SolverError>> for SmtPrinter {
     fn unary(
         &mut self,
         idx: SymbolId,
-        op: BVOperator,
+        _op: BVOperator,
         v: Result<SymbolId, SolverError>,
     ) -> Result<SymbolId, SolverError> {
         let mut o = self.output.lock().expect("no other thread should fail");
 
         writeln!(
-            o,
-            "(declare-fun x{} () (_ BitVec 64))\n(assert (= x{} ({} x{})))",
-            idx,
-            idx,
-            to_smt(op),
-            v?
-        )?;
+                o,
+                "(declare-fun x{} () (_ BitVec 64))\n(assert (= x{} ((_ zero_extend 63) (= x{} (_ bv0 64)))))",
+                idx,
+                idx,
+                v?,
+            )?;
 
         Ok(idx)
     }
@@ -129,15 +132,30 @@ impl FormulaVisitor<Result<SymbolId, SolverError>> for SmtPrinter {
     ) -> Result<SymbolId, SolverError> {
         let mut o = self.output.lock().expect("no other thread should fail");
 
-        writeln!(
-            o,
-            "(declare-fun x{} () (_ BitVec 64))\n(assert (= x{} ({} x{} x{})))",
-            idx,
-            idx,
-            to_smt(op),
-            lhs?,
-            rhs?
-        )?;
+        match op {
+            BVOperator::Equals | BVOperator::Sltu => {
+                writeln!(
+                o,
+                "(declare-fun x{} () (_ BitVec 64))\n(assert (= x{} ((_ zero_extend 63) ({} x{} x{}))))",
+                idx,
+                idx,
+                to_smt(op),
+                lhs?,
+                rhs?
+            )?;
+            }
+            _ => {
+                writeln!(
+                    o,
+                    "(declare-fun x{} () (_ BitVec 64))\n(assert (= x{} ({} x{} x{})))",
+                    idx,
+                    idx,
+                    to_smt(op),
+                    lhs?,
+                    rhs?
+                )?;
+            }
+        };
 
         Ok(idx)
     }
@@ -147,7 +165,7 @@ fn to_smt(op: BVOperator) -> &'static str {
     match op {
         BVOperator::Add => "bvadd",
         BVOperator::Sub => "bvsub",
-        BVOperator::Not => "not",
+        BVOperator::Not => panic!("no direct translation"),
         BVOperator::Mul => "bvmul",
         BVOperator::Divu => "bvudiv",
         BVOperator::Remu => "bvurem",
