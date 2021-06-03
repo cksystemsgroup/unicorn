@@ -4,6 +4,7 @@
 *.o
 **/*.dot
 **/*.png
+**/*.smt
 **/*.s
 .DS_Store
 .z3-trace
