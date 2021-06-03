@@ -4,7 +4,7 @@ uint64_t main() {
   x = malloc(8);
 
   // address out of range
-  x = x + 268435456
+  x = x + 268435456;
 
   write(1, x, 1);
 

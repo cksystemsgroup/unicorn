@@ -1,7 +1,7 @@
 uint64_t main() {
     uint64_t *x;
 
-    x = malloc(8)
+    x = malloc(8);
 
     read(0, x, 8);
 

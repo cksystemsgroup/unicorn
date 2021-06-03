@@ -1,4 +1,4 @@
-use log::info;
+use log::{debug, info};
 use rayon::{iter::ParallelBridge, prelude::*};
 use std::{
     env,
@@ -30,13 +30,25 @@ pub fn compile<P>(
 where
     P: AsRef<Path>,
 {
-    Command::new(selfie_path.as_ref())
+    let selfie_output = Command::new(selfie_path.as_ref())
         .arg("-c")
         .arg(source_file.as_ref())
         .arg("-o")
         .arg(destination_file.as_ref())
         .output()
         .expect("Selfie C* compile command was not successfull");
+
+    assert!(
+        selfie_output.status.success(),
+        "Selfie C* compile command for {} returned status code: {}",
+        source_file.as_ref().display(),
+        selfie_output.status
+    );
+
+    debug!(
+        "selfie output:\n{}",
+        String::from_utf8(selfie_output.stdout).unwrap()
+    );
 
     Ok(destination_file.as_ref().to_path_buf())
 }
@@ -182,7 +194,17 @@ pub fn compile_riscu(
 
             let result_path = time(
                 format!("compile: {}", source_file.display()).as_str(),
-                || compile(&selfie_path, &source_file, &dst_file_path).unwrap(),
+                || {
+                    let result = compile(&selfie_path, &source_file, &dst_file_path);
+
+                    assert!(
+                        result.is_ok(),
+                        "selfie can compile {}",
+                        source_file.display()
+                    );
+
+                    result.unwrap()
+                },
             );
 
             (source_file, result_path)
