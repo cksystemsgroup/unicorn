@@ -4,7 +4,7 @@ use super::{
     SymbolId,
 };
 use std::collections::HashMap;
-use z3::{
+use z3_solver::{
     ast::{Ast, Bool, Dynamic, BV},
     Config, Context, Model, SatResult, Solver as Z3Solver,
 };

@@ -3,7 +3,7 @@ use super::{
     Symbol::{Constant, Input, Operator},
     SymbolId,
 };
-use boolector::{
+use boolector_solver::{
     option::{BtorOption, ModelGen, OutputFileFormat},
     Btor, SolverResult, BV,
 };
