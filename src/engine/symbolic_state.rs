@@ -40,7 +40,7 @@ where
     S: Solver,
 {
     data_flow: DataFlowGraph,
-    path_condition: Option<SymbolicValue>,
+    path_condition: SymbolicValue,
     solver: &'a S,
 }
 
@@ -62,9 +62,15 @@ where
     S: Solver,
 {
     pub fn new(solver: &'a S) -> Self {
+        let mut data_flow = DataFlowGraph::new();
+
+        let constant = Symbol::Constant(BitVector(1));
+
+        let path_condition = data_flow.add_node(constant);
+
         Self {
-            data_flow: DataFlowGraph::new(),
-            path_condition: None,
+            data_flow,
+            path_condition,
             solver,
         }
     }
@@ -171,29 +177,15 @@ where
     }
 
     fn add_path_condition(&mut self, condition: SymbolicValue) {
-        let new_condition = if let Some(old_condition) = self.path_condition {
-            self.create_operator(BVOperator::BitwiseAnd, old_condition, condition)
-        } else {
-            condition
-        };
-
-        self.path_condition = Some(new_condition);
+        self.path_condition =
+            self.create_operator(BVOperator::BitwiseAnd, self.path_condition, condition);
     }
 
     pub fn execute_query(&mut self, query: Query) -> Result<Option<Witness>, SolverError> {
         // prepare graph for query
         let (root, cleanup_nodes, cleanup_edges) = match query {
             Query::Equals(_) | Query::NotEquals(_) => self.prepare_query(query),
-            Query::Reachable => {
-                if let Some(pc_idx) = self.path_condition {
-                    (pc_idx, vec![], vec![])
-                } else {
-                    // a path without a condition is always reachable
-                    debug!("path has no conditon and is therefore reachable");
-
-                    return Ok(Some(self.build_trivial_witness()));
-                }
-            }
+            Query::Reachable => (self.path_condition, vec![], vec![]),
         };
 
         let formula = FormulaView::new(&self.data_flow, root);
@@ -228,20 +220,16 @@ where
         mut ns: Vec<SymbolicValue>,
         mut es: Vec<EdgeIndex>,
     ) -> (SymbolicValue, Vec<SymbolicValue>, Vec<EdgeIndex>) {
-        if let Some(pc_idx) = self.path_condition {
-            let con_idx = self
-                .data_flow
-                .add_node(Symbol::Operator(BVOperator::BitwiseAnd));
-            let (con_edge_idx1, con_edge_idx2) = self.connect_operator(pc_idx, r, con_idx);
+        let con_idx = self
+            .data_flow
+            .add_node(Symbol::Operator(BVOperator::BitwiseAnd));
+        let (con_edge_idx1, con_edge_idx2) = self.connect_operator(self.path_condition, r, con_idx);
 
-            ns.push(con_idx);
-            es.push(con_edge_idx1);
-            es.push(con_edge_idx2);
+        ns.push(con_idx);
+        es.push(con_edge_idx1);
+        es.push(con_edge_idx2);
 
-            (con_idx, ns, es)
-        } else {
-            (r, ns, es)
-        }
+        (con_idx, ns, es)
     }
 
     fn prepare_query(
@@ -294,18 +282,6 @@ where
             self.data_flow.add_edge(rhs, op, OperandSide::Rhs),
             self.data_flow.add_edge(lhs, op, OperandSide::Lhs),
         )
-    }
-
-    fn build_trivial_witness(&self) -> Witness {
-        let mut witness = Witness::new();
-
-        self.data_flow.node_indices().for_each(|idx| {
-            if let Symbol::Input(name) = &self.data_flow[idx] {
-                witness.add_variable(name.as_str(), BitVector(0));
-            }
-        });
-
-        witness
     }
 }
 
