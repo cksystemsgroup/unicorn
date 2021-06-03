@@ -18,7 +18,7 @@ impl ExternalSolver {
     where
         P: AsRef<Path>,
     {
-        let file = File::open(path)?;
+        let file = File::create(path)?;
 
         let mut writer = BufWriter::new(file);
 
@@ -31,11 +31,7 @@ impl ExternalSolver {
 }
 
 fn write_init<W: Write>(writer: &mut W) -> Result<(), SolverError> {
-    writeln!(
-        writer,
-        "(set-option :incremental true)\n(set-option :produce-models true)\n(set-logic QF_BV)"
-    )
-    .map_err(SolverError::from)
+    writeln!(writer, "(set-logic QF_BV)").map_err(SolverError::from)
 }
 
 impl Default for ExternalSolver {
@@ -75,6 +71,8 @@ impl Solver for ExternalSolver {
 
         writeln!(output, "(check-sat)\n(get-model)\n(pop 1)")?;
 
+        output.flush().expect("can flush SMT write buffer");
+
         Err(SolverError::SatUnknown)
     }
 }
@@ -107,18 +105,21 @@ impl FormulaVisitor<Result<SymbolId, SolverError>> for SmtPrinter {
     fn unary(
         &mut self,
         idx: SymbolId,
-        _op: BVOperator,
+        op: BVOperator,
         v: Result<SymbolId, SolverError>,
     ) -> Result<SymbolId, SolverError> {
         let mut o = self.output.lock().expect("no other thread should fail");
 
-        writeln!(
-                o,
-                "(declare-fun x{} () (_ BitVec 64))\n(assert (= x{} ((_ zero_extend 63) (= x{} (_ bv0 64)))))",
-                idx,
-                idx,
-                v?,
-            )?;
+        match op {
+            BVOperator::Not => {
+                writeln!(
+                    o,
+                    "(declare-fun x{} () (_ BitVec 64))\n(assert (= x{} (ite (= x{} (_ bv0 64)) (_ bv1 64) (_ bv0 64))))",
+                    idx, idx, v?,
+                )?;
+            }
+            _ => unreachable!("operator {} not supported as unary operator", op),
+        }
 
         Ok(idx)
     }
@@ -135,14 +136,14 @@ impl FormulaVisitor<Result<SymbolId, SolverError>> for SmtPrinter {
         match op {
             BVOperator::Equals | BVOperator::Sltu => {
                 writeln!(
-                o,
-                "(declare-fun x{} () (_ BitVec 64))\n(assert (= x{} ((_ zero_extend 63) ({} x{} x{}))))",
-                idx,
-                idx,
-                to_smt(op),
-                lhs?,
-                rhs?
-            )?;
+                    o,
+                    "(declare-fun x{} () (_ BitVec 64))\n(assert (= x{} (ite ({} x{} x{}) (_ bv1 64) (_ bv0 64))))",
+                    idx,
+                    idx,
+                    to_smt(op),
+                    lhs?,
+                    rhs?
+                )?;
             }
             _ => {
                 writeln!(
