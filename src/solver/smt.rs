@@ -1,28 +1,53 @@
 use super::{
-    Assignment, BVOperator, BitVector, Formula, FormulaVisitor, Solver, SolverError, SymbolId,
+    Assignment, BVOperator, BitVector, Formula, FormulaVisitor, SmtSolver, Solver, SolverError,
+    SymbolId,
 };
 use std::{
     collections::HashMap,
-    fs::File,
     io::{stdout, BufWriter, Write},
-    path::Path,
     sync::{Arc, Mutex},
 };
+use strum::{EnumString, EnumVariantNames, IntoStaticStr};
 
-pub struct ExternalSolver {
+#[derive(Debug, EnumString, EnumVariantNames, IntoStaticStr)]
+#[strum(serialize_all = "kebab_case")]
+pub enum SmtType {
+    Generic,
+    #[cfg(feature = "boolector")]
+    Boolector,
+    #[cfg(feature = "z3")]
+    Z3,
+}
+
+pub struct SmtWriter {
     output: Arc<Mutex<dyn Write + Send>>,
 }
 
-impl ExternalSolver {
-    pub fn new<P>(path: P) -> Result<Self, SolverError>
+const SET_LOGIC_STATEMENT: &str = "(set-logic QF_BV)";
+
+impl SmtWriter {
+    pub fn new<W: 'static>(write: W) -> Result<Self, SolverError>
     where
-        P: AsRef<Path>,
+        W: Write + Send,
     {
-        let file = File::create(path)?;
+        Self::new_with_smt_prefix(write, "")
+    }
 
-        let mut writer = BufWriter::new(file);
+    pub fn new_for_solver<S, W: 'static>(write: W) -> Result<Self, SolverError>
+    where
+        S: SmtSolver,
+        W: Write + Send,
+    {
+        Self::new_with_smt_prefix(write, S::smt_options())
+    }
 
-        write_init(&mut writer)?;
+    fn new_with_smt_prefix<W: 'static>(write: W, prefix: &str) -> Result<Self, SolverError>
+    where
+        W: Write + Send,
+    {
+        let mut writer = BufWriter::new(write);
+
+        writeln!(writer, "{}{}", prefix, SET_LOGIC_STATEMENT).map_err(SolverError::from)?;
 
         let output = Arc::new(Mutex::new(writer));
 
@@ -30,23 +55,13 @@ impl ExternalSolver {
     }
 }
 
-fn write_init<W: Write>(writer: &mut W) -> Result<(), SolverError> {
-    writeln!(writer, "(set-logic QF_BV)").map_err(SolverError::from)
-}
-
-impl Default for ExternalSolver {
+impl Default for SmtWriter {
     fn default() -> Self {
-        let mut file = BufWriter::new(stdout());
-
-        write_init(&mut file).expect("stdout should not fail");
-
-        Self {
-            output: Arc::new(Mutex::new(file)),
-        }
+        Self::new_with_smt_prefix(stdout(), "").expect("stdout should not fail")
     }
 }
 
-impl Solver for ExternalSolver {
+impl Solver for SmtWriter {
     fn name() -> &'static str {
         "External"
     }

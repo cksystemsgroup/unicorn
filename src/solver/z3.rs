@@ -1,5 +1,5 @@
 use super::{
-    Assignment, BVOperator, BitVector, Formula, Solver, SolverError,
+    Assignment, BVOperator, BitVector, Formula, SmtSolver, Solver, SolverError,
     Symbol::{Constant, Input, Operator},
     SymbolId,
 };
@@ -20,6 +20,12 @@ impl Z3 {
 impl Default for Z3 {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl SmtSolver for Z3 {
+    fn smt_options() -> &'static str {
+        "(set-option :model_validate true)\n(set-option :model true)\n"
     }
 }
 

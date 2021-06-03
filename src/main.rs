@@ -2,11 +2,12 @@ mod cli;
 
 use anyhow::{Context, Result};
 use bytesize::ByteSize;
-use cli::{expect_arg, LogLevel};
+use cli::{expect_arg, expect_optional_arg, LogLevel};
 use env_logger::{Env, TimestampPrecision};
 use log::info;
 use monster::{
     disassemble::disassemble,
+    generate_smt, generate_smt_to_file,
     path_exploration::{
         CoinFlipStrategy, ControlFlowGraph,
         ExplorationStrategyType::{self, CoinFlip, ShortestPaths},
@@ -14,8 +15,8 @@ use monster::{
     },
     rarity_simulate_elf_with,
     solver::{
-        self,
-        SolverType::{self, External, Monster},
+        self, SmtType,
+        SolverType::{self, Monster},
     },
     symbolically_execute_elf_with, RaritySimulationOptions, SymbolicExecutionOptions,
 };
@@ -24,7 +25,7 @@ use std::{
     env,
     fmt::Display,
     fs::File,
-    io::Write,
+    io::{stdout, Write},
     path::{Path, PathBuf},
     str::FromStr,
 };
@@ -66,6 +67,47 @@ fn main() -> Result<()> {
                 write_to_file(output, &cfg)
             }
         }
+        ("smt", Some(args)) => {
+            let input = expect_arg::<PathBuf>(&args, "input-file")?;
+            let output = expect_optional_arg::<PathBuf>(&args, "output-file")?;
+            let strategy = expect_arg::<ExplorationStrategyType>(&args, "strategy")?;
+            let smt_type = expect_arg::<SmtType>(&args, "smt-type")?;
+            let options = SymbolicExecutionOptions {
+                max_exection_depth: expect_arg(args, "max-execution-depth")?,
+                memory_size: ByteSize::mib(expect_arg(args, "memory")?),
+            };
+
+            let program = load_object_file(&input)?;
+
+            if let Some(bug) = match strategy {
+                ShortestPaths => {
+                    let strategy = ShortestPathStrategy::compute_for(&program)?;
+
+                    if let Some(file) = output {
+                        generate_smt_to_file(&input, &file, &options, &strategy, smt_type)
+                    } else {
+                        generate_smt(&input, stdout(), &options, &strategy, smt_type)
+                    }
+                }
+                CoinFlip => {
+                    let strategy = CoinFlipStrategy::default();
+
+                    if let Some(file) = output {
+                        generate_smt_to_file(&input, &file, &options, &strategy, smt_type)
+                    } else {
+                        generate_smt(&input, stdout(), &options, &strategy, smt_type)
+                    }
+                }
+            }
+            .with_context(|| format!("Execution of {} failed", input.display()))?
+            {
+                info!("bug found:\n{}", bug);
+            } else {
+                info!("SMT-lib file successfully created");
+            };
+
+            Ok(())
+        }
         ("execute", Some(args)) => {
             let input = expect_arg::<PathBuf>(&args, "input-file")?;
             let solver = expect_arg::<SolverType>(&args, "solver")?;
@@ -83,12 +125,6 @@ fn main() -> Result<()> {
                     &options,
                     &ShortestPathStrategy::compute_for(&program)?,
                     &solver::MonsterSolver::default(),
-                ),
-                (ShortestPaths, External) => symbolically_execute_elf_with(
-                    &input,
-                    &options,
-                    &ShortestPathStrategy::compute_for(&program)?,
-                    &solver::ExternalSolver::default(),
                 ),
                 #[cfg(feature = "boolector")]
                 (ShortestPaths, Boolector) => symbolically_execute_elf_with(
@@ -109,12 +145,6 @@ fn main() -> Result<()> {
                     &options,
                     &CoinFlipStrategy::default(),
                     &solver::MonsterSolver::default(),
-                ),
-                (CoinFlip, External) => symbolically_execute_elf_with(
-                    &input,
-                    &options,
-                    &CoinFlipStrategy::default(),
-                    &solver::ExternalSolver::default(),
                 ),
                 #[cfg(feature = "boolector")]
                 (CoinFlip, Boolector) => symbolically_execute_elf_with(

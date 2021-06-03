@@ -1,10 +1,10 @@
 use lazy_static::lazy_static;
 use log::info;
 use monster::{
-    self, load_elf, path_exploration::ShortestPathStrategy, solver::ExternalSolver,
-    symbolically_execute_elf_with, SymbolicExecutionOptions,
+    self, generate_smt_to_file, load_elf, path_exploration::ShortestPathStrategy, solver::SmtType,
+    SymbolicExecutionOptions,
 };
-use std::{ffi::CString, fs, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 use tempfile::TempDir;
 use utils::{init, with_temp_dir, TestFileCompiler};
 
@@ -51,7 +51,7 @@ fn generate_smt_files() {
             .iter()
             .cloned()
             .zip(COMPILER.objects().iter().cloned())
-            .map(|files| generate_smt(dir.clone(), "", files))
+            .map(|files| generate_smt(dir.clone(), SmtType::Generic, files))
             .for_each(|_| {});
     });
 }
@@ -67,19 +67,14 @@ fn solve_generated_smt_files_with_z3() {
             .iter()
             .cloned()
             .zip(COMPILER.objects().iter().cloned())
-            .map(|files| {
-                generate_smt(
-                    dir.clone(),
-                    "(set-option :model_validate true)\n(set-option :model true)\n",
-                    files,
-                )
-            })
+            .map(|files| generate_smt(dir.clone(), SmtType::Z3, files))
             .for_each(solve_with_z3);
     });
 }
 
 #[cfg(feature = "z3-sys")]
 fn solve_with_z3(files: (PathBuf, PathBuf, PathBuf)) {
+    use std::ffi::CString;
     use z3_sys::{
         Z3_del_config, Z3_del_context, Z3_mk_config, Z3_mk_context, Z3_mk_solver,
         Z3_set_param_value, Z3_solver_check, Z3_solver_dec_ref, Z3_solver_from_file,
@@ -137,13 +132,7 @@ fn solve_generated_smt_files_with_boolector() {
             .iter()
             .cloned()
             .zip(COMPILER.objects().iter().cloned())
-            .map(|files| {
-                generate_smt(
-                    dir.clone(),
-                    "(set-option :incremental true)\n(set-option :produce-models true)\n",
-                    files,
-                )
-            })
+            .map(|files| generate_smt(dir.clone(), SmtType::Boolector, files))
             .for_each(solve_with_boolector);
     });
 }
@@ -151,6 +140,7 @@ fn solve_generated_smt_files_with_boolector() {
 #[cfg(feature = "boolector-sys")]
 fn solve_with_boolector(files: (PathBuf, PathBuf, PathBuf)) {
     use boolector_sys::{boolector_new, boolector_parse_smt2};
+    use std::ffi::CString;
 
     unsafe {
         let btor = boolector_new();
@@ -188,19 +178,9 @@ fn solve_with_boolector(files: (PathBuf, PathBuf, PathBuf)) {
     }
 }
 
-fn prepend_smt(smt_file: PathBuf, smt: &str) {
-    let contents = fs::read_to_string(smt_file.as_os_str()).expect("smt file is readable");
-
-    let mut new_contents = smt.to_owned();
-
-    new_contents.push_str(&contents);
-
-    fs::write(smt_file, new_contents).expect("smt file is writable");
-}
-
 fn generate_smt(
     dir: Arc<TempDir>,
-    smt_options: &str,
+    smt_type: SmtType,
     files: (PathBuf, PathBuf),
 ) -> (PathBuf, PathBuf, PathBuf) {
     info!("generate SMT-lib file for: {}", files.1.display());
@@ -214,16 +194,15 @@ fn generate_smt(
             .unwrap(),
     );
 
-    let solver = ExternalSolver::new(&output_path).unwrap();
-
     let program = load_elf(&files.1).unwrap();
     let strategy = ShortestPathStrategy::compute_for(&program).unwrap();
 
-    let result = symbolically_execute_elf_with(
+    let result = generate_smt_to_file(
         &files.1,
+        &output_path,
         &SymbolicExecutionOptions::default(),
         &strategy,
-        &solver,
+        smt_type,
     );
 
     assert!(
@@ -231,8 +210,6 @@ fn generate_smt(
         "can generate SMT-lib file for '{}' without error",
         files.0.to_str().unwrap()
     );
-
-    prepend_smt(output_path.clone(), smt_options);
 
     (files.0, files.1, output_path)
 }

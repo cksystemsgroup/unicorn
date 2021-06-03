@@ -6,13 +6,15 @@ pub mod engine;
 pub mod path_exploration;
 pub mod solver;
 
+use anyhow::Context;
 pub use engine::{
     BugFinder, RaritySimulation, RaritySimulationBug, RaritySimulationError,
     RaritySimulationOptions, SymbolicExecutionBug, SymbolicExecutionEngine, SymbolicExecutionError,
     SymbolicExecutionOptions,
 };
 use riscu::{load_object_file, Program};
-use std::path::Path;
+use solver::SmtType;
+use std::{fs::File, io::Write, path::Path};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -87,6 +89,63 @@ where
     let program = load_elf(input)?;
 
     symbolically_execute_with(&program, options, strategy, solver)
+}
+
+pub fn generate_smt<Strategy, W, P>(
+    input: P,
+    write: W,
+    options: &SymbolicExecutionOptions,
+    strategy: &Strategy,
+    smt_type: SmtType,
+) -> Result<Option<SymbolicExecutionBug>, MonsterError>
+where
+    W: Write + Send + 'static,
+    Strategy: path_exploration::ExplorationStrategy,
+    P: AsRef<Path>,
+{
+    match smt_type {
+        SmtType::Generic => {
+            let solver = solver::SmtWriter::new::<W>(write)
+                .context("failed to generate SMT file writer backend")
+                .map_err(MonsterError::Preprocessing)?;
+
+            symbolically_execute_elf_with(input, options, strategy, &solver)
+        }
+        #[cfg(feature = "boolector")]
+        SmtType::Boolector => {
+            let solver = solver::SmtWriter::new_for_solver::<solver::Boolector, W>(write)
+                .context("failed to generate SMT file writer backend")
+                .map_err(MonsterError::Preprocessing)?;
+
+            symbolically_execute_elf_with(input, options, strategy, &solver)
+        }
+        #[cfg(feature = "z3")]
+        SmtType::Z3 => {
+            let solver = solver::SmtWriter::new_for_solver::<solver::Z3, W>(write)
+                .context("failed to generate SMT file writer backend")
+                .map_err(MonsterError::Preprocessing)?;
+
+            symbolically_execute_elf_with(input, options, strategy, &solver)
+        }
+    }
+}
+
+pub fn generate_smt_to_file<Strategy, P>(
+    input: P,
+    output: P,
+    options: &SymbolicExecutionOptions,
+    strategy: &Strategy,
+    smt_type: SmtType,
+) -> Result<Option<SymbolicExecutionBug>, MonsterError>
+where
+    Strategy: path_exploration::ExplorationStrategy,
+    P: AsRef<Path> + Send,
+{
+    let file = File::create(output)
+        .context("failed to generate SMT file writer")
+        .map_err(MonsterError::IoError)?;
+
+    generate_smt(input, file, options, strategy, smt_type)
 }
 
 pub fn rarity_simulate(program: &Program) -> Result<Option<RaritySimulationBug>, MonsterError> {

@@ -8,7 +8,7 @@ use monster::{
         symbolic_execution::defaults as symbolic_defaults,
     },
     path_exploration::ExplorationStrategyType,
-    solver::SolverType,
+    solver::{SmtType, SolverType},
 };
 use std::str::FromStr;
 use strum::{EnumString, EnumVariantNames, IntoStaticStr, VariantNames};
@@ -131,6 +131,62 @@ pub fn args() -> App<'static, 'static> {
                 ),
         )
         .subcommand(
+            App::new("smt")
+                .about("Create an SMT-lib file for a RISC-U ELF binary")
+                .arg(
+                    Arg::with_name("input-file")
+                        .help("RISC-U ELF binary to be converted")
+                        .takes_value(true)
+                        .value_name("FILE")
+                        .required(true),
+                )
+                .arg(
+                    Arg::with_name("max-execution-depth")
+                        .help("Number of instructions, where the path execution will be aborted")
+                        .short("d")
+                        .long("execution-depth")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .default_value(formatcp!("{}", symbolic_defaults::MAX_EXECUTION_DEPTH))
+                        .validator(is::<u64>),
+                )
+                .arg(
+                    Arg::with_name("memory")
+                        .help("Amount of memory to be used per execution context in megabytes [possible_values: 1 .. 1024]")
+                        .short("m")
+                        .long("memory")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .default_value(formatcp!("{}", symbolic_defaults::MEMORY_SIZE.0 / bytesize::MIB))
+                        .validator(is_valid_memory_size),
+                )
+                .arg(
+                    Arg::with_name("strategy")
+                    .help("Path exploration strategy to use when exploring state search space")
+                    .long("strategy")
+                    .takes_value(true)
+                    .value_name("STRATEGY")
+                    .default_value(ExplorationStrategyType::ShortestPaths.into())
+                    .possible_values(ExplorationStrategyType::VARIANTS)
+                )
+                .arg(
+                    Arg::with_name("smt-type")
+                    .help("Specify a solver type to generate the SMT file for")
+                    .long("smt-type")
+                    .short("t")
+                    .takes_value(true)
+                    .default_value(SmtType::Generic.into())
+                    .possible_values(SmtType::VARIANTS)
+                )
+                .arg(
+                    Arg::with_name("output-file")
+                    .help("Output path for the generated SMT-lib file")
+                    .short("o")
+                    .long("out")
+                    .takes_value(true)
+                )
+        )
+        .subcommand(
             App::new("rarity")
                 .about("Performs rarity simulation on a RISC-U ELF binary")
                 .arg(
@@ -220,6 +276,20 @@ where
         })
 }
 
+pub fn expect_optional_arg<T: FromStr>(m: &ArgMatches, arg: &str) -> Result<Option<T>>
+where
+    <T as FromStr>::Err: Send + Sync + std::error::Error + 'static,
+{
+    match m.value_of(arg) {
+        Some(s) => {
+            let res =
+                T::from_str(s).with_context(|| format!("argument \"{}\" has wrong format", arg))?;
+            Ok(Some(res))
+        }
+        None => Ok(None),
+    }
+}
+
 fn is<T: FromStr>(v: String) -> Result<(), String>
 where
     <T as FromStr>::Err: std::fmt::Display,
@@ -302,6 +372,23 @@ mod tests {
                 .get_matches_from_safe(vec!["monster", "execute", "-m", "23424", "file.o"])
                 .is_err(),
             "memory size is invalid (out of range)"
+        );
+    }
+
+    #[test]
+    fn test_filename_argument_postitions() {
+        assert!(
+            args()
+                .get_matches_from_safe(vec!["monster", "smt", "-t", "generic", "file.o"])
+                .is_ok(),
+            "Input file can be declared after flags"
+        );
+
+        assert!(
+            args()
+                .get_matches_from_safe(vec!["monster", "smt", "filename", "-t", "generic"])
+                .is_ok(),
+            "Input file can be declared before flags"
         );
     }
 }

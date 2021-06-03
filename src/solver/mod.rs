@@ -1,6 +1,6 @@
 mod bitvec;
-mod external;
 mod monster;
+mod smt;
 
 #[cfg(feature = "boolector")]
 mod boolector;
@@ -14,7 +14,7 @@ pub use self::boolector::*;
 #[cfg(feature = "z3")]
 pub use self::z3::*;
 
-pub use self::{bitvec::*, external::*, monster::*};
+pub use self::{bitvec::*, monster::*, smt::*};
 
 use log::debug;
 use std::marker::Sync;
@@ -28,12 +28,16 @@ pub trait Solver: Default + Sync + Sized {
     fn name() -> &'static str;
 
     fn solve<F: Formula>(&self, formula: &F) -> Result<Option<Assignment>, SolverError> {
-        debug!("try to solve with {} solver", Self::name());
+        debug!("try to solve with {} backend", Self::name());
 
         time_debug!("finished solving formula", { self.solve_impl(formula) })
     }
 
     fn solve_impl<F: Formula>(&self, formula: &F) -> Result<Option<Assignment>, SolverError>;
+}
+
+pub trait SmtSolver: Solver {
+    fn smt_options() -> &'static str;
 }
 
 #[derive(Debug, Error, Clone)]
@@ -56,7 +60,6 @@ pub enum SolverType {
     Boolector,
     #[cfg(feature = "z3")]
     Z3,
-    External,
 }
 
 impl From<io::Error> for SolverError {

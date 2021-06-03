@@ -1,5 +1,5 @@
 use super::{
-    Assignment, BVOperator, BitVector, Formula, Solver, SolverError,
+    Assignment, BVOperator, BitVector, Formula, SmtSolver, Solver, SolverError,
     Symbol::{Constant, Input, Operator},
     SymbolId,
 };
@@ -20,6 +20,12 @@ impl Boolector {
 impl Default for Boolector {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl SmtSolver for Boolector {
+    fn smt_options() -> &'static str {
+        "(set-option :incremental true)\n(set-option :produce-models true)\n"
     }
 }
 
