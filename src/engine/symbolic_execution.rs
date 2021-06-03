@@ -262,7 +262,7 @@ where
                 "{}: address {:#x} out of virtual address range (0x0 - {:#x}) => computing reachability",
                 instruction,
                 address,
-                self.memory.len() * 8,
+                self.memory.len() * size_of::<u64>(),
             );
 
             self.is_running = false;
@@ -287,7 +287,7 @@ where
                 instruction,
                 address,
                 address + size,
-                self.memory.len() * 8,
+                self.memory.len() * size_of::<u64>(),
             );
 
             self.is_running = false;
@@ -572,12 +572,14 @@ where
 
             let input_idx = self.symbolic_state.create_input(&name);
 
+            let addr = (start + word_count) as usize;
+
             let result_idx = if bytes_to_read >= size_of_u64 {
                 bytes_to_read -= size_of_u64;
 
                 input_idx
             } else {
-                match self.memory[(start + word_count) as usize] {
+                match self.memory[addr] {
                     Value::Uninitialized => {
                         // we do not partially overwrite words with concrete values
                         // if at least one byte in a word is uninitialized, the whole word is uninitialized
@@ -587,7 +589,7 @@ where
                 }
             };
 
-            self.memory[(start + word_count) as usize] = Value::Symbolic(result_idx);
+            self.memory[addr] = Value::Symbolic(result_idx);
         }
 
         self.regs[Register::A0 as usize] = Value::Concrete(size);
