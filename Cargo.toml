@@ -36,7 +36,7 @@ required-features = ["z3"]
 [dependencies]
 byteorder = "~1.4.2"
 clap = "~2.33.3"
-strum = { version = "~0.20.0", features = ["derive"] }
+strum = { version = "~0.21.0", features = ["derive"] }
 riscu = "~0.5.0"
 petgraph = "~0.5.1"
 rand = "~0.8.3"
