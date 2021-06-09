@@ -2,29 +2,26 @@ use lazy_static::lazy_static;
 use log::info;
 use monster::{
     self, generate_smt_to_file, load_elf, path_exploration::ShortestPathStrategy, solver::SmtType,
-    SymbolicExecutionOptions,
+    SmtGenerationOptions,
 };
 use std::{path::PathBuf, sync::Arc};
 use tempfile::TempDir;
 use utils::{init, with_temp_dir, TestFileCompiler};
 
-const TEST_FILES: [&str; 19] = [
+const TEST_FILES: [&str; 22] = [
     "echo-line.c",
     "division-by-zero-3-35.c",
     "simple-assignment-1-35.c",
-    "if-else.c", // needs timeout
+    "if-else.c",
     "arithmetic.c",
     "test-remu.c",
     "test-sltu.c",
     "test-sltu-2.c",
     "simple-if-else-1-35.c",
     "invalid-memory-access-2-35.c",
-    //
-    // TODO: Fix uncoditional exits in combination with external solver first:
-    // "memory-invalid-read.c",
-    // "memory-invalid-write.c",
-    // "memory-access-1-35.c",
-    //
+    "memory-invalid-read.c",
+    "memory-invalid-write.c",
+    "memory-access-1-35.c",
     "memory-uninitialized-write.c",
     "nested-if-else-reverse-1-35",
     "nested-recursion-1-35.c",
@@ -200,9 +197,11 @@ fn generate_smt(
     let result = generate_smt_to_file(
         &files.1,
         &output_path,
-        &SymbolicExecutionOptions::default(),
+        &SmtGenerationOptions {
+            smt_type,
+            ..Default::default()
+        },
         &strategy,
-        smt_type,
     );
 
     assert!(

@@ -76,6 +76,7 @@ fn execute_with_different_memory_sizes() {
                 let options = SymbolicExecutionOptions {
                     max_exection_depth: 200,
                     memory_size: ByteSize::mb(*size),
+                    ..Default::default()
                 };
 
                 let result = execute_default_with(&object, &options);
@@ -102,8 +103,8 @@ fn execute_engine_for_endless_loops() {
             };
 
             assert!(
-                execute_default_with(object, &options).is_err(),
-                "has to error with depth error"
+                execute_default_with(object, &options).is_ok(),
+                "no bug can be found with execution depth of 5"
             );
         });
     });

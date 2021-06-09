@@ -1,7 +1,8 @@
 use super::{
     bug::{Bug as GenericBug, BugInfo},
-    symbolic_state::{Query, SymbolicState, SymbolicValue, Witness},
+    symbolic_state::{Query, QueryResult, SymbolicState, SymbolicValue, Witness},
     system::{instruction_to_str, SyscallId},
+    UninitializedMemoryAccessReason,
 };
 use crate::{
     path_exploration::ExplorationStrategy,
@@ -24,16 +25,19 @@ pub mod defaults {
 
     pub const MEMORY_SIZE: ByteSize = ByteSize(bytesize::MIB);
     pub const MAX_EXECUTION_DEPTH: u64 = 1000;
+    pub const OPTIMISTICALLY_PRUNE_SEARCH_SPACE: bool = true;
 }
 
-pub type SymbolicExecutionBug = GenericBug<SymbolicExecutionErrorInfo>;
+pub type SymbolicExecutionBug = GenericBug<SymbolicExecutionBugInfo>;
 pub type SymbolicExecutionResult = Result<Option<SymbolicExecutionBug>, SymbolicExecutionError>;
 
 type Bug = SymbolicExecutionBug;
 
+#[derive(Clone, Copy, Debug)]
 pub struct SymbolicExecutionOptions {
     pub memory_size: ByteSize,
     pub max_exection_depth: u64,
+    pub optimistically_prune_search_space: bool,
 }
 
 impl Default for SymbolicExecutionOptions {
@@ -41,6 +45,7 @@ impl Default for SymbolicExecutionOptions {
         Self {
             memory_size: defaults::MEMORY_SIZE,
             max_exection_depth: defaults::MAX_EXECUTION_DEPTH,
+            optimistically_prune_search_space: defaults::OPTIMISTICALLY_PRUNE_SEARCH_SPACE,
         }
     }
 }
@@ -76,8 +81,17 @@ pub enum SymbolicExecutionError {
     #[error("failed to decode instruction at PC: {0:#010x}")]
     InvalidInstructionEncoding(u64, DecodingError),
 
-    #[error("failed to compute satisfyability for formula")]
-    SatUnknown(SolverError),
+    #[error("fatal error in SMT solver")]
+    Solver(SolverError),
+
+    #[error("found a bug")]
+    BugFound(Bug),
+
+    #[error("exit syscall called with code: {0}")]
+    ProgramExit(u64),
+
+    #[error("program state is not reachable")]
+    NotReachable,
 }
 
 pub struct SymbolicExecutionEngine<'a, E, S>
@@ -91,9 +105,8 @@ where
     regs: [Value; 32],
     memory: Vec<Value>,
     strategy: &'a E,
+    options: SymbolicExecutionOptions,
     execution_depth: u64,
-    max_exection_depth: u64,
-    is_running: bool,
 }
 
 impl<'a, E, S> SymbolicExecutionEngine<'a, E, S>
@@ -156,8 +169,7 @@ where
             memory,
             strategy,
             execution_depth: 0,
-            max_exection_depth: options.max_exection_depth,
-            is_running: false,
+            options: *options,
         }
     }
 
@@ -165,14 +177,10 @@ where
         decode(raw).map_err(|e| SymbolicExecutionError::InvalidInstructionEncoding(self.pc, e))
     }
 
-    pub fn run(&mut self) -> Result<Option<Bug>, SymbolicExecutionError> {
-        self.is_running = true;
-
+    fn run(&mut self) -> Result<(), SymbolicExecutionError> {
         loop {
-            if self.execution_depth >= self.max_exection_depth {
+            if self.execution_depth >= self.options.max_exection_depth {
                 trace!("maximum execution depth reached => exiting this context");
-
-                self.is_running = false;
 
                 return Err(SymbolicExecutionError::ExecutionDepthReached(
                     self.execution_depth,
@@ -181,44 +189,47 @@ where
 
             self.execution_depth += 1;
 
-            let bug = self
-                .fetch()
+            self.fetch()
                 .and_then(|raw| self.decode(raw))
                 .and_then(|instr| self.execute(instr))?;
-
-            if bug.is_some() || !self.is_running {
-                return Ok(bug);
-            }
         }
     }
 
-    fn execute_query<F>(
-        &mut self,
-        query: Query,
-        basic_info_to_bug: F,
-    ) -> Result<Option<Bug>, SymbolicExecutionError>
-    where
-        F: Fn(SymbolicExecutionErrorInfo) -> Bug,
-    {
-        self.symbolic_state
-            .execute_query(query)
-            .map_err(SymbolicExecutionError::SatUnknown)
-            .map_or(Ok(None), |result| {
-                Ok(result.map(|witness| {
-                    basic_info_to_bug(SymbolicExecutionErrorInfo {
-                        witness,
-                        pc: self.pc,
-                    })
-                }))
-            })
+    pub fn search_for_bugs(&mut self) -> Result<Option<Bug>, SymbolicExecutionError> {
+        let result = self.run();
+
+        match result.expect_err("every run has to stop with an error") {
+            SymbolicExecutionError::ExecutionDepthReached(_)
+            | SymbolicExecutionError::ProgramExit(_)
+            | SymbolicExecutionError::NotReachable => Ok(None),
+            SymbolicExecutionError::BugFound(bug) => Ok(Some(bug)),
+            err => Err(err),
+        }
     }
 
-    fn check_for_uninitialized_memory(
+    fn execute_query(&mut self, query: Query) -> Result<QueryResult, SymbolicExecutionError> {
+        self.symbolic_state
+            .execute_query(query)
+            .map_err(SymbolicExecutionError::Solver)
+        // .map_or(Ok(None), |result| {
+        //     match result {
+        //         QueryResult::Sat(witness) => basic_info_to_bug(SymbolicExecutionErrorInfo {
+        //             witness,
+        //             pc: self.pc,
+        //         }),
+        //         QueryResult::UnSat => QueryResult::UnSat,
+        //     }
+
+        //     Ok(result.map(|witness| {}))
+        // })
+    }
+
+    fn access_to_uninitialized_memory(
         &mut self,
         instruction: Instruction,
         v1: Value,
         v2: Value,
-    ) -> Result<Option<Bug>, SymbolicExecutionError> {
+    ) -> Result<(), SymbolicExecutionError> {
         trace!(
             "{}: {}, {} => computing reachability",
             instruction_to_str(instruction),
@@ -226,11 +237,117 @@ where
             v2
         );
 
-        self.execute_query(Query::Reachable, |info| Bug::AccessToUnitializedMemory {
+        let result = self.execute_query(Query::Reachable)?;
+
+        let info = match result {
+            QueryResult::Sat(witness) => self.collect_bug_info(Some(witness)),
+            _ => self.collect_bug_info(None),
+        };
+
+        trace!("access to uninitialized memory => exiting");
+
+        Err(SymbolicExecutionError::BugFound(
+            self.access_to_uninitialized_memory_bug(
+                info,
+                UninitializedMemoryAccessReason::InstructionWithUninitializedOperand {
+                    instruction,
+                    operands: vec![v1, v2],
+                },
+            ),
+        ))
+    }
+
+    fn collect_bug_info(&self, witness: Option<Witness>) -> SymbolicExecutionBugInfo {
+        SymbolicExecutionBugInfo {
+            witness,
+            pc: self.pc,
+        }
+    }
+
+    fn access_to_unaligned_address_bug(&self, info: SymbolicExecutionBugInfo) -> Bug {
+        Bug::AccessToUnalignedAddress {
             info,
-            instruction,
-            operands: vec![v1, v2],
-        })
+            address: self.pc,
+        }
+    }
+
+    fn access_to_uninitialized_memory_bug(
+        &self,
+        info: SymbolicExecutionBugInfo,
+        reason: UninitializedMemoryAccessReason<SymbolicExecutionBugInfo>,
+    ) -> Bug {
+        Bug::AccessToUnitializedMemory { info, reason }
+    }
+
+    fn access_to_out_of_range_address_bug(&self, info: SymbolicExecutionBugInfo) -> Bug {
+        Bug::AccessToOutOfRangeAddress { info }
+    }
+
+    fn divison_by_zero_bug(&self, info: SymbolicExecutionBugInfo) -> Bug {
+        Bug::DivisionByZero { info }
+    }
+
+    fn exit_code_greater_zero_bug(&self, info: SymbolicExecutionBugInfo, exit_code: u64) -> Bug {
+        Bug::ExitCodeGreaterZero {
+            info,
+            exit_code,
+            address: self.pc,
+        }
+    }
+
+    fn exit_anyway_with_bug<F>(
+        &self,
+        result: QueryResult,
+        info_to_bug: F,
+    ) -> Result<(), SymbolicExecutionError>
+    where
+        F: FnOnce(SymbolicExecutionBugInfo) -> Bug,
+    {
+        let info = self.collect_bug_info(match result {
+            QueryResult::Sat(witness) => Some(witness),
+            QueryResult::UnSat | QueryResult::Unknown => None,
+        });
+
+        let bug = info_to_bug(info);
+
+        Err(SymbolicExecutionError::BugFound(bug))
+    }
+
+    fn exit_anyway_with_bug_if_sat<F>(
+        &self,
+        result: QueryResult,
+        info_to_bug: F,
+        err_if_unsat: SymbolicExecutionError,
+    ) -> Result<(), SymbolicExecutionError>
+    where
+        F: FnOnce(SymbolicExecutionBugInfo) -> Bug,
+    {
+        match result {
+            QueryResult::Sat(witness) => {
+                let bug = info_to_bug(self.collect_bug_info(Some(witness)));
+
+                Err(SymbolicExecutionError::BugFound(bug))
+            }
+            QueryResult::UnSat | QueryResult::Unknown => Err(err_if_unsat),
+        }
+    }
+
+    fn exit_with_bug_if_sat<F>(
+        &self,
+        result: QueryResult,
+        info_to_bug: F,
+    ) -> Result<(), SymbolicExecutionError>
+    where
+        F: FnOnce(SymbolicExecutionBugInfo) -> Bug,
+    {
+        match result {
+            QueryResult::Sat(witness) => {
+                let bug = info_to_bug(self.collect_bug_info(Some(witness)));
+
+                Err(SymbolicExecutionError::BugFound(bug))
+            }
+            QueryResult::UnSat | QueryResult::Unknown => Ok(()),
+        }
     }
 
     fn is_in_vaddr_range(&self, vaddr: u64) -> bool {
@@ -241,7 +358,7 @@ where
         &mut self,
         instruction: &str,
         address: u64,
-    ) -> Result<Option<Bug>, SymbolicExecutionError> {
+    ) -> Result<(), SymbolicExecutionError> {
         let is_alignment_ok = address % size_of::<u64>() as u64 == 0;
 
         if !is_alignment_ok {
@@ -251,11 +368,10 @@ where
                 address
             );
 
-            self.is_running = false;
+            // self.is_running = false;
 
-            self.execute_query(Query::Reachable, |info| Bug::AccessToUnalignedAddress {
-                info,
-                address,
+            self.execute_query(Query::Reachable).and_then(|r| {
+                self.exit_anyway_with_bug(r, |i| self.access_to_unaligned_address_bug(i))
             })
         } else if !self.is_in_vaddr_range(address) {
             trace!(
@@ -265,13 +381,13 @@ where
                 self.memory.len() * size_of::<u64>(),
             );
 
-            self.is_running = false;
+            // self.is_running = false;
 
-            self.execute_query(Query::Reachable, |info| Bug::AccessToOutOfRangeAddress {
-                info,
+            self.execute_query(Query::Reachable).and_then(|r| {
+                self.exit_anyway_with_bug(r, |i| self.access_to_out_of_range_address_bug(i))
             })
         } else {
-            Ok(None)
+            Ok(())
         }
     }
 
@@ -280,7 +396,7 @@ where
         instruction: &str,
         address: u64,
         size: u64,
-    ) -> Result<Option<Bug>, SymbolicExecutionError> {
+    ) -> Result<(), SymbolicExecutionError> {
         if !self.is_in_vaddr_range(address) || !self.is_in_vaddr_range(address + size) {
             trace!(
                 "{}: buffer {:#x} - {:#x} out of virtual address range (0x0 - {:#x}) => computing reachability",
@@ -290,18 +406,18 @@ where
                 self.memory.len() * size_of::<u64>(),
             );
 
-            self.is_running = false;
+            // self.is_running = false;
 
-            self.execute_query(Query::Reachable, |info| Bug::AccessToOutOfRangeAddress {
-                info,
+            self.execute_query(Query::Reachable).and_then(|r| {
+                self.exit_anyway_with_bug(r, |i| self.access_to_out_of_range_address_bug(i))
             })
         } else {
-            Ok(None)
+            Ok(())
         }
     }
 
     #[allow(clippy::unnecessary_wraps)]
-    fn execute_lui(&mut self, utype: UType) -> Result<Option<Bug>, SymbolicExecutionError> {
+    fn execute_lui(&mut self, utype: UType) -> Result<(), SymbolicExecutionError> {
         let immediate = u64::from(utype.imm()) << 12;
 
         let result = Value::Concrete(immediate);
@@ -318,7 +434,7 @@ where
 
         self.pc += INSTRUCTION_SIZE;
 
-        Ok(None)
+        Ok(())
     }
 
     fn execute_divu_remu<Op>(
@@ -326,20 +442,19 @@ where
         instruction: Instruction,
         rtype: RType,
         op: Op,
-    ) -> Result<Option<Bug>, SymbolicExecutionError>
+    ) -> Result<(), SymbolicExecutionError>
     where
         Op: FnOnce(u64, u64) -> u64,
     {
-        let bug = match self.regs[rtype.rs2() as usize] {
+        match self.regs[rtype.rs2() as usize] {
             Value::Symbolic(divisor) => {
                 trace!(
                     "{}: symbolic divisor -> find input for divisor == 0",
                     instruction_to_str(instruction)
                 );
 
-                self.execute_query(Query::Equals((divisor, 0)), |info| Bug::DivisionByZero {
-                    info,
-                })?
+                self.execute_query(Query::Equals((divisor, 0)))
+                    .and_then(|r| self.exit_with_bug_if_sat(r, |i| self.divison_by_zero_bug(i)))?;
             }
             Value::Concrete(divisor) if divisor == 0 => {
                 trace!(
@@ -347,16 +462,14 @@ where
                     instruction_to_str(instruction)
                 );
 
-                self.execute_query(Query::Reachable, |info| Bug::DivisionByZero { info })?
+                return self
+                    .execute_query(Query::Reachable)
+                    .and_then(|r| self.exit_anyway_with_bug(r, |i| self.divison_by_zero_bug(i)));
             }
-            _ => None,
+            _ => {}
         };
 
-        if bug.is_none() {
-            self.execute_rtype(instruction, rtype, op)
-        } else {
-            Ok(bug)
-        }
+        self.execute_rtype(instruction, rtype, op)
     }
 
     fn execute_itype<Op>(
@@ -364,7 +477,7 @@ where
         instruction: Instruction,
         itype: IType,
         op: Op,
-    ) -> Result<Option<Bug>, SymbolicExecutionError>
+    ) -> Result<(), SymbolicExecutionError>
     where
         Op: FnOnce(u64, u64) -> u64,
     {
@@ -379,7 +492,7 @@ where
         instruction: Instruction,
         rtype: RType,
         op: Op,
-    ) -> Result<Option<Bug>, SymbolicExecutionError>
+    ) -> Result<(), SymbolicExecutionError>
     where
         Op: FnOnce(u64, u64) -> u64,
     {
@@ -396,7 +509,7 @@ where
         rhs: Value,
         rd: Register,
         op: Op,
-    ) -> Result<Option<Bug>, SymbolicExecutionError>
+    ) -> Result<(), SymbolicExecutionError>
     where
         Op: FnOnce(u64, u64) -> u64,
     {
@@ -414,13 +527,7 @@ where
                 Value::Symbolic(self.symbolic_state.create_instruction(instruction, v1, v2))
             }
             _ => {
-                let bug = self.check_for_uninitialized_memory(instruction, lhs, rhs)?;
-
-                trace!("could not find input assignment => exiting this context");
-
-                self.is_running = false;
-
-                return Ok(bug);
+                return self.access_to_uninitialized_memory(instruction, lhs, rhs);
             }
         };
 
@@ -438,10 +545,10 @@ where
 
         self.pc += INSTRUCTION_SIZE;
 
-        Ok(None)
+        Ok(())
     }
 
-    fn execute_brk(&mut self) -> Result<Option<Bug>, SymbolicExecutionError> {
+    fn execute_brk(&mut self) -> Result<(), SymbolicExecutionError> {
         if let Value::Concrete(new_program_break) = self.regs[Register::A0 as usize] {
             let old_program_break = self.program_break;
 
@@ -458,7 +565,7 @@ where
                 new_program_break
             );
 
-            Ok(None)
+            Ok(())
         } else {
             not_supported("can not handle symbolic or uninitialized program break")
         }
@@ -517,7 +624,7 @@ where
             .create_operator(BVOperator::Add, old_idx, new_idx)
     }
 
-    fn execute_read(&mut self) -> Result<Option<Bug>, SymbolicExecutionError> {
+    fn execute_read(&mut self) -> Result<(), SymbolicExecutionError> {
         if !matches!(self.regs[Register::A0 as usize], Value::Concrete(0)) {
             return not_supported("can not handle other fd than stdin in read syscall");
         }
@@ -538,10 +645,7 @@ where
 
         trace!("read: fd={} buffer={:#x} size={}", 0, buffer, size,);
 
-        let bug = self.check_for_valid_memory_range("read", buffer, size)?;
-        if bug.is_some() {
-            return Ok(bug);
-        }
+        self.check_for_valid_memory_range("read", buffer, size)?;
 
         let size_of_u64 = size_of::<u64>() as u64;
 
@@ -594,13 +698,10 @@ where
 
         self.regs[Register::A0 as usize] = Value::Concrete(size);
 
-        Ok(None)
+        Ok(())
     }
 
-    fn execute_write(
-        &mut self,
-        instruction: Instruction,
-    ) -> Result<Option<Bug>, SymbolicExecutionError> {
+    fn execute_write(&mut self) -> Result<(), SymbolicExecutionError> {
         if !matches!(self.regs[Register::A0 as usize], Value::Concrete(1)) {
             return not_supported("can not handle other fd than stdout in write syscall");
         }
@@ -621,10 +722,7 @@ where
 
         trace!("write: fd={} buffer={:#x} size={}", 1, buffer, size,);
 
-        let bug = self.check_for_valid_memory_range("write", buffer, size)?;
-        if bug.is_some() {
-            return Ok(bug);
-        }
+        self.check_for_valid_memory_range("write", buffer, size)?;
 
         let size_of_u64 = size_of::<u64>() as u64;
         let start = buffer / size_of_u64;
@@ -632,25 +730,67 @@ where
         let words_to_read = (bytes_to_read + size_of_u64 - 1) / size_of_u64;
 
         for word_count in 0..words_to_read {
-            if self.memory[(start + word_count) as usize] == Value::Uninitialized {
+            let address = start + word_count;
+
+            if self.memory[address as usize] == Value::Uninitialized {
                 trace!(
                     "write: access to uninitialized memory at {:#x} => computing reachability",
                     (start + word_count) * size_of_u64,
                 );
 
-                return self.execute_query(Query::Reachable, |info| {
-                    Bug::AccessToUnitializedMemory {
-                        info,
-                        instruction,
-                        operands: vec![],
-                    }
+                return self.execute_query(Query::Reachable).and_then(|r| {
+                    self.exit_anyway_with_bug(r, |i| {
+                        self.access_to_uninitialized_memory_bug(
+                            i,
+                            UninitializedMemoryAccessReason::ReadUnintializedMemoryAddress {
+                                description: format!(
+                                    "access to uninitialized memory at address: {:#x}",
+                                    address
+                                ),
+                                address,
+                            },
+                        )
+                    })
                 });
             }
         }
 
         self.regs[Register::A0 as usize] = Value::Concrete(size);
 
-        Ok(None)
+        Ok(())
+    }
+
+    fn should_execute_branch(&mut self) -> Result<(bool, &'static str), SymbolicExecutionError> {
+        Ok(match self.execute_query(Query::Reachable)? {
+            QueryResult::Sat(_) => (true, "reachable"),
+            QueryResult::Unknown if self.options.optimistically_prune_search_space => {
+                (true, "reachability unknown")
+            }
+            _ => (false, "unreachable"),
+        })
+    }
+
+    fn with_snapshot<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        let memory_snapshot = self.memory.clone();
+        let regs_snapshot = self.regs;
+        let graph_snapshot = Box::new((*self.symbolic_state).clone());
+        let brk_snapshot = self.program_break;
+        let execution_depth_snapshot = self.execution_depth;
+        let amount_of_file_descriptors_snapshot = self.amount_of_file_descriptors;
+
+        let result = f(self);
+
+        self.memory = memory_snapshot;
+        self.regs = regs_snapshot;
+        self.symbolic_state = graph_snapshot;
+        self.program_break = brk_snapshot;
+        self.execution_depth = execution_depth_snapshot;
+        self.amount_of_file_descriptors = amount_of_file_descriptors_snapshot;
+
+        result
     }
 
     fn execute_beq_branches(
@@ -659,97 +799,97 @@ where
         false_branch: u64,
         lhs: SymbolicValue,
         rhs: SymbolicValue,
-    ) -> Result<Option<Bug>, SymbolicExecutionError> {
-        let memory_snapshot = self.memory.clone();
-        let regs_snapshot = self.regs;
-        let graph_snapshot = Box::new((*self.symbolic_state).clone());
-        let brk_snapshot = self.program_break;
-        let execution_depth_snapshot = self.execution_depth;
-
+    ) -> Result<(), SymbolicExecutionError> {
         let next_pc = self.strategy.choose_path(true_branch, false_branch);
 
         let decision = next_pc == true_branch;
 
-        self.symbolic_state
-            .create_beq_path_condition(decision, lhs, rhs);
+        let result_first_branch =
+            self.with_snapshot(|this| -> Result<(), SymbolicExecutionError> {
+                this.symbolic_state
+                    .create_beq_path_condition(decision, lhs, rhs);
 
-        if let Ok(Some(_)) = self.symbolic_state.execute_query(Query::Reachable) {
-            trace!(
-                "[{:#010x}] beq: x{}, x{} |- assume {}, pc <- {:#x}",
-                self.pc,
-                lhs.index(),
-                rhs.index(),
-                next_pc == false_branch,
-                next_pc,
-            );
+                let (execute_branch, reachability) = this.should_execute_branch()?;
 
-            self.pc = next_pc;
+                if execute_branch {
+                    trace!(
+                        "[{:#010x}] beq: x{}, x{} |- assume {} ({}), pc <- {:#x}",
+                        this.pc,
+                        lhs.index(),
+                        rhs.index(),
+                        next_pc == false_branch,
+                        reachability,
+                        next_pc,
+                    );
 
-            let result = self.run();
+                    this.pc = next_pc;
 
-            if !matches!(
-                result,
-                Err(SymbolicExecutionError::ExecutionDepthReached(_)) | Ok(None)
-            ) {
-                return result;
+                    this.run()
+                } else {
+                    trace!(
+                        "[{:#010x}] beq: x{}, x{} |- assume {} ({})",
+                        this.pc,
+                        lhs.index(),
+                        rhs.index(),
+                        next_pc == false_branch,
+                        reachability
+                    );
+
+                    Err(SymbolicExecutionError::NotReachable)
+                }
+            });
+
+        match result_first_branch {
+            Ok(_) => panic!("every branch execution has to end with an error"),
+            Err(SymbolicExecutionError::ExecutionDepthReached(_))
+            | Err(SymbolicExecutionError::ProgramExit(_))
+            | Err(SymbolicExecutionError::NotReachable) => {}
+            err => {
+                return err;
             }
-        } else {
-            trace!(
-                "[{:#010x}] beq: x{}, x{} |- assume {}, not reachable",
-                self.pc,
-                lhs.index(),
-                rhs.index(),
-                next_pc == false_branch,
-            );
-        }
+        };
 
         let next_pc = if decision { false_branch } else { true_branch };
-
-        self.is_running = true;
-
-        self.memory = memory_snapshot;
-        self.regs = regs_snapshot;
-        self.symbolic_state = graph_snapshot;
-        self.program_break = brk_snapshot;
-        self.execution_depth = execution_depth_snapshot;
 
         self.symbolic_state
             .create_beq_path_condition(!decision, lhs, rhs);
 
-        if let Ok(Some(_)) = self.symbolic_state.execute_query(Query::Reachable) {
+        let (execute_branch, reachability) = self.should_execute_branch()?;
+
+        if execute_branch {
             trace!(
-                "[{:#010x}] beq: x{}, x{} |- assume {}, pc <- {:#x}",
+                "[{:#010x}] beq: x{}, x{} |- assume {} ({}), pc <- {:#x}",
                 self.pc,
                 lhs.index(),
                 rhs.index(),
                 next_pc == false_branch,
+                reachability,
                 next_pc,
             );
 
             self.pc = next_pc;
 
-            Ok(None)
+            Ok(())
         } else {
             trace!(
-                "[{:#010x}] beq: x{}, x{} |- assume {}, not reachable",
+                "[{:#010x}] beq: x{}, x{} |- assume {} ({})",
                 self.pc,
                 lhs.index(),
                 rhs.index(),
                 next_pc == false_branch,
+                reachability
             );
 
-            self.is_running = false;
-
-            Ok(None)
+            result_first_branch
         }
     }
 
-    fn execute_beq(&mut self, btype: BType) -> Result<Option<Bug>, SymbolicExecutionError> {
+    fn execute_beq(&mut self, btype: BType) -> Result<(), SymbolicExecutionError> {
         let lhs = self.regs[btype.rs1() as usize];
         let rhs = self.regs[btype.rs2() as usize];
 
         let true_branch = self.pc.wrapping_add(btype.imm() as u64);
-        let false_branch = self.pc.wrapping_add(4);
+        let false_branch = self.pc.wrapping_add(INSTRUCTION_SIZE);
 
         match (lhs, rhs) {
             (Value::Concrete(v1), Value::Concrete(v2)) => {
@@ -765,7 +905,7 @@ where
                     self.pc
                 );
 
-                Ok(None)
+                Ok(())
             }
             (Value::Symbolic(v1), Value::Concrete(v2)) => {
                 let v2 = self.symbolic_state.create_const(v2);
@@ -778,28 +918,24 @@ where
             (Value::Symbolic(v1), Value::Symbolic(v2)) => {
                 self.execute_beq_branches(true_branch, false_branch, v1, v2)
             }
-            (v1, v2) => {
-                self.is_running = false;
-
-                let result = self.check_for_uninitialized_memory(Instruction::Beq(btype), v1, v2);
-
-                trace!("access to uninitialized memory => exiting this context");
-
-                result
-            }
+            (v1, v2) => self.access_to_uninitialized_memory(Instruction::Beq(btype), v1, v2),
         }
     }
 
-    fn execute_exit(&mut self) -> Result<Option<Bug>, SymbolicExecutionError> {
-        self.is_running = false;
-
+    fn execute_exit(&mut self) -> Result<(), SymbolicExecutionError> {
         match self.regs[Register::A0 as usize] {
             Value::Symbolic(exit_code) => {
                 trace!("exit: symbolic code -> find input for exit_code != 0");
 
-                self.execute_query(Query::NotEquals((exit_code, 0)), |info| {
-                    Bug::ExitCodeGreaterZero { info }
-                })
+                self.execute_query(Query::NotEquals((exit_code, 0)))
+                    .and_then(|r| {
+                        self.exit_anyway_with_bug_if_sat(
+                            r,
+                            // TODO: return symbolic exit code in bug
+                            |i| self.exit_code_greater_zero_bug(i, 0),
+                            SymbolicExecutionError::ProgramExit(0),
+                        )
+                    })
             }
             Value::Concrete(exit_code) => {
                 if exit_code > 0 {
@@ -808,21 +944,22 @@ where
                         exit_code
                     );
 
-                    self.execute_query(Query::Reachable, |info| Bug::ExitCodeGreaterZero { info })
+                    self.execute_query(Query::Reachable).and_then(|r| {
+                        self.exit_anyway_with_bug(r, |i| {
+                            self.exit_code_greater_zero_bug(i, exit_code)
+                        })
+                    })
                 } else {
                     trace!("exiting context with exit_code 0");
 
-                    Ok(None)
+                    Err(SymbolicExecutionError::ProgramExit(0))
                 }
             }
             _ => not_supported("exit only implemented for symbolic exit codes"),
         }
     }
 
-    fn execute_ecall(
-        &mut self,
-        instruction: Instruction,
-    ) -> Result<Option<Bug>, SymbolicExecutionError> {
+    fn execute_ecall(&mut self) -> Result<(), SymbolicExecutionError> {
         trace!("[{:#010x}] ecall", self.pc);
 
         let result = match self.regs[Register::A7 as usize] {
@@ -833,7 +970,7 @@ where
                 self.execute_read()
             }
             Value::Concrete(syscall_id) if syscall_id == (SyscallId::Write as u64) => {
-                self.execute_write(instruction)
+                self.execute_write()
             }
             Value::Concrete(syscall_id) if syscall_id == (SyscallId::Exit as u64) => {
                 self.execute_exit()
@@ -853,35 +990,32 @@ where
         &mut self,
         instruction: Instruction,
         itype: IType,
-    ) -> Result<Option<Bug>, SymbolicExecutionError> {
+    ) -> Result<(), SymbolicExecutionError> {
         if let Value::Concrete(base_address) = self.regs[itype.rs1() as usize] {
             let immediate = itype.imm() as u64;
 
             let address = base_address.wrapping_add(immediate);
 
-            let bug =
-                self.check_for_valid_memory_address(instruction_to_str(instruction), address)?;
+            self.check_for_valid_memory_address(instruction_to_str(instruction), address)?;
 
-            if bug.is_none() {
-                let value = self.memory[(address / 8) as usize];
+            let value = self.memory[(address / 8) as usize];
 
-                trace!(
-                    "[{:#010x}] {}: {:#x}, {} |- {:?} <- mem[{:#x}]={}",
-                    self.pc,
-                    instruction_to_str(instruction),
-                    base_address,
-                    immediate,
-                    itype.rd(),
-                    address,
-                    value,
-                );
+            trace!(
+                "[{:#010x}] {}: {:#x}, {} |- {:?} <- mem[{:#x}]={}",
+                self.pc,
+                instruction_to_str(instruction),
+                base_address,
+                immediate,
+                itype.rd(),
+                address,
+                value,
+            );
 
-                self.assign_rd(itype.rd(), value);
+            self.assign_rd(itype.rd(), value);
 
-                self.pc += INSTRUCTION_SIZE;
-            }
+            self.pc += INSTRUCTION_SIZE;
 
-            Ok(bug)
+            Ok(())
         } else {
             not_supported("can not handle symbolic addresses in LD")
         }
@@ -891,42 +1025,39 @@ where
         &mut self,
         instruction: Instruction,
         stype: SType,
-    ) -> Result<Option<Bug>, SymbolicExecutionError> {
+    ) -> Result<(), SymbolicExecutionError> {
         if let Value::Concrete(base_address) = self.regs[stype.rs1() as usize] {
             let immediate = stype.imm();
 
             let address = base_address.wrapping_add(immediate as u64);
 
-            let bug =
-                self.check_for_valid_memory_address(instruction_to_str(instruction), address)?;
+            self.check_for_valid_memory_address(instruction_to_str(instruction), address)?;
 
-            if bug.is_none() {
-                let value = self.regs[stype.rs2() as usize];
+            let value = self.regs[stype.rs2() as usize];
 
-                trace!(
-                    "[{:#010x}] {}: {:#x}, {}, {} |- mem[{:#x}] <- {}",
-                    self.pc,
-                    instruction_to_str(instruction),
-                    base_address,
-                    immediate,
-                    self.regs[stype.rs2() as usize],
-                    address,
-                    value,
-                );
+            trace!(
+                "[{:#010x}] {}: {:#x}, {}, {} |- mem[{:#x}] <- {}",
+                self.pc,
+                instruction_to_str(instruction),
+                base_address,
+                immediate,
+                self.regs[stype.rs2() as usize],
+                address,
+                value,
+            );
 
-                self.memory[(address / 8) as usize] = value;
+            self.memory[(address / 8) as usize] = value;
 
-                self.pc += INSTRUCTION_SIZE;
-            }
+            self.pc += INSTRUCTION_SIZE;
 
-            Ok(bug)
+            Ok(())
         } else {
             not_supported("can not handle symbolic addresses in SD")
         }
     }
 
     #[allow(clippy::unnecessary_wraps)]
-    fn execute_jal(&mut self, jtype: JType) -> Result<Option<Bug>, SymbolicExecutionError> {
+    fn execute_jal(&mut self, jtype: JType) -> Result<(), SymbolicExecutionError> {
         let link = self.pc + INSTRUCTION_SIZE;
 
         let new_pc = self.pc.wrapping_add(jtype.imm() as u64);
@@ -943,7 +1074,7 @@ where
 
         self.assign_rd(jtype.rd(), Value::Concrete(link));
 
-        Ok(None)
+        Ok(())
     }
 
     fn assign_rd(&mut self, rd: Register, v: Value) {
@@ -952,7 +1083,7 @@ where
         }
     }
 
-    fn execute_jalr(&mut self, itype: IType) -> Result<Option<Bug>, SymbolicExecutionError> {
+    fn execute_jalr(&mut self, itype: IType) -> Result<(), SymbolicExecutionError> {
         if let Value::Concrete(dest) = self.regs[itype.rs1() as usize] {
             let link = self.pc + INSTRUCTION_SIZE;
 
@@ -972,7 +1103,7 @@ where
 
             self.pc = new_pc;
 
-            Ok(None)
+            Ok(())
         } else {
             not_supported("can only handle concrete addresses in JALR")
         }
@@ -993,9 +1124,9 @@ where
         }
     }
 
-    fn execute(&mut self, instruction: Instruction) -> Result<Option<Bug>, SymbolicExecutionError> {
+    fn execute(&mut self, instruction: Instruction) -> Result<(), SymbolicExecutionError> {
         match instruction {
-            Instruction::Ecall(_) => self.execute_ecall(instruction),
+            Instruction::Ecall(_) => self.execute_ecall(),
             Instruction::Lui(utype) => self.execute_lui(utype),
             Instruction::Addi(itype) => self.execute_itype(instruction, itype, u64::wrapping_add),
             Instruction::Add(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_add),
@@ -1031,22 +1162,28 @@ fn load_segment(memory: &mut Vec<Value>, segment: &ProgramSegment<u8>) {
         .for_each(|(x, i)| memory[i] = Value::Concrete(x));
 }
 
-fn not_supported(s: &str) -> Result<Option<Bug>, SymbolicExecutionError> {
+fn not_supported(s: &str) -> Result<(), SymbolicExecutionError> {
     Err(SymbolicExecutionError::NotSupported(s.to_owned()))
 }
 
 #[derive(Debug, Clone)]
-pub struct SymbolicExecutionErrorInfo {
-    pub witness: Witness,
+pub struct SymbolicExecutionBugInfo {
+    pub witness: Option<Witness>,
     pub pc: u64,
 }
 
-impl BugInfo for SymbolicExecutionErrorInfo {
+impl BugInfo for SymbolicExecutionBugInfo {
     type Value = Value;
 }
 
-impl fmt::Display for SymbolicExecutionErrorInfo {
+impl fmt::Display for SymbolicExecutionBugInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "pc: {:#010x}\nwitness: {}", self.pc, self.witness)
+        write!(f, "pc: {:#010x}", self.pc)?;
+
+        if let Some(witness) = &self.witness {
+            write!(f, "\nwitness: {}", witness)
+        } else {
+            Ok(())
+        }
     }
 }

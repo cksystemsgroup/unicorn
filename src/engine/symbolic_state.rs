@@ -19,6 +19,12 @@ pub enum Query {
     Reachable,
 }
 
+pub enum QueryResult {
+    Sat(Witness),
+    UnSat,
+    Unknown,
+}
+
 pub type SymbolicValue = NodeIndex;
 pub type DataFlowGraph = petgraph::Graph<Symbol, OperandSide>;
 
@@ -181,7 +187,7 @@ where
             self.create_operator(BVOperator::BitwiseAnd, self.path_condition, condition);
     }
 
-    pub fn execute_query(&mut self, query: Query) -> Result<Option<Witness>, SolverError> {
+    pub fn execute_query(&mut self, query: Query) -> Result<QueryResult, SolverError> {
         // prepare graph for query
         let (root, cleanup_nodes, cleanup_edges) = match query {
             Query::Equals(_) | Query::NotEquals(_) => self.prepare_query(query),
@@ -199,8 +205,9 @@ where
         }
 
         let result = match self.solver.solve(&formula) {
-            Ok(Some(ref assignment)) => Ok(Some(formula.build_witness(assignment))),
-            Ok(None) => Ok(None),
+            Ok(Some(ref assignment)) => Ok(QueryResult::Sat(formula.build_witness(assignment))),
+            Ok(None) => Ok(QueryResult::UnSat),
+            Err(SolverError::SatUnknown) | Err(SolverError::Timeout) => Ok(QueryResult::Unknown),
             Err(e) => Err(e),
         };
 

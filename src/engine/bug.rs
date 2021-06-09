@@ -14,8 +14,7 @@ pub enum Bug<Info: BugInfo> {
 
     AccessToUnitializedMemory {
         info: Info,
-        instruction: Instruction,
-        operands: Vec<Info::Value>,
+        reason: UninitializedMemoryAccessReason<Info>,
     },
 
     AccessToUnalignedAddress {
@@ -29,6 +28,8 @@ pub enum Bug<Info: BugInfo> {
 
     ExitCodeGreaterZero {
         info: Info,
+        exit_code: u64,
+        address: u64,
     },
 }
 
@@ -39,16 +40,10 @@ where
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Bug::DivisionByZero { info } => write!(f, "reason: division by zero\n{}", info),
-            Bug::AccessToUnitializedMemory {
-                info,
-                instruction,
-                operands,
-            } => write!(
+            Bug::AccessToUnitializedMemory { info, reason } => write!(
                 f,
-                "reason: access to uninitialized memory\ninstruction: {}\noperands {:?}\n{}",
-                instruction_to_str(*instruction),
-                operands,
-                info,
+                "reason: access to uninitialized memory\n{}\n{}",
+                info, reason,
             ),
             Bug::AccessToUnalignedAddress { info, address } => write!(
                 f,
@@ -60,7 +55,50 @@ where
                 "reason: accessed a memory address out of virtual address space\n{}",
                 info,
             ),
-            Bug::ExitCodeGreaterZero { info } => write!(f, "exit code greater than zero\n{}", info),
+            Bug::ExitCodeGreaterZero {
+                info,
+                exit_code,
+                address,
+            } => write!(
+                f,
+                "reason: exit code ({}) greater than zero at pc={:#x}\n{}",
+                exit_code, address, info
+            ),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum UninitializedMemoryAccessReason<Info: BugInfo> {
+    ReadUnintializedMemoryAddress {
+        description: String,
+        address: u64,
+    },
+    InstructionWithUninitializedOperand {
+        instruction: Instruction,
+        operands: Vec<Info::Value>,
+    },
+}
+
+impl<Info> fmt::Display for UninitializedMemoryAccessReason<Info>
+where
+    Info: BugInfo,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            UninitializedMemoryAccessReason::InstructionWithUninitializedOperand {
+                instruction,
+                operands,
+            } => write!(
+                f,
+                "instruction: {}  operands: {:?}",
+                instruction_to_str(*instruction),
+                operands
+            ),
+            UninitializedMemoryAccessReason::ReadUnintializedMemoryAddress {
+                description,
+                address,
+            } => write!(f, "{} (pc: {:#x})", description, address),
         }
     }
 }

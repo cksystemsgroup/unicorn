@@ -13,7 +13,7 @@ pub use engine::{
     SymbolicExecutionOptions,
 };
 use riscu::{load_object_file, Program};
-use solver::SmtType;
+pub use solver::{SmtGenerationOptions, SmtType};
 use std::{fs::File, io::Write, path::Path};
 use thiserror::Error;
 
@@ -72,7 +72,9 @@ where
 {
     let mut engine = SymbolicExecutionEngine::new(&program, &options, strategy, solver);
 
-    engine.run().map_err(MonsterError::SymbolicExecution)
+    engine
+        .search_for_bugs()
+        .map_err(MonsterError::SymbolicExecution)
 }
 
 pub fn symbolically_execute_elf_with<P, Solver, Strategy>(
@@ -94,22 +96,27 @@ where
 pub fn generate_smt<Strategy, W, P>(
     input: P,
     write: W,
-    options: &SymbolicExecutionOptions,
+    options: &SmtGenerationOptions,
     strategy: &Strategy,
-    smt_type: SmtType,
 ) -> Result<Option<SymbolicExecutionBug>, MonsterError>
 where
     W: Write + Send + 'static,
     Strategy: path_exploration::ExplorationStrategy,
     P: AsRef<Path>,
 {
-    match smt_type {
+    let sym_options = SymbolicExecutionOptions {
+        memory_size: options.memory_size,
+        max_exection_depth: options.max_execution_depth,
+        optimistically_prune_search_space: false,
+    };
+
+    match options.smt_type {
         SmtType::Generic => {
             let solver = solver::SmtWriter::new::<W>(write)
                 .context("failed to generate SMT file writer backend")
                 .map_err(MonsterError::Preprocessing)?;
 
-            symbolically_execute_elf_with(input, options, strategy, &solver)
+            symbolically_execute_elf_with(input, &sym_options, strategy, &solver)
         }
         #[cfg(feature = "boolector")]
         SmtType::Boolector => {
@@ -117,7 +124,7 @@ where
                 .context("failed to generate SMT file writer backend")
                 .map_err(MonsterError::Preprocessing)?;
 
-            symbolically_execute_elf_with(input, options, strategy, &solver)
+            symbolically_execute_elf_with(input, &sym_options, strategy, &solver)
         }
         #[cfg(feature = "z3")]
         SmtType::Z3 => {
@@ -125,7 +132,7 @@ where
                 .context("failed to generate SMT file writer backend")
                 .map_err(MonsterError::Preprocessing)?;
 
-            symbolically_execute_elf_with(input, options, strategy, &solver)
+            symbolically_execute_elf_with(input, &sym_options, strategy, &solver)
         }
     }
 }
@@ -133,9 +140,8 @@ where
 pub fn generate_smt_to_file<Strategy, P>(
     input: P,
     output: P,
-    options: &SymbolicExecutionOptions,
+    options: &SmtGenerationOptions,
     strategy: &Strategy,
-    smt_type: SmtType,
 ) -> Result<Option<SymbolicExecutionBug>, MonsterError>
 where
     Strategy: path_exploration::ExplorationStrategy,
@@ -145,7 +151,7 @@ where
         .context("failed to generate SMT file writer")
         .map_err(MonsterError::IoError)?;
 
-    generate_smt(input, file, options, strategy, smt_type)
+    generate_smt(input, file, options, strategy)
 }
 
 pub fn rarity_simulate(program: &Program) -> Result<Option<RaritySimulationBug>, MonsterError> {

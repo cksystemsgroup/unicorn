@@ -130,6 +130,7 @@ fn execute_symbolically<S: Solver, P: AsRef<Path>>(object_path: P) {
     let options = SymbolicExecutionOptions {
         max_exection_depth: 5000000,
         memory_size: ByteSize(400000),
+        ..Default::default()
     };
     let solver = S::default();
     let strategy = ShortestPathStrategy::compute_for(&program).unwrap();

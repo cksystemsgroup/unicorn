@@ -15,10 +15,11 @@ use monster::{
     },
     rarity_simulate_elf_with,
     solver::{
-        self, SmtType,
+        self,
         SolverType::{self, Monster},
     },
-    symbolically_execute_elf_with, RaritySimulationOptions, SymbolicExecutionOptions,
+    symbolically_execute_elf_with, RaritySimulationOptions, SmtGenerationOptions,
+    SymbolicExecutionOptions,
 };
 use riscu::load_object_file;
 use std::{
@@ -71,10 +72,10 @@ fn main() -> Result<()> {
             let input = expect_arg::<PathBuf>(&args, "input-file")?;
             let output = expect_optional_arg::<PathBuf>(&args, "output-file")?;
             let strategy = expect_arg::<ExplorationStrategyType>(&args, "strategy")?;
-            let smt_type = expect_arg::<SmtType>(&args, "smt-type")?;
-            let options = SymbolicExecutionOptions {
-                max_exection_depth: expect_arg(args, "max-execution-depth")?,
+            let options = SmtGenerationOptions {
+                max_execution_depth: expect_arg(args, "max-execution-depth")?,
                 memory_size: ByteSize::mib(expect_arg(args, "memory")?),
+                smt_type: expect_arg(&args, "smt-type")?,
             };
 
             let program = load_object_file(&input)?;
@@ -84,18 +85,18 @@ fn main() -> Result<()> {
                     let strategy = ShortestPathStrategy::compute_for(&program)?;
 
                     if let Some(file) = output {
-                        generate_smt_to_file(&input, &file, &options, &strategy, smt_type)
+                        generate_smt_to_file(&input, &file, &options, &strategy)
                     } else {
-                        generate_smt(&input, stdout(), &options, &strategy, smt_type)
+                        generate_smt(&input, stdout(), &options, &strategy)
                     }
                 }
                 CoinFlip => {
                     let strategy = CoinFlipStrategy::default();
 
                     if let Some(file) = output {
-                        generate_smt_to_file(&input, &file, &options, &strategy, smt_type)
+                        generate_smt_to_file(&input, &file, &options, &strategy)
                     } else {
-                        generate_smt(&input, stdout(), &options, &strategy, smt_type)
+                        generate_smt(&input, stdout(), &options, &strategy)
                     }
                 }
             }
@@ -115,6 +116,7 @@ fn main() -> Result<()> {
             let options = SymbolicExecutionOptions {
                 max_exection_depth: expect_arg(args, "max-execution-depth")?,
                 memory_size: ByteSize::mib(expect_arg(args, "memory")?),
+                ..Default::default()
             };
 
             let program = load_object_file(&input)?;

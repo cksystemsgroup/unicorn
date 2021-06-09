@@ -26,6 +26,8 @@
 //! The amount of iterations/cycles and the amount of states allows for a fine-grained control for
 //! finding bugs in depth or in breadth, respectively.
 
+use crate::engine::UninitializedMemoryAccessReason;
+
 use super::{
     system::{instruction_to_str, SyscallId},
     Bug as GenericBug, BugFinder, BugInfo, VirtualMemory,
@@ -461,7 +463,7 @@ impl Executor {
 
     fn execute(&mut self, instruction: Instruction) -> Result<Option<Bug>, RaritySimulationError> {
         match instruction {
-            Instruction::Ecall(_) => self.execute_ecall(instruction),
+            Instruction::Ecall(_) => self.execute_ecall(),
             Instruction::Lui(utype) => self.execute_lui(utype),
             Instruction::Addi(itype) => self.execute_itype(instruction, itype, u64::wrapping_add),
             Instruction::Add(rtype) => self.execute_rtype(instruction, rtype, u64::wrapping_add),
@@ -502,9 +504,11 @@ impl Executor {
                 inputs: self.concrete_inputs.clone(),
                 pc: self.state.pc,
             },
-            instruction,
-            // TODO: fix operands
-            operands: vec![],
+            reason: UninitializedMemoryAccessReason::InstructionWithUninitializedOperand {
+                instruction,
+                // TODO: fix operands
+                operands: vec![],
+            },
         }
     }
 
@@ -806,10 +810,7 @@ impl Executor {
         Ok(None)
     }
 
-    fn execute_write(
-        &mut self,
-        instruction: Instruction,
-    ) -> Result<Option<Bug>, RaritySimulationError> {
+    fn execute_write(&mut self) -> Result<Option<Bug>, RaritySimulationError> {
         if !matches!(self.state.regs[Register::A0 as usize], Value::Concrete(1)) {
             return not_supported("can not handle other fd than stdout in write syscall");
         }
@@ -852,8 +853,13 @@ impl Executor {
                         inputs: self.concrete_inputs.clone(),
                         pc: self.state.pc,
                     },
-                    instruction,
-                    operands: vec![],
+                    reason: UninitializedMemoryAccessReason::ReadUnintializedMemoryAddress {
+                        description: format!(
+                            "access to uninitialized memory in write syscall ({:#x})",
+                            self.state.pc
+                        ),
+                        address: self.state.pc,
+                    },
                 }));
             }
         }
@@ -915,6 +921,8 @@ impl Executor {
                             inputs: self.concrete_inputs.clone(),
                             pc: self.state.pc,
                         },
+                        exit_code,
+                        address: self.state.pc,
                     }))
                 } else {
                     trace!("exiting context with exit_code 0");
@@ -926,10 +934,7 @@ impl Executor {
         }
     }
 
-    fn execute_ecall(
-        &mut self,
-        instruction: Instruction,
-    ) -> Result<Option<Bug>, RaritySimulationError> {
+    fn execute_ecall(&mut self) -> Result<Option<Bug>, RaritySimulationError> {
         trace!("[{:#010x}] ecall", self.state.pc);
 
         let result = match self.state.regs[Register::A7 as usize] {
@@ -940,7 +945,7 @@ impl Executor {
                 self.execute_read()
             }
             Value::Concrete(syscall_id) if syscall_id == (SyscallId::Write as u64) => {
-                self.execute_write(instruction)
+                self.execute_write()
             }
             Value::Concrete(syscall_id) if syscall_id == (SyscallId::Exit as u64) => {
                 self.execute_exit()

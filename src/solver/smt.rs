@@ -2,6 +2,7 @@ use super::{
     Assignment, BVOperator, BitVector, Formula, FormulaVisitor, SmtSolver, Solver, SolverError,
     SymbolId,
 };
+use bytesize::ByteSize;
 use std::{
     collections::HashMap,
     io::{stdout, BufWriter, Write},
@@ -17,6 +18,30 @@ pub enum SmtType {
     Boolector,
     #[cfg(feature = "z3")]
     Z3,
+}
+
+pub struct SmtGenerationOptions {
+    pub smt_type: SmtType,
+    pub memory_size: ByteSize,
+    pub max_execution_depth: u64,
+}
+
+pub mod defaults {
+    use super::*;
+
+    pub const MEMORY_SIZE: ByteSize = ByteSize(bytesize::MIB);
+    pub const MAX_EXECUTION_DEPTH: u64 = 1000;
+    pub const SMT_TYPE: SmtType = SmtType::Generic;
+}
+
+impl Default for SmtGenerationOptions {
+    fn default() -> Self {
+        Self {
+            memory_size: defaults::MEMORY_SIZE,
+            max_execution_depth: defaults::MAX_EXECUTION_DEPTH,
+            smt_type: defaults::SMT_TYPE,
+        }
+    }
 }
 
 pub struct SmtWriter {
