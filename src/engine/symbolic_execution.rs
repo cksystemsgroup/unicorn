@@ -7,6 +7,7 @@ use super::{
 use crate::{
     path_exploration::ExplorationStrategy,
     solver::{BVOperator, Solver, SolverError},
+    BugFinder,
 };
 use byteorder::{ByteOrder, LittleEndian};
 use bytesize::ByteSize;
@@ -46,6 +47,55 @@ impl Default for SymbolicExecutionOptions {
             memory_size: defaults::MEMORY_SIZE,
             max_exection_depth: defaults::MAX_EXECUTION_DEPTH,
             optimistically_prune_search_space: defaults::OPTIMISTICALLY_PRUNE_SEARCH_SPACE,
+        }
+    }
+}
+
+pub struct SymbolicExecutionEngine<'a, E, S>
+where
+    E: ExplorationStrategy,
+    S: Solver,
+{
+    options: SymbolicExecutionOptions,
+    strategy: &'a E,
+    solver: &'a S,
+}
+
+impl<'a, E, S> SymbolicExecutionEngine<'a, E, S>
+where
+    E: ExplorationStrategy,
+    S: Solver,
+{
+    pub fn new(options: &SymbolicExecutionOptions, strategy: &'a E, solver: &'a S) -> Self {
+        Self {
+            options: *options,
+            strategy,
+            solver,
+        }
+    }
+}
+
+impl<'a, E, S> BugFinder<SymbolicExecutionBugInfo, SymbolicExecutionError>
+    for SymbolicExecutionEngine<'a, E, S>
+where
+    E: ExplorationStrategy,
+    S: Solver,
+{
+    fn search_for_bugs(
+        &self,
+        program: &Program,
+    ) -> Result<Option<GenericBug<SymbolicExecutionBugInfo>>, SymbolicExecutionError> {
+        let mut executor =
+            SymbolicExecutor::new(program, &self.options, self.strategy, self.solver);
+
+        let result = executor.run();
+
+        match result.expect_err("every run has to stop with an error") {
+            SymbolicExecutionError::ExecutionDepthReached(_)
+            | SymbolicExecutionError::ProgramExit(_)
+            | SymbolicExecutionError::NotReachable => Ok(None),
+            SymbolicExecutionError::BugFound(bug) => Ok(Some(bug)),
+            err => Err(err),
         }
     }
 }
@@ -94,7 +144,7 @@ pub enum SymbolicExecutionError {
     NotReachable,
 }
 
-pub struct SymbolicExecutionEngine<'a, E, S>
+pub struct SymbolicExecutor<'a, E, S>
 where
     E: ExplorationStrategy,
     S: Solver,
@@ -107,9 +157,10 @@ where
     strategy: &'a E,
     options: SymbolicExecutionOptions,
     execution_depth: u64,
+    amount_of_file_descriptors: u64,
 }
 
-impl<'a, E, S> SymbolicExecutionEngine<'a, E, S>
+impl<'a, E, S> SymbolicExecutor<'a, E, S>
 where
     E: ExplorationStrategy,
     S: Solver,
@@ -170,6 +221,8 @@ where
             strategy,
             execution_depth: 0,
             options: *options,
+            // stdin (0), stdout (1), stderr (2) are already opened by the system
+            amount_of_file_descriptors: 3,
         }
     }
 
@@ -195,33 +248,10 @@ where
         }
     }
 
-    pub fn search_for_bugs(&mut self) -> Result<Option<Bug>, SymbolicExecutionError> {
-        let result = self.run();
-
-        match result.expect_err("every run has to stop with an error") {
-            SymbolicExecutionError::ExecutionDepthReached(_)
-            | SymbolicExecutionError::ProgramExit(_)
-            | SymbolicExecutionError::NotReachable => Ok(None),
-            SymbolicExecutionError::BugFound(bug) => Ok(Some(bug)),
-            err => Err(err),
-        }
-    }
-
     fn execute_query(&mut self, query: Query) -> Result<QueryResult, SymbolicExecutionError> {
         self.symbolic_state
             .execute_query(query)
             .map_err(SymbolicExecutionError::Solver)
-        // .map_or(Ok(None), |result| {
-        //     match result {
-        //         QueryResult::Sat(witness) => basic_info_to_bug(SymbolicExecutionErrorInfo {
-        //             witness,
-        //             pc: self.pc,
-        //         }),
-        //         QueryResult::UnSat => QueryResult::UnSat,
-        //     }
-
-        //     Ok(result.map(|witness| {}))
-        // })
     }
 
     fn access_to_uninitialized_memory(
@@ -368,8 +398,6 @@ where
                 address
             );
 
-            // self.is_running = false;
-
             self.execute_query(Query::Reachable).and_then(|r| {
                 self.exit_anyway_with_bug(r, |i| self.access_to_unaligned_address_bug(i))
             })
@@ -380,8 +408,6 @@ where
                 address,
                 self.memory.len() * size_of::<u64>(),
             );
-
-            // self.is_running = false;
 
             self.execute_query(Query::Reachable).and_then(|r| {
                 self.exit_anyway_with_bug(r, |i| self.access_to_out_of_range_address_bug(i))
@@ -405,8 +431,6 @@ where
                 address + size,
                 self.memory.len() * size_of::<u64>(),
             );
-
-            // self.is_running = false;
 
             self.execute_query(Query::Reachable).and_then(|r| {
                 self.exit_anyway_with_bug(r, |i| self.access_to_out_of_range_address_bug(i))
@@ -624,9 +648,52 @@ where
             .create_operator(BVOperator::Add, old_idx, new_idx)
     }
 
+    fn execute_openat(&mut self) -> Result<(), SymbolicExecutionError> {
+        // C signature: int openat(int dirfd, const char *pathname, int flags, mode_t mode)
+
+        let dirfd = if let Value::Concrete(d) = self.regs[Register::A0 as usize] {
+            d
+        } else {
+            return not_supported("can only handle concrete values for dirfd in openat syscall");
+        };
+
+        let pathname = if let Value::Concrete(p) = self.regs[Register::A1 as usize] {
+            p
+        } else {
+            return not_supported("can only handle concrete values for pathname in openat syscall");
+        };
+
+        let flags = if let Value::Concrete(f) = self.regs[Register::A2 as usize] {
+            f
+        } else {
+            return not_supported("can only handle concrete values for flags in openat syscall");
+        };
+
+        let mode = if let Value::Concrete(m) = self.regs[Register::A3 as usize] {
+            m
+        } else {
+            return not_supported("can only handle concrete values for mode in openat syscall");
+        };
+
+        // TODO: read actual C-string from virtual memory
+        trace!(
+            "openat: dirfd={} pathname={} flags={} mode={}",
+            dirfd,
+            pathname,
+            flags,
+            mode
+        );
+
+        self.regs[Register::A0 as usize] = Value::Concrete(self.amount_of_file_descriptors);
+
+        self.amount_of_file_descriptors += 1;
+
+        Ok(())
+    }
+
     fn execute_read(&mut self) -> Result<(), SymbolicExecutionError> {
         if !matches!(self.regs[Register::A0 as usize], Value::Concrete(0)) {
-            return not_supported("can not handle other fd than stdin in read syscall");
+            return not_supported("can not handle fd other than stdin in read syscall");
         }
 
         let buffer = if let Value::Concrete(b) = self.regs[Register::A1 as usize] {
@@ -703,7 +770,7 @@ where
 
     fn execute_write(&mut self) -> Result<(), SymbolicExecutionError> {
         if !matches!(self.regs[Register::A0 as usize], Value::Concrete(1)) {
-            return not_supported("can not handle other fd than stdout in write syscall");
+            return not_supported("can not handle fd other than stdout in write syscall");
         }
 
         let buffer = if let Value::Concrete(b) = self.regs[Register::A1 as usize] {
@@ -965,6 +1032,9 @@ where
         let result = match self.regs[Register::A7 as usize] {
             Value::Concrete(syscall_id) if syscall_id == (SyscallId::Brk as u64) => {
                 self.execute_brk()
+            }
+            Value::Concrete(syscall_id) if syscall_id == (SyscallId::Openat as u64) => {
+                self.execute_openat()
             }
             Value::Concrete(syscall_id) if syscall_id == (SyscallId::Read as u64) => {
                 self.execute_read()

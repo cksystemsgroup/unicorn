@@ -70,10 +70,8 @@ where
     Strategy: path_exploration::ExplorationStrategy,
     Solver: solver::Solver,
 {
-    let mut engine = SymbolicExecutionEngine::new(&program, &options, strategy, solver);
-
-    engine
-        .search_for_bugs()
+    SymbolicExecutionEngine::new(&options, strategy, solver)
+        .search_for_bugs(&program)
         .map_err(MonsterError::SymbolicExecution)
 }
 

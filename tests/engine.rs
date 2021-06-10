@@ -13,7 +13,7 @@ use std::{
 };
 use utils::{compile_riscu, init, with_temp_dir};
 
-const TEST_FILES: [&str; 21] = [
+const TEST_FILES: [&str; 22] = [
     "arithmetic.c",
     "echo-line.c",
     "if-else.c", // needs timeout
@@ -23,7 +23,7 @@ const TEST_FILES: [&str; 21] = [
     "test-remu.c",
     "test-sltu.c",
     "test-sltu-2.c",
-    //"memory-access-1-35.c",
+    "memory-access-1-35.c",
     "memory-invalid-read.c",
     "memory-invalid-write.c",
     "memory-uninitialized-write.c",
@@ -175,28 +175,73 @@ fn execute_riscu<S: Solver>(source: PathBuf, object: PathBuf, solver: &S) {
     assert!(
         matches!(
             (file_name, bug.clone()),
-            ("arithmetic.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
-                ("echo-line.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
-                ("invalid-memory-access-2-35.c", SymbolicExecutionBug::AccessToOutOfRangeAddress { .. }) |
-                ("if-else.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
-                ("division-by-zero-3-35.c", SymbolicExecutionBug::DivisionByZero { .. }) |
-                ("simple-assignment-1-35.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
-                ("test-remu.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
-                ("test-sltu.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
-                ("test-sltu-2.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
-                //("memory-access-1-35.c", Bug::
-                ("memory-invalid-read.c", SymbolicExecutionBug::AccessToOutOfRangeAddress { .. }) |
-                ("memory-invalid-write.c", SymbolicExecutionBug::AccessToOutOfRangeAddress { .. }) |
-                ("memory-uninitialized-write.c", SymbolicExecutionBug::AccessToUnitializedMemory { .. }) |
-                ("nested-if-else-reverse-1-35", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
-                ("nested-recursion-1-35.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
-                ("recursive-ackermann-1-35.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
-                ("recursive-factorial-1-35.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
-                ("recursive-fibonacci-1-10.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
-                ("simple-if-else-1-35.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
-                ("simple-increasing-loop-1-35.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
-                ("two-level-nested-loop-1-35.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. }) |
-                ("multiple-read.c", SymbolicExecutionBug::ExitCodeGreaterZero { .. })
+            (
+                "arithmetic.c",
+                SymbolicExecutionBug::ExitCodeGreaterZero { .. }
+            ) | (
+                "echo-line.c",
+                SymbolicExecutionBug::ExitCodeGreaterZero { .. }
+            ) | (
+                "invalid-memory-access-2-35.c",
+                SymbolicExecutionBug::AccessToOutOfRangeAddress { .. }
+            ) | (
+                "if-else.c",
+                SymbolicExecutionBug::ExitCodeGreaterZero { .. }
+            ) | (
+                "division-by-zero-3-35.c",
+                SymbolicExecutionBug::DivisionByZero { .. }
+            ) | (
+                "simple-assignment-1-35.c",
+                SymbolicExecutionBug::ExitCodeGreaterZero { .. }
+            ) | (
+                "test-remu.c",
+                SymbolicExecutionBug::ExitCodeGreaterZero { .. }
+            ) | (
+                "test-sltu.c",
+                SymbolicExecutionBug::ExitCodeGreaterZero { .. }
+            ) | (
+                "test-sltu-2.c",
+                SymbolicExecutionBug::ExitCodeGreaterZero { .. }
+            ) | (
+                "memory-access-1-35.c",
+                SymbolicExecutionBug::AccessToUnitializedMemory { .. }
+            ) | (
+                "memory-invalid-read.c",
+                SymbolicExecutionBug::AccessToOutOfRangeAddress { .. }
+            ) | (
+                "memory-invalid-write.c",
+                SymbolicExecutionBug::AccessToOutOfRangeAddress { .. }
+            ) | (
+                "memory-uninitialized-write.c",
+                SymbolicExecutionBug::AccessToUnitializedMemory { .. }
+            ) | (
+                "nested-if-else-reverse-1-35",
+                SymbolicExecutionBug::ExitCodeGreaterZero { .. }
+            ) | (
+                "nested-recursion-1-35.c",
+                SymbolicExecutionBug::ExitCodeGreaterZero { .. }
+            ) | (
+                "recursive-ackermann-1-35.c",
+                SymbolicExecutionBug::ExitCodeGreaterZero { .. }
+            ) | (
+                "recursive-factorial-1-35.c",
+                SymbolicExecutionBug::ExitCodeGreaterZero { .. }
+            ) | (
+                "recursive-fibonacci-1-10.c",
+                SymbolicExecutionBug::ExitCodeGreaterZero { .. }
+            ) | (
+                "simple-if-else-1-35.c",
+                SymbolicExecutionBug::ExitCodeGreaterZero { .. }
+            ) | (
+                "simple-increasing-loop-1-35.c",
+                SymbolicExecutionBug::ExitCodeGreaterZero { .. }
+            ) | (
+                "two-level-nested-loop-1-35.c",
+                SymbolicExecutionBug::ExitCodeGreaterZero { .. }
+            ) | (
+                "multiple-read.c",
+                SymbolicExecutionBug::ExitCodeGreaterZero { .. }
+            )
         ),
         "found right bug type (actual: {}) for {}",
         bug,
