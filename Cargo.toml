@@ -34,33 +34,33 @@ harness = false
 required-features = ["z3"]
 
 [dependencies]
-byteorder = "~1.4.2"
-clap = "~2.33.3"
-strum = { version = "~0.21.0", features = ["derive"] }
-riscu = "~0.5.0"
-petgraph = "~0.5.1"
-rand = "~0.8.3"
-modinverse = "~0.1.1"
-log = "~0.4.14"
-env_logger = "~0.8.3"
-bytesize = "~1.0.1"
-itertools = "~0.10.1"
-anyhow = "~1.0.40"
-thiserror = "~1.0.25"
-divisors = "~0.2.1"
-const_format = "~0.2.14"
-lazy_static = "~1.4.0"
-boolector-solver = { package = "boolector", version = "~0.4.2", features = ["vendor-lgl"], optional = true }
+byteorder = "~1.4"
+clap = "~2.33"
+strum = { version = "~0.21", features = ["derive"] }
+riscu = "~0.5"
+petgraph = "~0.5"
+rand = "~0.8"
+modinverse = "~0.1"
+log = "~0.4"
+env_logger = "~0.8"
+bytesize = "~1.0"
+itertools = "~0.10"
+anyhow = "~1.0"
+thiserror = "~1.0"
+divisors = "~0.2"
+const_format = "~0.2"
+lazy_static = "~1.4"
+boolector-solver = { package = "boolector", version = "~0.4", features = ["vendor-lgl"], optional = true }
 boolector-sys = { version = "~0", features = ["vendor-lgl"], optional = true }
-z3-solver = { package = "z3", version = "~0.10.0", features = ["static-link-z3"], optional = true }
+z3-solver = { package = "z3", version = "~0.10", features = ["static-link-z3"], optional = true }
 z3-sys = { version = "~0", features = ["static-link-z3"], optional = true }
 libc = "~0"
 
 [dev-dependencies]
 utils = { path = "utils" }
-rayon = "~1.5.1"
-tempfile = "~3.1.0"
-criterion = { version = "~0.3.4", features = ["html_reports", "cargo_bench_support", "csv_output"] }
+rayon = "~1.5"
+tempfile = "~3.1"
+criterion = { version = "~0.3", features = ["html_reports", "cargo_bench_support", "csv_output"] }
 
 [dev-dependencies.cargo-husky]
 version = "1"
