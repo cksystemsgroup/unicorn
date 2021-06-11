@@ -59,7 +59,7 @@ libc = "~0"
 [dev-dependencies]
 utils = { path = "utils" }
 rayon = "~1.5"
-tempfile = "~3.1"
+tempfile = "~3.2"
 criterion = { version = "~0.3", features = ["html_reports", "cargo_bench_support", "csv_output"] }
 
 [dev-dependencies.cargo-husky]
