@@ -1,0 +1,14 @@
+{
+  "enabledManagers": ["cargo"],
+  "packageRules": [
+    {
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "dependencies (minor changes)",
+      "automerge": true
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "groupName": "dependencies (major changes)"
+    }
+  ]
+}
