@@ -138,7 +138,7 @@ pub enum SymbolicExecutionError {
     BugFound(Bug),
 
     #[error("exit syscall called with code: {0}")]
-    ProgramExit(u64),
+    ProgramExit(Value),
 
     #[error("program state is not reachable")]
     NotReachable,
@@ -317,7 +317,7 @@ where
         Bug::DivisionByZero { info }
     }
 
-    fn exit_code_greater_zero_bug(&self, info: SymbolicExecutionBugInfo, exit_code: u64) -> Bug {
+    fn exit_code_greater_zero_bug(&self, info: SymbolicExecutionBugInfo, exit_code: Value) -> Bug {
         Bug::ExitCodeGreaterZero {
             info,
             exit_code,
@@ -998,9 +998,8 @@ where
                     .and_then(|r| {
                         self.exit_anyway_with_bug_if_sat(
                             r,
-                            // TODO: return symbolic exit code in bug
-                            |i| self.exit_code_greater_zero_bug(i, 0),
-                            SymbolicExecutionError::ProgramExit(0),
+                            |i| self.exit_code_greater_zero_bug(i, Value::Symbolic(exit_code)),
+                            SymbolicExecutionError::ProgramExit(Value::Symbolic(exit_code)),
                         )
                     })
             }
@@ -1013,13 +1012,15 @@ where
 
                     self.execute_query(Query::Reachable).and_then(|r| {
                         self.exit_anyway_with_bug(r, |i| {
-                            self.exit_code_greater_zero_bug(i, exit_code)
+                            self.exit_code_greater_zero_bug(i, Value::Concrete(exit_code))
                         })
                     })
                 } else {
                     trace!("exiting context with exit_code 0");
 
-                    Err(SymbolicExecutionError::ProgramExit(0))
+                    Err(SymbolicExecutionError::ProgramExit(Value::Concrete(
+                        exit_code,
+                    )))
                 }
             }
             _ => not_supported("exit only implemented for symbolic exit codes"),

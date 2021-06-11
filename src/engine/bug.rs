@@ -28,7 +28,7 @@ pub enum Bug<Info: BugInfo> {
 
     ExitCodeGreaterZero {
         info: Info,
-        exit_code: u64,
+        exit_code: Info::Value,
         address: u64,
     },
 }
