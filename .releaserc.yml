@@ -11,16 +11,15 @@ plugins:
         - path: monster-x86_64-pc-windows-msvc.exe
   - - "@semantic-release/exec"
     - verifyConditionsCmd: "semantic-release-rust verify-conditions"
-      prepareCmd: "semantic-release-rust prepare ${nextRelease.version}"
+      prepareCmd: "semantic-release-rust prepare ${nextRelease.version} && cargo update --package monster-rs"
       publishCmd: "semantic-release-rust publish"
   - - "@semantic-release/git"
-    - assets: Cargo.toml
+    - assets:
+        - "Cargo.toml"
+        - "Cargo.lock"
   - - "@saithodev/semantic-release-backmerge"
     - branchName: "main"
       message: "chore(release): merge successfull release back into main [skip ci]"
-      plugins:
-        - - "@semantic-release/exec"
-          - successCmd: "cargo update --package monster-rs && git add Cargo.lock"
   - - "semantic-release-slack-bot"
     - notifyOnSuccess: true
       notifyOnFail: true
