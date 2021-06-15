@@ -830,7 +830,7 @@ where
     fn should_execute_branch(&mut self) -> Result<(bool, &'static str), SymbolicExecutionError> {
         Ok(match self.execute_query(Query::Reachable)? {
             QueryResult::Sat(_) => (true, "reachable"),
-            QueryResult::Unknown if self.options.optimistically_prune_search_space => {
+            QueryResult::Unknown if !self.options.optimistically_prune_search_space => {
                 (true, "reachability unknown")
             }
             _ => (false, "unreachable"),
