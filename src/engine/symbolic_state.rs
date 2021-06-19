@@ -13,6 +13,7 @@ use petgraph::{
 use riscu::Instruction;
 use std::{collections::HashMap, fmt, ops::Index};
 
+#[derive(Debug)]
 pub enum QueryResult {
     Sat(Witness),
     UnSat,
@@ -117,9 +118,11 @@ where
     }
 
     pub fn create_const(&mut self, value: u64) -> SymbolicValue {
-        let constant = Symbol::Constant(BitVector(value));
-
-        let i = self.add_node(constant);
+        let i = match value {
+            0 => self.zero(),
+            1 => self.one(),
+            _ => self.add_node(Symbol::Constant(BitVector(value))),
+        };
 
         trace!("new constant: x{} := {:#x}", i.index(), value);
 
@@ -598,7 +601,7 @@ impl fmt::Display for Witness {
                         writeln!(f, "  x{} := x{} {} x{} ({}),", id, lhs, op, rhs, v)
                     }
                 })
-                .and_then(|_| writeln!(f, "]"))
+                .and_then(|_| write!(f, "]"))
         })
     }
 }

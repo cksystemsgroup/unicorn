@@ -175,7 +175,7 @@ impl BugFinder<RarityBugInfo, RaritySimulationError> for RaritySimulation {
     ///
     /// Please see the [module-level documentation](self) for a detailed description of rarity simulation.
     #[allow(clippy::vec_box)]
-    fn search_for_bugs(&self, program: &Program) -> Result<Option<Bug>, RaritySimulationError> {
+    fn search_for_bugs(&mut self, program: &Program) -> Result<Option<Bug>, RaritySimulationError> {
         let mut executors: Vec<Box<Executor>> = Vec::new();
 
         for iteration in 0..self.options.iterations {

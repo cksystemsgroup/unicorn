@@ -1,7 +1,9 @@
 use bytesize::ByteSize;
 use log::trace;
 use monster::{
-    self, load_elf,
+    self,
+    engine::Profiler,
+    load_elf,
     path_exploration::ShortestPathStrategy,
     solver::{MonsterSolver, Solver},
     symbolically_execute_with, MonsterError, SymbolicExecutionBug, SymbolicExecutionOptions,
@@ -113,7 +115,7 @@ fn execute_engine_for_endless_loops() {
 fn execute_default_with<P: AsRef<Path>>(
     object: P,
     options: &SymbolicExecutionOptions,
-) -> Result<Option<SymbolicExecutionBug>, MonsterError> {
+) -> Result<(Option<SymbolicExecutionBug>, Profiler), MonsterError> {
     // need a big timeout because of the slow Github runners
     let solver = MonsterSolver::new(Duration::new(5, 0));
 
@@ -124,7 +126,7 @@ fn execute_default_with_solver<P: AsRef<Path>, S: Solver>(
     object: P,
     options: &SymbolicExecutionOptions,
     solver: &S,
-) -> Result<Option<SymbolicExecutionBug>, MonsterError> {
+) -> Result<(Option<SymbolicExecutionBug>, Profiler), MonsterError> {
     let program = load_elf(object).unwrap();
     let strategy = ShortestPathStrategy::compute_for(&program).unwrap();
 
@@ -162,7 +164,7 @@ fn execute_riscu<S: Solver>(source: PathBuf, object: PathBuf, solver: &S) {
         source.to_str().unwrap()
     );
 
-    let possible_bug = result.unwrap();
+    let possible_bug = result.unwrap().0;
 
     assert!(
         possible_bug.is_some(),

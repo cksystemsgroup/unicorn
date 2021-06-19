@@ -1,11 +1,11 @@
 use super::{
     bug::{Bug as GenericBug, BugInfo},
-    symbolic_state::{QueryResult, SymbolicState, SymbolicValue, Witness},
+    profiler::Profiler,
+    symbolic_state::{Condition, QueryResult, SymbolicState, SymbolicValue, Witness},
     system::{instruction_to_str, SyscallId},
-    UninitializedMemoryAccessReason,
+    UninitializedMemoryAccessReason, VirtualMemory,
 };
 use crate::{
-    engine::symbolic_state::Condition,
     path_exploration::ExplorationStrategy,
     solver::{BVOperator, Solver, SolverError},
     BugFinder,
@@ -60,6 +60,7 @@ where
     options: SymbolicExecutionOptions,
     strategy: &'a E,
     solver: &'a S,
+    profile: Option<Profiler>,
 }
 
 impl<'a, E, S> SymbolicExecutionEngine<'a, E, S>
@@ -72,7 +73,12 @@ where
             options: *options,
             strategy,
             solver,
+            profile: None,
         }
+    }
+
+    pub fn profile(&self) -> Option<&Profiler> {
+        self.profile.as_ref()
     }
 }
 
@@ -83,13 +89,20 @@ where
     S: Solver,
 {
     fn search_for_bugs(
-        &self,
+        &mut self,
         program: &Program,
     ) -> Result<Option<GenericBug<SymbolicExecutionBugInfo>>, SymbolicExecutionError> {
         let mut executor =
             SymbolicExecutor::new(program, &self.options, self.strategy, self.solver);
 
-        let result = executor.run();
+        let (result, t) = time!({ executor.run() });
+
+        let mut profiler = (*executor.profile()).clone();
+
+        profiler.allocated_memory(executor.memory.allocated());
+        profiler.symbolic_execution_took(t);
+
+        self.profile = Some(profiler);
 
         match result.expect_err("every run has to stop with an error") {
             SymbolicExecutionError::ExecutionDepthReached(_)
@@ -106,6 +119,12 @@ pub enum Value {
     Concrete(u64),
     Symbolic(SymbolicValue),
     Uninitialized,
+}
+
+impl Default for Value {
+    fn default() -> Self {
+        Self::Uninitialized
+    }
 }
 
 impl fmt::Display for Value {
@@ -154,11 +173,12 @@ where
     program_break: u64,
     pc: u64,
     regs: [Value; 32],
-    memory: Vec<Value>,
+    memory: VirtualMemory<Value>,
     strategy: &'a E,
     options: SymbolicExecutionOptions,
     execution_depth: u64,
     amount_of_file_descriptors: u64,
+    profiler: Profiler,
 }
 
 impl<'a, E, S> SymbolicExecutor<'a, E, S>
@@ -175,7 +195,7 @@ where
     ) -> Self {
         let mut regs = [Value::Uninitialized; 32];
         let memory_size = options.memory_size.as_u64();
-        let mut memory = vec![Value::Uninitialized; memory_size as usize / 8];
+        let mut memory = VirtualMemory::new(memory_size as usize / size_of::<u64>(), 4096);
 
         let sp = memory_size - 8;
         regs[Register::Sp as usize] = Value::Concrete(sp);
@@ -224,6 +244,7 @@ where
             options: *options,
             // stdin (0), stdout (1), stderr (2) are already opened by the system
             amount_of_file_descriptors: 3,
+            profiler: Profiler::new(),
         }
     }
 
@@ -235,6 +256,8 @@ where
         loop {
             if self.execution_depth >= self.options.max_exection_depth {
                 trace!("maximum execution depth reached => exiting this context");
+
+                self.profiler.aborted_path_exploration(self.execution_depth);
 
                 return Err(SymbolicExecutionError::ExecutionDepthReached(
                     self.execution_depth,
@@ -249,10 +272,20 @@ where
         }
     }
 
+    pub fn profile(&self) -> &Profiler {
+        &self.profiler
+    }
+
     fn reachable(&mut self) -> Result<QueryResult, SymbolicExecutionError> {
-        self.symbolic_state
-            .reachable()
+        let (result, t) = time!({ self.symbolic_state.reachable() });
+
+        result
             .map_err(SymbolicExecutionError::Solver)
+            .map(|result| {
+                self.profiler.solved_query(t, &result);
+
+                result
+            })
     }
 
     fn reachable_with(
@@ -261,9 +294,15 @@ where
         lhs: SymbolicValue,
         rhs: SymbolicValue,
     ) -> Result<QueryResult, SymbolicExecutionError> {
-        self.symbolic_state
-            .reachable_with(cond, lhs, rhs)
+        let (result, t) = time!({ self.symbolic_state.reachable_with(cond, lhs, rhs) });
+
+        result
             .map_err(SymbolicExecutionError::Solver)
+            .map(|result| {
+                self.profiler.solved_query(t, &result);
+
+                result
+            })
     }
 
     fn access_to_uninitialized_memory(
@@ -279,24 +318,19 @@ where
             v2
         );
 
-        let result = self.reachable()?;
+        self.reachable().and_then(|result| {
+            trace!("access to uninitialized memory => exiting");
 
-        let info = match result {
-            QueryResult::Sat(witness) => self.collect_bug_info(Some(witness)),
-            _ => self.collect_bug_info(None),
-        };
-
-        trace!("access to uninitialized memory => exiting");
-
-        Err(SymbolicExecutionError::BugFound(
-            self.access_to_uninitialized_memory_bug(
-                info,
-                UninitializedMemoryAccessReason::InstructionWithUninitializedOperand {
-                    instruction,
-                    operands: vec![v1, v2],
-                },
-            ),
-        ))
+            self.exit_anyway_with_bug(result, |t, w| {
+                t.access_to_uninitialized_memory_bug(
+                    w,
+                    UninitializedMemoryAccessReason::InstructionWithUninitializedOperand {
+                        instruction,
+                        operands: vec![v1, v2],
+                    },
+                )
+            })
+        })
     }
 
     fn collect_bug_info(&self, witness: Option<Witness>) -> SymbolicExecutionBugInfo {
@@ -306,85 +340,103 @@ where
         }
     }
 
-    fn access_to_unaligned_address_bug(&self, info: SymbolicExecutionBugInfo) -> Bug {
+    fn access_to_unaligned_address_bug(&self, witness: Option<Witness>) -> Bug {
         Bug::AccessToUnalignedAddress {
-            info,
+            info: self.collect_bug_info(witness),
             address: self.pc,
         }
     }
 
     fn access_to_uninitialized_memory_bug(
         &self,
-        info: SymbolicExecutionBugInfo,
+        witness: Option<Witness>,
         reason: UninitializedMemoryAccessReason<SymbolicExecutionBugInfo>,
     ) -> Bug {
-        Bug::AccessToUnitializedMemory { info, reason }
+        Bug::AccessToUnitializedMemory {
+            info: self.collect_bug_info(witness),
+            reason,
+        }
     }
 
-    fn access_to_out_of_range_address_bug(&self, info: SymbolicExecutionBugInfo) -> Bug {
-        Bug::AccessToOutOfRangeAddress { info }
+    fn access_to_out_of_range_address_bug(&self, witness: Option<Witness>) -> Bug {
+        Bug::AccessToOutOfRangeAddress {
+            info: self.collect_bug_info(witness),
+        }
     }
 
-    fn divison_by_zero_bug(&self, info: SymbolicExecutionBugInfo) -> Bug {
-        Bug::DivisionByZero { info }
+    fn divison_by_zero_bug(&self, witness: Option<Witness>) -> Bug {
+        Bug::DivisionByZero {
+            info: self.collect_bug_info(witness),
+        }
     }
 
-    fn exit_code_greater_zero_bug(&self, info: SymbolicExecutionBugInfo, exit_code: Value) -> Bug {
+    fn exit_code_greater_zero_bug(&self, witness: Option<Witness>, exit_code: Value) -> Bug {
         Bug::ExitCodeGreaterZero {
-            info,
+            info: self.collect_bug_info(witness),
             exit_code,
             address: self.pc,
         }
     }
 
+    fn exit_regularly(&mut self) -> Result<(), SymbolicExecutionError> {
+        self.profiler.end_of_path(self.execution_depth);
+
+        Err(SymbolicExecutionError::ProgramExit(Value::Concrete(0)))
+    }
+
     fn exit_anyway_with_bug<F>(
-        &self,
+        &mut self,
         result: QueryResult,
-        info_to_bug: F,
+        create_bug: F,
     ) -> Result<(), SymbolicExecutionError>
     where
-        F: FnOnce(SymbolicExecutionBugInfo) -> Bug,
+        F: FnOnce(&mut Self, Option<Witness>) -> Bug,
     {
-        let info = self.collect_bug_info(match result {
-            QueryResult::Sat(witness) => Some(witness),
-            QueryResult::UnSat | QueryResult::Unknown => None,
-        });
+        self.profiler.end_of_path(self.execution_depth);
 
-        let bug = info_to_bug(info);
+        let witness = match result {
+            QueryResult::Sat(w) => Some(w),
+            QueryResult::UnSat | QueryResult::Unknown => None,
+        };
+
+        let bug = create_bug(self, witness);
 
         Err(SymbolicExecutionError::BugFound(bug))
     }
 
     fn exit_anyway_with_bug_if_sat<F>(
-        &self,
+        &mut self,
         result: QueryResult,
-        info_to_bug: F,
+        create_bug: F,
         err_if_unsat: SymbolicExecutionError,
     ) -> Result<(), SymbolicExecutionError>
     where
-        F: FnOnce(SymbolicExecutionBugInfo) -> Bug,
+        F: FnOnce(&mut Self, Option<Witness>) -> Bug,
     {
-        match result {
-            QueryResult::Sat(witness) => {
-                let bug = info_to_bug(self.collect_bug_info(Some(witness)));
+        self.profiler.end_of_path(self.execution_depth);
 
-                Err(SymbolicExecutionError::BugFound(bug))
-            }
+        match result {
+            QueryResult::Sat(witness) => Err(SymbolicExecutionError::BugFound(create_bug(
+                self,
+                Some(witness),
+            ))),
             QueryResult::UnSat | QueryResult::Unknown => Err(err_if_unsat),
         }
     }
 
     fn exit_with_bug_if_sat<F>(
-        &self,
+        &mut self,
         result: QueryResult,
-        info_to_bug: F,
+        create_bug: F,
     ) -> Result<(), SymbolicExecutionError>
     where
-        F: FnOnce(SymbolicExecutionBugInfo) -> Bug,
+        F: FnOnce(&mut Self, Option<Witness>) -> Bug,
     {
         match result {
             QueryResult::Sat(witness) => {
-                let bug = info_to_bug(self.collect_bug_info(Some(witness)));
+                let bug = create_bug(self, Some(witness));
+
+                self.profiler.end_of_path(self.execution_depth);
 
                 Err(SymbolicExecutionError::BugFound(bug))
             }
@@ -392,8 +444,14 @@ where
         }
     }
 
+    fn exit_with_unsupported(&mut self, s: String) -> Result<(), SymbolicExecutionError> {
+        self.profiler.aborted_path_exploration(self.execution_depth);
+
+        Err(SymbolicExecutionError::NotSupported(s))
+    }
+
     fn is_in_vaddr_range(&self, vaddr: u64) -> bool {
-        vaddr as usize / size_of::<u64>() < self.memory.len()
+        vaddr as usize / size_of::<u64>() < self.memory.size()
     }
 
     fn check_for_valid_memory_address(
@@ -411,18 +469,18 @@ where
             );
 
             self.reachable().and_then(|r| {
-                self.exit_anyway_with_bug(r, |i| self.access_to_unaligned_address_bug(i))
+                self.exit_anyway_with_bug(r, |t, w| t.access_to_unaligned_address_bug(w))
             })
         } else if !self.is_in_vaddr_range(address) {
             trace!(
                 "{}: address {:#x} out of virtual address range (0x0 - {:#x}) => computing reachability",
                 instruction,
                 address,
-                self.memory.len() * size_of::<u64>(),
+                self.memory.size() * size_of::<u64>(),
             );
 
             self.reachable().and_then(|r| {
-                self.exit_anyway_with_bug(r, |i| self.access_to_out_of_range_address_bug(i))
+                self.exit_anyway_with_bug(r, |t, w| t.access_to_out_of_range_address_bug(w))
             })
         } else {
             Ok(())
@@ -441,11 +499,11 @@ where
                 instruction,
                 address,
                 address + size,
-                self.memory.len() * size_of::<u64>(),
+                self.memory.size() * size_of::<u64>(),
             );
 
             self.reachable().and_then(|r| {
-                self.exit_anyway_with_bug(r, |i| self.access_to_out_of_range_address_bug(i))
+                self.exit_anyway_with_bug(r, |t, w| t.access_to_out_of_range_address_bug(w))
             })
         } else {
             Ok(())
@@ -490,7 +548,7 @@ where
                 );
 
                 self.reachable_with(Condition::Equals, divisor, self.symbolic_state.zero())
-                    .and_then(|r| self.exit_with_bug_if_sat(r, |i| self.divison_by_zero_bug(i)))?;
+                    .and_then(|r| self.exit_with_bug_if_sat(r, |t, w| t.divison_by_zero_bug(w)))?;
 
                 self.symbolic_state.add_path_condition(
                     Condition::NotEquals,
@@ -506,7 +564,7 @@ where
 
                 return self
                     .reachable()
-                    .and_then(|r| self.exit_anyway_with_bug(r, |i| self.divison_by_zero_bug(i)));
+                    .and_then(|r| self.exit_anyway_with_bug(r, |t, w| t.divison_by_zero_bug(w)));
             }
             _ => {}
         };
@@ -609,7 +667,9 @@ where
 
             Ok(())
         } else {
-            not_supported("can not handle symbolic or uninitialized program break")
+            self.exit_with_unsupported(
+                "can not handle symbolic or uninitialized program break".into(),
+            )
         }
     }
 
@@ -672,25 +732,33 @@ where
         let dirfd = if let Value::Concrete(d) = self.regs[Register::A0 as usize] {
             d
         } else {
-            return not_supported("can only handle concrete values for dirfd in openat syscall");
+            return self.exit_with_unsupported(
+                "can only handle concrete values for dirfd in openat syscall".into(),
+            );
         };
 
         let pathname = if let Value::Concrete(p) = self.regs[Register::A1 as usize] {
             p
         } else {
-            return not_supported("can only handle concrete values for pathname in openat syscall");
+            return self.exit_with_unsupported(
+                "can only handle concrete values for pathname in openat syscall".into(),
+            );
         };
 
         let flags = if let Value::Concrete(f) = self.regs[Register::A2 as usize] {
             f
         } else {
-            return not_supported("can only handle concrete values for flags in openat syscall");
+            return self.exit_with_unsupported(
+                "can only handle concrete values for flags in openat syscall".into(),
+            );
         };
 
         let mode = if let Value::Concrete(m) = self.regs[Register::A3 as usize] {
             m
         } else {
-            return not_supported("can only handle concrete values for mode in openat syscall");
+            return self.exit_with_unsupported(
+                "can only handle concrete values for mode in openat syscall".into(),
+            );
         };
 
         // TODO: read actual C-string from virtual memory
@@ -711,21 +779,25 @@ where
 
     fn execute_read(&mut self) -> Result<(), SymbolicExecutionError> {
         if !matches!(self.regs[Register::A0 as usize], Value::Concrete(0)) {
-            return not_supported("can not handle fd other than stdin in read syscall");
+            return self.exit_with_unsupported(
+                "can not handle fd other than stdin in read syscall".into(),
+            );
         }
 
         let buffer = if let Value::Concrete(b) = self.regs[Register::A1 as usize] {
             b
         } else {
-            return not_supported(
-                "can not handle symbolic or uninitialized buffer address in read syscall",
+            return self.exit_with_unsupported(
+                "can not handle symbolic or uninitialized buffer address in read syscall".into(),
             );
         };
 
         let size = if let Value::Concrete(s) = self.regs[Register::A2 as usize] {
             s
         } else {
-            return not_supported("can not handle symbolic or uinitialized size in read syscall");
+            return self.exit_with_unsupported(
+                "can not handle symbolic or uinitialized size in read syscall".into(),
+            );
         };
 
         trace!("read: fd={} buffer={:#x} size={}", 0, buffer, size,);
@@ -788,21 +860,25 @@ where
 
     fn execute_write(&mut self) -> Result<(), SymbolicExecutionError> {
         if !matches!(self.regs[Register::A0 as usize], Value::Concrete(1)) {
-            return not_supported("can not handle fd other than stdout in write syscall");
+            return self.exit_with_unsupported(
+                "can not handle fd other than stdout in write syscall".into(),
+            );
         }
 
         let buffer = if let Value::Concrete(b) = self.regs[Register::A1 as usize] {
             b
         } else {
-            return not_supported(
-                "can not handle symbolic or uninitialized buffer address in write syscall",
+            return self.exit_with_unsupported(
+                "can not handle symbolic or uninitialized buffer address in write syscall".into(),
             );
         };
 
         let size = if let Value::Concrete(s) = self.regs[Register::A2 as usize] {
             s
         } else {
-            return not_supported("can not handle symbolic or uinitialized size in write syscall");
+            return self.exit_with_unsupported(
+                "can not handle symbolic or uinitialized size in write syscall".into(),
+            );
         };
 
         trace!("write: fd={} buffer={:#x} size={}", 1, buffer, size,);
@@ -824,9 +900,9 @@ where
                 );
 
                 return self.reachable().and_then(|r| {
-                    self.exit_anyway_with_bug(r, |i| {
-                        self.access_to_uninitialized_memory_bug(
-                            i,
+                    self.exit_anyway_with_bug(r, |t, w| {
+                        t.access_to_uninitialized_memory_bug(
+                            w,
                             UninitializedMemoryAccessReason::ReadUnintializedMemoryAddress {
                                 description: format!(
                                     "access to uninitialized memory at address: {:#x}",
@@ -846,7 +922,11 @@ where
     }
 
     fn should_execute_branch(&mut self) -> Result<(bool, &'static str), SymbolicExecutionError> {
-        Ok(match self.reachable()? {
+        let result = self.reachable()?;
+
+        self.profiler.solved_branch_decision_query();
+
+        Ok(match result {
             QueryResult::Sat(_) => (true, "reachable"),
             QueryResult::Unknown if !self.options.optimistically_prune_search_space => {
                 (true, "reachability unknown")
@@ -855,7 +935,7 @@ where
         })
     }
 
-    fn with_snapshot<F, R>(&mut self, f: F) -> R
+    fn with_snapshot<F, R>(&mut self, f: F) -> (R, Profiler)
     where
         F: FnOnce(&mut Self) -> R,
     {
@@ -865,8 +945,10 @@ where
         let brk_snapshot = self.program_break;
         let execution_depth_snapshot = self.execution_depth;
         let amount_of_file_descriptors_snapshot = self.amount_of_file_descriptors;
+        let profiler_snapshot = self.profiler.clone();
 
         let result = f(self);
+        let profiler = self.profiler.clone();
 
         self.memory = memory_snapshot;
         self.regs = regs_snapshot;
@@ -874,8 +956,9 @@ where
         self.program_break = brk_snapshot;
         self.execution_depth = execution_depth_snapshot;
         self.amount_of_file_descriptors = amount_of_file_descriptors_snapshot;
+        self.profiler = profiler_snapshot;
 
-        result
+        (result, profiler)
     }
 
     fn execute_beq_branches(
@@ -885,11 +968,13 @@ where
         lhs: SymbolicValue,
         rhs: SymbolicValue,
     ) -> Result<(), SymbolicExecutionError> {
+        self.profiler.beq_with_symbolic_condition();
+
         let next_pc = self.strategy.choose_path(true_branch, false_branch);
 
         let decision = next_pc == true_branch;
 
-        let result_first_branch =
+        let (result_first_branch, mut profiler_first_branch) =
             self.with_snapshot(|this| -> Result<(), SymbolicExecutionError> {
                 this.symbolic_state.add_path_condition(
                     if decision {
@@ -909,21 +994,24 @@ where
                         this.pc,
                         lhs.index(),
                         rhs.index(),
-                        next_pc == false_branch,
+                        decision,
                         reachability,
                         next_pc,
                     );
+
+                    this.profiler = Profiler::new();
+                    this.profiler.took_beq_branch(decision);
 
                     this.pc = next_pc;
 
                     this.run()
                 } else {
                     trace!(
-                        "[{:#010x}] beq: x{}, x{} |- assume {} ({})",
+                        "[{:#010x}] beq: x{}, x{} |- assume {} ({}), skip branch",
                         this.pc,
                         lhs.index(),
                         rhs.index(),
-                        next_pc == false_branch,
+                        decision,
                         reachability
                     );
 
@@ -931,11 +1019,13 @@ where
                 }
             });
 
-        match result_first_branch {
+        self.profiler.merge_with(&mut profiler_first_branch);
+
+        let potential_symbolic_path_explosion = match result_first_branch {
             Ok(_) => panic!("every branch execution has to end with an error"),
             Err(SymbolicExecutionError::ExecutionDepthReached(_))
-            | Err(SymbolicExecutionError::ProgramExit(_))
-            | Err(SymbolicExecutionError::NotReachable) => {}
+            | Err(SymbolicExecutionError::ProgramExit(_)) => true,
+            Err(SymbolicExecutionError::NotReachable) => false,
             err => {
                 return err;
             }
@@ -961,21 +1051,27 @@ where
                 self.pc,
                 lhs.index(),
                 rhs.index(),
-                next_pc == false_branch,
+                !decision,
                 reachability,
                 next_pc,
             );
+
+            if potential_symbolic_path_explosion {
+                self.profiler.symbolic_path_explosion();
+            }
+
+            self.profiler.took_beq_branch(!decision);
 
             self.pc = next_pc;
 
             Ok(())
         } else {
             trace!(
-                "[{:#010x}] beq: x{}, x{} |- assume {} ({})",
+                "[{:#010x}] beq: x{}, x{} |- assume {} ({}), skip branch",
                 self.pc,
                 lhs.index(),
                 rhs.index(),
-                next_pc == false_branch,
+                !decision,
                 reachability
             );
 
@@ -1030,7 +1126,7 @@ where
                     .and_then(|r| {
                         self.exit_anyway_with_bug_if_sat(
                             r,
-                            |i| self.exit_code_greater_zero_bug(i, Value::Symbolic(exit_code)),
+                            |t, w| t.exit_code_greater_zero_bug(w, Value::Symbolic(exit_code)),
                             SymbolicExecutionError::ProgramExit(Value::Symbolic(exit_code)),
                         )
                     })
@@ -1043,19 +1139,17 @@ where
                     );
 
                     self.reachable().and_then(|r| {
-                        self.exit_anyway_with_bug(r, |i| {
-                            self.exit_code_greater_zero_bug(i, Value::Concrete(exit_code))
+                        self.exit_anyway_with_bug(r, |t, w| {
+                            t.exit_code_greater_zero_bug(w, Value::Concrete(exit_code))
                         })
                     })
                 } else {
-                    trace!("exiting context with exit_code 0");
+                    trace!("exit: with code 0");
 
-                    Err(SymbolicExecutionError::ProgramExit(Value::Concrete(
-                        exit_code,
-                    )))
+                    self.exit_regularly()
                 }
             }
-            _ => not_supported("exit only implemented for symbolic exit codes"),
+            _ => self.exit_with_unsupported("exit only implemented for symbolic exit codes".into()),
         }
     }
 
@@ -1078,10 +1172,7 @@ where
             Value::Concrete(syscall_id) if syscall_id == (SyscallId::Exit as u64) => {
                 self.execute_exit()
             }
-            id => Err(SymbolicExecutionError::NotSupported(format!(
-                "syscall with id ({}) is not supported",
-                id
-            ))),
+            id => self.exit_with_unsupported(format!("syscall with id ({}) is not supported", id)),
         };
 
         self.pc += INSTRUCTION_SIZE;
@@ -1120,7 +1211,7 @@ where
 
             Ok(())
         } else {
-            not_supported("can not handle symbolic addresses in LD")
+            self.exit_with_unsupported("can not handle symbolic addresses in LD".into())
         }
     }
 
@@ -1155,7 +1246,7 @@ where
 
             Ok(())
         } else {
-            not_supported("can not handle symbolic addresses in SD")
+            self.exit_with_unsupported("can not handle symbolic addresses in SD".into())
         }
     }
 
@@ -1208,11 +1299,11 @@ where
 
             Ok(())
         } else {
-            not_supported("can only handle concrete addresses in JALR")
+            self.exit_with_unsupported("can only handle concrete addresses in JALR".into())
         }
     }
 
-    fn fetch(&self) -> Result<u32, SymbolicExecutionError> {
+    fn fetch(&mut self) -> Result<u32, SymbolicExecutionError> {
         if let Value::Concrete(dword) = self.memory[(self.pc as usize / size_of::<u64>()) as usize]
         {
             if self.pc % size_of::<u64>() as u64 == 0 {
@@ -1221,14 +1312,14 @@ where
                 Ok((dword >> 32) as u32)
             }
         } else {
-            Err(SymbolicExecutionError::NotSupported(String::from(
-                "tried to fetch none concrete instruction",
-            )))
+            Err(self
+                .exit_with_unsupported("tried to fetch none concrete instruction".into())
+                .unwrap_err())
         }
     }
 
     fn execute(&mut self, instruction: Instruction) -> Result<(), SymbolicExecutionError> {
-        match instruction {
+        let res = match instruction {
             Instruction::Ecall(_) => self.execute_ecall(),
             Instruction::Lui(utype) => self.execute_lui(utype),
             Instruction::Addi(itype) => self.execute_itype(instruction, itype, u64::wrapping_add),
@@ -1249,11 +1340,15 @@ where
             Instruction::Jal(jtype) => self.execute_jal(jtype),
             Instruction::Jalr(itype) => self.execute_jalr(itype),
             Instruction::Beq(btype) => self.execute_beq(btype),
-        }
+        };
+
+        self.profiler.instruction_executed();
+
+        res
     }
 }
 
-fn load_segment(memory: &mut Vec<Value>, segment: &ProgramSegment<u8>) {
+fn load_segment(memory: &mut VirtualMemory<Value>, segment: &ProgramSegment<u8>) {
     let start = segment.address as usize / size_of::<u64>();
     let end = start + segment.content.len() / size_of::<u64>();
 
@@ -1263,10 +1358,6 @@ fn load_segment(memory: &mut Vec<Value>, segment: &ProgramSegment<u8>) {
         .map(LittleEndian::read_u64)
         .zip(start..end)
         .for_each(|(x, i)| memory[i] = Value::Concrete(x));
-}
-
-fn not_supported(s: &str) -> Result<(), SymbolicExecutionError> {
-    Err(SymbolicExecutionError::NotSupported(s.to_owned()))
 }
 
 #[derive(Debug, Clone)]

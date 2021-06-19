@@ -81,6 +81,7 @@ fn bench_shortes_paths_vs_coin_flip(c: &mut Criterion) {
                     b.iter(|| {
                         symbolically_execute_with(program, options, &strategy, &Z3::default())
                             .expect("successfull result")
+                            .0
                             .expect("bug found");
                     })
                 },
@@ -113,6 +114,7 @@ fn bench_shortes_paths_vs_coin_flip(c: &mut Criterion) {
                     b.iter(|| {
                         symbolically_execute_with(program, options, &strategy, &Z3::default())
                             .expect("successfull result")
+                            .0
                             .expect("bug found");
                     })
                 },

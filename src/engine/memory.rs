@@ -1,5 +1,7 @@
 use std::ops::{Index, IndexMut};
 
+use bytesize::ByteSize;
+
 #[derive(Debug, Clone)]
 pub struct VirtualMemory<T> {
     memory_size: usize,
@@ -66,6 +68,15 @@ impl<T: Copy + Default> VirtualMemory<T> {
 
     pub fn size(&self) -> usize {
         self.memory_size
+    }
+
+    pub fn allocated(&self) -> ByteSize {
+        ByteSize::b(
+            self.data
+                .iter()
+                .filter(|x| !x.is_empty())
+                .fold(0, |acc, _| acc + (self.segment_mask as u64) + 1),
+        )
     }
 }
 

@@ -80,7 +80,7 @@ fn main() -> Result<()> {
 
             let program = load_object_file(&input)?;
 
-            if let Some(bug) = match strategy {
+            match strategy {
                 ShortestPaths => {
                     let strategy = ShortestPathStrategy::compute_for(&program)?;
 
@@ -100,14 +100,14 @@ fn main() -> Result<()> {
                     }
                 }
             }
-            .with_context(|| format!("Execution of {} failed", input.display()))?
-            {
-                info!("bug found:\n{}", bug);
-            } else {
-                info!("SMT-lib file successfully created");
-            };
+            .with_context(|| format!("Execution of {} failed", input.display()))
+            .map(|(potential_bug, profile)| {
+                info!("{}", profile);
 
-            Ok(())
+                if let Some(bug) = potential_bug {
+                    info!("bug found:\n{}", bug);
+                }
+            })
         }
         ("execute", Some(args)) => {
             let input = expect_arg::<PathBuf>(&args, "input-file")?;
@@ -121,7 +121,7 @@ fn main() -> Result<()> {
 
             let program = load_object_file(&input)?;
 
-            if let Some(bug) = match (strategy, solver) {
+            match (strategy, solver) {
                 (ShortestPaths, Monster) => symbolically_execute_elf_with(
                     &input,
                     &options,
@@ -163,14 +163,16 @@ fn main() -> Result<()> {
                     &solver::Z3::default(),
                 ),
             }
-            .with_context(|| format!("Execution of {} failed", input.display()))?
-            {
-                info!("bug found:\n{}", bug);
-            } else {
-                info!("no bug found in binary");
-            };
+            .with_context(|| format!("Execution of {} failed", input.display()))
+            .map(|(potential_bug, profile)| {
+                info!("{}", profile);
 
-            Ok(())
+                if let Some(bug) = potential_bug {
+                    info!("bug found:\n{}", bug);
+                } else {
+                    info!("no bug found in binary");
+                }
+            })
         }
         ("rarity", Some(args)) => {
             let input = expect_arg::<PathBuf>(args, "input-file")?;
