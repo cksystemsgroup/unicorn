@@ -1,10 +1,11 @@
 use super::{
     bug::{Bug as GenericBug, BugInfo},
-    symbolic_state::{Query, QueryResult, SymbolicState, SymbolicValue, Witness},
+    symbolic_state::{QueryResult, SymbolicState, SymbolicValue, Witness},
     system::{instruction_to_str, SyscallId},
     UninitializedMemoryAccessReason,
 };
 use crate::{
+    engine::symbolic_state::Condition,
     path_exploration::ExplorationStrategy,
     solver::{BVOperator, Solver, SolverError},
     BugFinder,
@@ -248,9 +249,20 @@ where
         }
     }
 
-    fn execute_query(&mut self, query: Query) -> Result<QueryResult, SymbolicExecutionError> {
+    fn reachable(&mut self) -> Result<QueryResult, SymbolicExecutionError> {
         self.symbolic_state
-            .execute_query(query)
+            .reachable()
+            .map_err(SymbolicExecutionError::Solver)
+    }
+
+    fn reachable_with(
+        &mut self,
+        cond: Condition,
+        lhs: SymbolicValue,
+        rhs: SymbolicValue,
+    ) -> Result<QueryResult, SymbolicExecutionError> {
+        self.symbolic_state
+            .reachable_with(cond, lhs, rhs)
             .map_err(SymbolicExecutionError::Solver)
     }
 
@@ -267,7 +279,7 @@ where
             v2
         );
 
-        let result = self.execute_query(Query::Reachable)?;
+        let result = self.reachable()?;
 
         let info = match result {
             QueryResult::Sat(witness) => self.collect_bug_info(Some(witness)),
@@ -398,7 +410,7 @@ where
                 address
             );
 
-            self.execute_query(Query::Reachable).and_then(|r| {
+            self.reachable().and_then(|r| {
                 self.exit_anyway_with_bug(r, |i| self.access_to_unaligned_address_bug(i))
             })
         } else if !self.is_in_vaddr_range(address) {
@@ -409,7 +421,7 @@ where
                 self.memory.len() * size_of::<u64>(),
             );
 
-            self.execute_query(Query::Reachable).and_then(|r| {
+            self.reachable().and_then(|r| {
                 self.exit_anyway_with_bug(r, |i| self.access_to_out_of_range_address_bug(i))
             })
         } else {
@@ -432,7 +444,7 @@ where
                 self.memory.len() * size_of::<u64>(),
             );
 
-            self.execute_query(Query::Reachable).and_then(|r| {
+            self.reachable().and_then(|r| {
                 self.exit_anyway_with_bug(r, |i| self.access_to_out_of_range_address_bug(i))
             })
         } else {
@@ -477,8 +489,14 @@ where
                     instruction_to_str(instruction)
                 );
 
-                self.execute_query(Query::Equals((divisor, 0)))
+                self.reachable_with(Condition::Equals, divisor, self.symbolic_state.zero())
                     .and_then(|r| self.exit_with_bug_if_sat(r, |i| self.divison_by_zero_bug(i)))?;
+
+                self.symbolic_state.add_path_condition(
+                    Condition::NotEquals,
+                    divisor,
+                    self.symbolic_state.zero(),
+                );
             }
             Value::Concrete(divisor) if divisor == 0 => {
                 trace!(
@@ -487,7 +505,7 @@ where
                 );
 
                 return self
-                    .execute_query(Query::Reachable)
+                    .reachable()
                     .and_then(|r| self.exit_anyway_with_bug(r, |i| self.divison_by_zero_bug(i)));
             }
             _ => {}
@@ -805,7 +823,7 @@ where
                     (start + word_count) * size_of_u64,
                 );
 
-                return self.execute_query(Query::Reachable).and_then(|r| {
+                return self.reachable().and_then(|r| {
                     self.exit_anyway_with_bug(r, |i| {
                         self.access_to_uninitialized_memory_bug(
                             i,
@@ -828,7 +846,7 @@ where
     }
 
     fn should_execute_branch(&mut self) -> Result<(bool, &'static str), SymbolicExecutionError> {
-        Ok(match self.execute_query(Query::Reachable)? {
+        Ok(match self.reachable()? {
             QueryResult::Sat(_) => (true, "reachable"),
             QueryResult::Unknown if !self.options.optimistically_prune_search_space => {
                 (true, "reachability unknown")
@@ -873,8 +891,15 @@ where
 
         let result_first_branch =
             self.with_snapshot(|this| -> Result<(), SymbolicExecutionError> {
-                this.symbolic_state
-                    .create_beq_path_condition(decision, lhs, rhs);
+                this.symbolic_state.add_path_condition(
+                    if decision {
+                        Condition::Equals
+                    } else {
+                        Condition::NotEquals
+                    },
+                    lhs,
+                    rhs,
+                );
 
                 let (execute_branch, reachability) = this.should_execute_branch()?;
 
@@ -918,8 +943,15 @@ where
 
         let next_pc = if decision { false_branch } else { true_branch };
 
-        self.symbolic_state
-            .create_beq_path_condition(!decision, lhs, rhs);
+        self.symbolic_state.add_path_condition(
+            if !decision {
+                Condition::Equals
+            } else {
+                Condition::NotEquals
+            },
+            lhs,
+            rhs,
+        );
 
         let (execute_branch, reachability) = self.should_execute_branch()?;
 
@@ -994,7 +1026,7 @@ where
             Value::Symbolic(exit_code) => {
                 trace!("exit: symbolic code -> find input for exit_code != 0");
 
-                self.execute_query(Query::NotEquals((exit_code, 0)))
+                self.reachable_with(Condition::NotEquals, exit_code, self.symbolic_state.zero())
                     .and_then(|r| {
                         self.exit_anyway_with_bug_if_sat(
                             r,
@@ -1010,7 +1042,7 @@ where
                         exit_code
                     );
 
-                    self.execute_query(Query::Reachable).and_then(|r| {
+                    self.reachable().and_then(|r| {
                         self.exit_anyway_with_bug(r, |i| {
                             self.exit_code_greater_zero_bug(i, Value::Concrete(exit_code))
                         })

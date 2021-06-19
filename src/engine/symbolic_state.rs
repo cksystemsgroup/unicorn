@@ -13,16 +13,16 @@ use petgraph::{
 use riscu::Instruction;
 use std::{collections::HashMap, fmt, ops::Index};
 
-pub enum Query {
-    Equals((SymbolicValue, u64)),
-    NotEquals((SymbolicValue, u64)),
-    Reachable,
-}
-
 pub enum QueryResult {
     Sat(Witness),
     UnSat,
     Unknown,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub enum Condition {
+    Equals,
+    NotEquals,
 }
 
 pub type SymbolicValue = NodeIndex;
@@ -48,6 +48,10 @@ where
     data_flow: DataFlowGraph,
     path_condition: SymbolicValue,
     solver: &'a S,
+    zero: SymbolicValue,
+    one: SymbolicValue,
+    tmp_nodes: Option<Vec<NodeIndex>>,
+    tmp_edges: Option<Vec<EdgeIndex>>,
 }
 
 impl<'a, S> Clone for SymbolicState<'a, S>
@@ -59,6 +63,10 @@ where
             data_flow: self.data_flow.clone(),
             path_condition: self.path_condition,
             solver: self.solver,
+            zero: self.zero,
+            one: self.one,
+            tmp_nodes: self.tmp_nodes.clone(),
+            tmp_edges: self.tmp_edges.clone(),
         }
     }
 }
@@ -70,25 +78,60 @@ where
     pub fn new(solver: &'a S) -> Self {
         let mut data_flow = DataFlowGraph::new();
 
-        let constant = Symbol::Constant(BitVector(1));
+        // some useful constants
+        let zero = data_flow.add_node(Symbol::Constant(BitVector(0)));
+        let one = data_flow.add_node(Symbol::Constant(BitVector(1)));
 
-        let path_condition = data_flow.add_node(constant);
+        // path condition is true by default
+        let path_condition = one;
 
         Self {
             data_flow,
             path_condition,
             solver,
+            zero,
+            one,
+            tmp_nodes: None,
+            tmp_edges: None,
         }
+    }
+
+    fn add_node(&mut self, weight: Symbol) -> SymbolicValue {
+        let idx = self.data_flow.add_node(weight);
+
+        if let Some(ref mut tmp_nodes) = self.tmp_nodes {
+            tmp_nodes.push(idx);
+        }
+
+        idx
+    }
+
+    fn add_edge(&mut self, from: SymbolicValue, to: SymbolicValue, side: OperandSide) -> EdgeIndex {
+        let idx = self.data_flow.add_edge(from, to, side);
+
+        if let Some(ref mut tmp_edges) = self.tmp_edges {
+            tmp_edges.push(idx);
+        }
+
+        idx
     }
 
     pub fn create_const(&mut self, value: u64) -> SymbolicValue {
         let constant = Symbol::Constant(BitVector(value));
 
-        let i = self.data_flow.add_node(constant);
+        let i = self.add_node(constant);
 
         trace!("new constant: x{} := {:#x}", i.index(), value);
 
         i
+    }
+
+    pub fn zero(&self) -> SymbolicValue {
+        self.zero
+    }
+
+    pub fn one(&self) -> SymbolicValue {
+        self.one
     }
 
     pub fn create_instruction(
@@ -99,21 +142,7 @@ where
     ) -> SymbolicValue {
         let op = instruction_to_bv_operator(instruction);
 
-        let root = self.create_operator(op, lhs, rhs);
-
-        // constrain divisor to be not zero,
-        // as division by zero is allowed in SMT bit-vector formulas
-        if matches!(op, BVOperator::Divu)
-            && matches!(self.data_flow[rhs], Symbol::Operator(_) | Symbol::Input(_))
-        {
-            let zero = self.create_const(0);
-            let negated_condition = self.create_operator(BVOperator::Equals, rhs, zero);
-            let condition = self.create_unary_operator(BVOperator::Not, negated_condition);
-
-            self.add_path_condition(condition);
-        }
-
-        root
+        self.create_operator(op, lhs, rhs)
     }
 
     pub fn create_operator(
@@ -125,7 +154,7 @@ where
         assert!(op.is_binary(), "has to be a binary operator");
 
         let n = Symbol::Operator(op);
-        let n_idx = self.data_flow.add_node(n);
+        let n_idx = self.add_node(n);
 
         assert!(!(
                 matches!(self.data_flow[lhs], Symbol::Constant(_))
@@ -150,9 +179,9 @@ where
     fn create_unary_operator(&mut self, op: BVOperator, v: SymbolicValue) -> SymbolicValue {
         assert!(op.is_unary(), "has to be a unary operator");
 
-        let op_id = self.data_flow.add_node(Symbol::Operator(op));
+        let op_id = self.add_node(Symbol::Operator(op));
 
-        self.data_flow.add_edge(v, op_id, OperandSide::Lhs);
+        self.add_edge(v, op_id, OperandSide::Lhs);
 
         op_id
     }
@@ -160,41 +189,63 @@ where
     pub fn create_input(&mut self, name: &str) -> SymbolicValue {
         let node = Symbol::Input(String::from(name));
 
-        let idx = self.data_flow.add_node(node);
+        let idx = self.add_node(node);
 
         trace!("new input: x{} := {:?}", idx.index(), name);
 
         idx
     }
 
-    pub fn create_beq_path_condition(
-        &mut self,
-        decision: bool,
-        lhs: SymbolicValue,
-        rhs: SymbolicValue,
-    ) {
-        let mut pc_idx = self.create_operator(BVOperator::Equals, lhs, rhs);
+    pub fn add_path_condition(&mut self, cond: Condition, lhs: SymbolicValue, rhs: SymbolicValue) {
+        let condition = match cond {
+            Condition::Equals => self.create_operator(BVOperator::Equals, lhs, rhs),
+            Condition::NotEquals => {
+                let op = self.create_operator(BVOperator::Equals, lhs, rhs);
 
-        if !decision {
-            pc_idx = self.create_unary_operator(BVOperator::Not, pc_idx);
-        }
+                self.create_unary_operator(BVOperator::Not, op)
+            }
+        };
 
-        self.add_path_condition(pc_idx)
-    }
-
-    fn add_path_condition(&mut self, condition: SymbolicValue) {
         self.path_condition =
             self.create_operator(BVOperator::BitwiseAnd, self.path_condition, condition);
     }
 
-    pub fn execute_query(&mut self, query: Query) -> Result<QueryResult, SolverError> {
-        // prepare graph for query
-        let (root, cleanup_nodes, cleanup_edges) = match query {
-            Query::Equals(_) | Query::NotEquals(_) => self.prepare_query(query),
-            Query::Reachable => (self.path_condition, vec![], vec![]),
-        };
+    pub fn with_temp_conditions<F, R>(&mut self, f: F) -> R
+    where
+        F: Fn(&mut Self) -> R,
+    {
+        self.tmp_nodes = Some(Vec::new());
+        self.tmp_edges = Some(Vec::new());
 
-        let formula = FormulaView::new(&self.data_flow, root);
+        let result = f(self);
+
+        self.tmp_edges
+            .as_ref()
+            .expect("a list of edges to clean up has to exist here")
+            .clone() // TODO: probably we could somehow get rid of this clone
+            .iter()
+            .for_each(|e| {
+                self.data_flow.remove_edge(*e);
+            });
+
+        self.tmp_edges = None;
+
+        self.tmp_nodes
+            .as_ref()
+            .expect("a list of nodes to clean up has to exist here")
+            .clone() // TODO: probably we could somehow get rid of this clone
+            .iter()
+            .for_each(|n| {
+                self.data_flow.remove_node(*n);
+            });
+
+        self.tmp_nodes = None;
+
+        result
+    }
+
+    pub fn reachable(&mut self) -> Result<QueryResult, SolverError> {
+        let formula = FormulaView::new(&self.data_flow, self.path_condition);
 
         if log::log_enabled!(Level::Debug) {
             debug!("query to solve:");
@@ -204,77 +255,41 @@ where
             debug!("assert x{} is 1", root);
         }
 
-        let result = match self.solver.solve(&formula) {
+        match self.solver.solve(&formula) {
             Ok(Some(ref assignment)) => Ok(QueryResult::Sat(formula.build_witness(assignment))),
             Ok(None) => Ok(QueryResult::UnSat),
             Err(SolverError::SatUnknown) | Err(SolverError::Timeout) => Ok(QueryResult::Unknown),
             Err(e) => Err(e),
-        };
-
-        cleanup_edges.iter().for_each(|e| {
-            self.data_flow.remove_edge(*e);
-        });
-        cleanup_nodes.iter().for_each(|n| {
-            self.data_flow.remove_node(*n);
-        });
-
-        result
-    }
-
-    fn append_path_condition(
-        &mut self,
-        r: SymbolicValue,
-        mut ns: Vec<SymbolicValue>,
-        mut es: Vec<EdgeIndex>,
-    ) -> (SymbolicValue, Vec<SymbolicValue>, Vec<EdgeIndex>) {
-        let con_idx = self
-            .data_flow
-            .add_node(Symbol::Operator(BVOperator::BitwiseAnd));
-        let (con_edge_idx1, con_edge_idx2) = self.connect_operator(self.path_condition, r, con_idx);
-
-        ns.push(con_idx);
-        es.push(con_edge_idx1);
-        es.push(con_edge_idx2);
-
-        (con_idx, ns, es)
-    }
-
-    fn prepare_query(
-        &mut self,
-        query: Query,
-    ) -> (SymbolicValue, Vec<SymbolicValue>, Vec<EdgeIndex>) {
-        match query {
-            Query::Equals((sym, c)) | Query::NotEquals((sym, c)) => {
-                let root_idx = self
-                    .data_flow
-                    .add_node(Symbol::Operator(BVOperator::Equals));
-
-                let const_idx = self.data_flow.add_node(Symbol::Constant(BitVector(c)));
-                let const_edge_idx = self
-                    .data_flow
-                    .add_edge(const_idx, root_idx, OperandSide::Lhs);
-
-                let sym_edge_idx = self.data_flow.add_edge(sym, root_idx, OperandSide::Rhs);
-
-                if let Query::NotEquals(_) = query {
-                    let not_idx = self.data_flow.add_node(Symbol::Operator(BVOperator::Not));
-                    let not_edge_idx = self.data_flow.add_edge(root_idx, not_idx, OperandSide::Lhs);
-
-                    self.append_path_condition(
-                        not_idx,
-                        vec![root_idx, const_idx, not_idx],
-                        vec![const_edge_idx, sym_edge_idx, not_edge_idx],
-                    )
-                } else {
-                    self.append_path_condition(
-                        root_idx,
-                        vec![root_idx, const_idx],
-                        vec![const_edge_idx, sym_edge_idx],
-                    )
-                }
-            }
-            Query::Reachable => panic!("nothing to be prepeared for that query"),
         }
+    }
+
+    pub fn reachable_with(
+        &mut self,
+        cond: Condition,
+        lhs: SymbolicValue,
+        rhs: SymbolicValue,
+    ) -> Result<QueryResult, SolverError> {
+        self.with_temp_conditions(|this| {
+            let root_idx = this.create_operator(BVOperator::Equals, lhs, rhs);
+
+            let root_idx = if Condition::NotEquals == cond {
+                this.create_unary_operator(BVOperator::Not, root_idx)
+            } else {
+                root_idx
+            };
+
+            let and_idx =
+                this.create_operator(BVOperator::BitwiseAnd, this.path_condition, root_idx);
+
+            let pc = this.path_condition;
+            this.path_condition = and_idx;
+
+            let result = this.reachable();
+
+            this.path_condition = pc;
+
+            result
+        })
     }
 
     fn connect_operator(
@@ -286,8 +301,8 @@ where
         // assert: right hand side edge has to be inserted first
         // solvers depend on edge insertion order!!!
         (
-            self.data_flow.add_edge(rhs, op, OperandSide::Rhs),
-            self.data_flow.add_edge(lhs, op, OperandSide::Lhs),
+            self.add_edge(rhs, op, OperandSide::Rhs),
+            self.add_edge(lhs, op, OperandSide::Lhs),
         )
     }
 }
