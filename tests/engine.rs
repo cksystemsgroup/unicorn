@@ -9,22 +9,20 @@ use monster::{
     symbolically_execute_with, MonsterError, SymbolicExecutionBug, SymbolicExecutionOptions,
 };
 use rayon::prelude::*;
-use std::{
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::path::{Path, PathBuf};
 use utils::{compile_riscu, init, with_temp_dir};
 
-const TEST_FILES: [&str; 22] = [
+const TEST_FILES: [&str; 23] = [
     "arithmetic.c",
     "echo-line.c",
-    "if-else.c", // needs timeout
+    "if-else.c",
     "invalid-memory-access-2-35.c",
     "division-by-zero-3-35.c",
     "simple-assignment-1-35.c",
     "test-remu.c",
     "test-sltu.c",
     "test-sltu-2.c",
+    "test-sltu-3.c",
     "memory-access-1-35.c",
     "memory-invalid-read.c",
     "memory-invalid-write.c",
@@ -43,8 +41,7 @@ const TEST_FILES: [&str; 22] = [
 
 #[test]
 fn execute_riscu_with_monster_solver() {
-    // need a big timeout because of the slow Github runners
-    let solver = MonsterSolver::new(Duration::new(5, 0));
+    let solver = MonsterSolver::default();
     execute_riscu_examples(&TEST_FILES, &solver);
 }
 
@@ -116,8 +113,7 @@ fn execute_default_with<P: AsRef<Path>>(
     object: P,
     options: &SymbolicExecutionOptions,
 ) -> Result<(Option<SymbolicExecutionBug>, Profiler), MonsterError> {
-    // need a big timeout because of the slow Github runners
-    let solver = MonsterSolver::new(Duration::new(5, 0));
+    let solver = MonsterSolver::default();
 
     execute_default_with_solver(object, options, &solver)
 }
@@ -145,14 +141,7 @@ fn execute_riscu_examples<S: Solver>(names: &'static [&str], solver: &S) {
 fn execute_riscu<S: Solver>(source: PathBuf, object: PathBuf, solver: &S) {
     let file_name = source.file_name().unwrap().to_str().unwrap();
 
-    let options = SymbolicExecutionOptions {
-        max_exection_depth: match file_name {
-            "two-level-nested-loop-1-35.c" => 230,
-            "recursive-fibonacci-1-10.c" => 300,
-            _ => 1000,
-        },
-        ..Default::default()
-    };
+    let options = SymbolicExecutionOptions::default();
 
     let result = execute_default_with_solver(object, &options, solver);
 
@@ -203,6 +192,9 @@ fn execute_riscu<S: Solver>(source: PathBuf, object: PathBuf, solver: &S) {
                 SymbolicExecutionBug::ExitCodeGreaterZero { .. }
             ) | (
                 "test-sltu-2.c",
+                SymbolicExecutionBug::ExitCodeGreaterZero { .. }
+            ) | (
+                "test-sltu-3.c",
                 SymbolicExecutionBug::ExitCodeGreaterZero { .. }
             ) | (
                 "memory-access-1-35.c",

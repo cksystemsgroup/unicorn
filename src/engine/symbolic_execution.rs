@@ -680,47 +680,34 @@ where
         new_idx: SymbolicValue,
     ) -> SymbolicValue {
         let bits_in_a_byte = 8;
-        let low_shift_factor = 2_u64.pow(n_lower_bytes * bits_in_a_byte);
-        let high_shift_factor =
-            2_u64.pow((size_of::<u64>() as u32 - n_lower_bytes) * bits_in_a_byte);
+        let high_mask = (1_u64 << (n_lower_bytes * bits_in_a_byte)) - 1;
+        let low_mask = !high_mask;
 
-        assert!(
-            low_shift_factor != 0 && high_shift_factor != 0,
-            "no bytes to shift"
-        );
+        assert!(low_mask ^ high_mask == u64::max_value(), "must complement");
+        assert!(high_mask != u64::max_value(), "nothing to mask");
 
         let old_idx = match old {
             Value::Concrete(c) => {
-                let old_c = c / low_shift_factor * low_shift_factor;
+                let old_c = c & low_mask;
 
                 self.symbolic_state.create_const(old_c)
             }
             Value::Symbolic(old_idx) => {
-                let low_shift_factor_idx = self.symbolic_state.create_const(low_shift_factor);
-
-                let old_idx = self.symbolic_state.create_operator(
-                    BVOperator::Divu,
-                    old_idx,
-                    low_shift_factor_idx,
-                );
+                let low_mask_idx = self.symbolic_state.create_const(low_mask);
 
                 self.symbolic_state
-                    .create_operator(BVOperator::Mul, old_idx, low_shift_factor_idx)
+                    .create_operator(BVOperator::BitwiseAnd, old_idx, low_mask_idx)
             }
             Value::Uninitialized => {
                 unreachable!("function should not be called for uninitialized values")
             }
         };
 
-        let high_shift_factor_idx = self.symbolic_state.create_const(high_shift_factor);
+        let high_mask_idx = self.symbolic_state.create_const(high_mask);
 
         let new_idx =
             self.symbolic_state
-                .create_operator(BVOperator::Mul, new_idx, high_shift_factor_idx);
-
-        let new_idx =
-            self.symbolic_state
-                .create_operator(BVOperator::Divu, new_idx, high_shift_factor_idx);
+                .create_operator(BVOperator::BitwiseAnd, new_idx, high_mask_idx);
 
         self.symbolic_state
             .create_operator(BVOperator::Add, old_idx, new_idx)
