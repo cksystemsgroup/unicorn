@@ -283,7 +283,7 @@ fn compute_inverse_value(op: BVOperator, s: BitVector, t: BitVector, d: OperandS
                 }
             }
         },
-        BVOperator::BitwiseAnd => BitVector(random::<u64>()) | t,
+        BVOperator::BitwiseAnd => (BitVector(random::<u64>()) & !s) | t,
         BVOperator::Equals => {
             if t == BitVector(0) {
                 loop {
@@ -869,6 +869,7 @@ mod tests {
     const SLTU: BVOperator = BVOperator::Sltu;
     const DIVU: BVOperator = BVOperator::Divu;
     const REMU: BVOperator = BVOperator::Remu;
+    const AND: BVOperator = BVOperator::BitwiseAnd;
 
     #[test]
     fn check_invertibility_condition_for_divu() {
@@ -1046,6 +1047,21 @@ mod tests {
         test_inverse_value_computation(REMU, 3, 2, OperandSide::Lhs, f);
         test_inverse_value_computation(REMU, 5, 2, OperandSide::Rhs, f);
         test_inverse_value_computation(REMU, 3, 3, OperandSide::Rhs, f);
+    }
+
+    #[test]
+    fn compute_inverse_values_for_and() {
+        let side = OperandSide::Lhs;
+
+        fn f(l: BitVector, r: BitVector) -> BitVector {
+            l & r
+        }
+
+        // test only for values which are actually invertible
+        test_inverse_value_computation(AND, 0b1, 0b1, side, f);
+        test_inverse_value_computation(AND, 0b11, 0b10, side, f);
+        test_inverse_value_computation(AND, 0b111, 0b100, side, f);
+        test_inverse_value_computation(AND, u64::max_value(), 1, side, f);
     }
 
     #[test]
