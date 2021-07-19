@@ -1,4 +1,6 @@
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{
+    criterion_group, criterion_main, measurement::WallTime, BenchmarkGroup, BenchmarkId, Criterion,
+};
 use lazy_static::lazy_static;
 use monster::{
     load_elf,
@@ -45,11 +47,39 @@ lazy_static! {
 criterion_group!(benches, bench_shortes_paths_vs_coin_flip);
 criterion_main!(benches);
 
+#[cfg(feature = "true-rng")]
+fn coin_flip_strategy() -> CoinFlipStrategy {
+    CoinFlipStrategy::default()
+}
+
+#[cfg(not(feature = "true-rng"))]
+fn coin_flip_strategy() -> CoinFlipStrategy {
+    let seed: [u8; 32] = [
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+        25, 26, 27, 28, 29, 30, 31,
+    ];
+
+    CoinFlipStrategy::from_seed(seed)
+}
+
+#[cfg(feature = "true-rng")]
+fn setup_group(group: &mut BenchmarkGroup<WallTime>) {
+    group
+        .sample_size(1000)
+        .measurement_time(Duration::from_secs(30 * 60))
+        .warm_up_time(Duration::from_secs(1));
+}
+
+#[cfg(not(feature = "true-rng"))]
+fn setup_group(group: &mut BenchmarkGroup<WallTime>) {
+    group.sample_size(10).warm_up_time(Duration::from_secs(1));
+}
+
 #[cfg(feature = "z3")]
 fn bench_shortes_paths_vs_coin_flip(c: &mut Criterion) {
     let mut group = c.benchmark_group("Path Exploration Strategies");
 
-    group.sample_size(10).warm_up_time(Duration::from_secs(1));
+    setup_group(&mut group);
 
     COMPILER
         .objects()
@@ -109,7 +139,7 @@ fn bench_shortes_paths_vs_coin_flip(c: &mut Criterion) {
                 BenchmarkId::new("Coin Flip", source.file_name().unwrap().to_str().unwrap()),
                 &(&program, &options),
                 |b, (program, options)| {
-                    let strategy = CoinFlipStrategy::new();
+                    let strategy = coin_flip_strategy();
 
                     b.iter(|| {
                         symbolically_execute_with(program, options, &strategy, &Z3::default())

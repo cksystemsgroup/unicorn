@@ -129,7 +129,7 @@ fn execute_symbolically<S: Solver, P: AsRef<Path>>(object_path: P) {
     let program = load_elf(object_path).unwrap();
     let options = SymbolicExecutionOptions {
         max_exection_depth: 5000000,
-        memory_size: ByteSize(400000),
+        memory_size: ByteSize::mib(1),
         ..Default::default()
     };
     let solver = S::default();

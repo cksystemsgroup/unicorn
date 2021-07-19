@@ -1,15 +1,21 @@
 use super::ExplorationStrategy;
-use rand::{rngs::ThreadRng, thread_rng, Rng};
+use rand::{prelude::StdRng, thread_rng, Rng, RngCore, SeedableRng};
 use std::cell::RefCell;
 
 pub struct CoinFlipStrategy {
-    rng: RefCell<ThreadRng>,
+    rng: RefCell<Box<dyn RngCore>>,
 }
 
 impl CoinFlipStrategy {
     pub fn new() -> Self {
         Self {
-            rng: RefCell::new(thread_rng()),
+            rng: RefCell::new(Box::new(thread_rng())),
+        }
+    }
+
+    pub fn from_seed(seed: <StdRng as SeedableRng>::Seed) -> Self {
+        Self {
+            rng: RefCell::new(Box::new(StdRng::from_seed(seed))),
         }
     }
 }
