@@ -934,6 +934,8 @@ where
         let amount_of_file_descriptors_snapshot = self.amount_of_file_descriptors;
         let profiler_snapshot = self.profiler.clone();
 
+        self.profiler = Profiler::new();
+
         let result = f(self);
         let profiler = self.profiler.clone();
 
@@ -986,7 +988,6 @@ where
                         next_pc,
                     );
 
-                    this.profiler = Profiler::new();
                     this.profiler.took_beq_branch(decision);
 
                     this.pc = next_pc;
