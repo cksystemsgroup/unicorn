@@ -37,14 +37,14 @@ required-features = ["z3"]
 [dependencies]
 byteorder = "~1.4"
 clap = "~2.33"
-strum = { version = "~0.21", features = ["derive"] }
+strum = { version = "~0.22", features = ["derive"] }
 riscu = "~0.5"
-petgraph = "~0.5"
+petgraph = "~0.6"
 rand = "~0.8"
 modinverse = "~0.1"
 log = "~0.4"
-env_logger = "~0.8"
-bytesize = "~1.0"
+env_logger = "~0.9"
+bytesize = "~1.1"
 itertools = "~0.10"
 anyhow = "~1.0"
 thiserror = "~1.0"
@@ -53,7 +53,7 @@ const_format = "~0.2"
 lazy_static = "~1.4"
 boolector-solver = { package = "boolector", version = "~0.4", features = ["vendor-lgl"], optional = true }
 boolector-sys = { version = "~0", features = ["vendor-lgl"], optional = true }
-z3-solver = { package = "z3", version = "~0.10", features = ["static-link-z3"], optional = true }
+z3-solver = { package = "z3", version = "~0.11", features = ["static-link-z3"], optional = true }
 z3-sys = { version = "~0", features = ["static-link-z3"], optional = true }
 libc = "~0"
 
