@@ -73,7 +73,7 @@ fn bv_for_node_idx<'ctx>(
     if let Some(ast_node) = translation.get(&i) {
         if let Some(bv) = ast_node.as_bv() {
             let concrete_bv = m
-                .eval(&bv)
+                .eval(&bv, true)
                 .expect("will always get a result because the formula is SAT");
 
             let result_value = concrete_bv.as_u64().expect("type already checked here");
@@ -81,7 +81,7 @@ fn bv_for_node_idx<'ctx>(
             Some(BitVector(result_value))
         } else if let Some(b) = ast_node.as_bool() {
             let concrete_bool = m
-                .eval(&b)
+                .eval(&b, true)
                 .expect("will always get a result because the formula is SAT");
 
             let result_value = concrete_bool.as_bool().expect("type already checked here");
