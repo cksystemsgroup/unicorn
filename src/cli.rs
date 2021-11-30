@@ -131,8 +131,26 @@ pub fn args() -> App<'static, 'static> {
                 ),
         )
         .subcommand(
+            App::new("model")
+                .about("Create a BTOR2 model for a RISC-U ELF binary")
+                .arg(
+                    Arg::with_name("input-file")
+                        .help("RISC-U ELF binary to be converted")
+                        .takes_value(true)
+                        .value_name("FILE")
+                        .required(true),
+                )
+                .arg(
+                    Arg::with_name("output-file")
+                    .help("Output path for the generated BTOR2 file")
+                    .short("o")
+                    .long("out")
+                    .takes_value(true)
+                )
+        )
+        .subcommand(
             App::new("smt")
-                .about("Create an SMT-lib file for a RISC-U ELF binary")
+                .about("Create an SMT-LIB file for a RISC-U ELF binary")
                 .arg(
                     Arg::with_name("input-file")
                         .help("RISC-U ELF binary to be converted")
@@ -180,7 +198,7 @@ pub fn args() -> App<'static, 'static> {
                 )
                 .arg(
                     Arg::with_name("output-file")
-                    .help("Output path for the generated SMT-lib file")
+                    .help("Output path for the generated SMT-LIB file")
                     .short("o")
                     .long("out")
                     .takes_value(true)

@@ -119,7 +119,7 @@ where
         optimistically_prune_search_space: false,
     };
 
-    time_info!("generated SMT-lib code", {
+    time_info!("generated SMT-LIB code", {
         match options.smt_type {
             SmtType::Generic => {
                 let solver = solver::SmtWriter::new::<W>(write)
@@ -163,7 +163,7 @@ where
         .map_err(MonsterError::IoError)?;
 
     time_info!(
-        format!("generated SMT-lib file {}", output.as_ref().display()),
+        format!("generated SMT-LIB file {}", output.as_ref().display()),
         { generate_smt(input, file, options, strategy) }
     )
 }

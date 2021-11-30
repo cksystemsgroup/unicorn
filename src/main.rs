@@ -1,10 +1,12 @@
 mod cli;
+mod modeler;
 
 use anyhow::{Context, Result};
 use bytesize::ByteSize;
 use cli::{expect_arg, expect_optional_arg, LogLevel};
 use env_logger::{Env, TimestampPrecision};
 use log::info;
+use modeler::{generate_model, print_model};
 use monster::{
     disassemble::disassemble,
     generate_smt, generate_smt_to_file,
@@ -173,6 +175,18 @@ fn main() -> Result<()> {
                     info!("no bug found in binary");
                 }
             })
+        }
+        ("model", Some(args)) => {
+            let input = expect_arg::<PathBuf>(args, "input-file")?;
+            let _output = expect_optional_arg::<PathBuf>(args, "output-file")?;
+            // TODO: Add support for redirecting to output file.
+
+            let program = load_object_file(&input)?;
+
+            let model = generate_model(&program)?;
+            print_model(&model);
+
+            Ok(())
         }
         ("rarity", Some(args)) => {
             let input = expect_arg::<PathBuf>(args, "input-file")?;
