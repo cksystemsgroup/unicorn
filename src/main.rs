@@ -69,13 +69,13 @@ fn main() -> Result<()> {
             }
         }
         ("smt", Some(args)) => {
-            let input = expect_arg::<PathBuf>(&args, "input-file")?;
-            let output = expect_optional_arg::<PathBuf>(&args, "output-file")?;
-            let strategy = expect_arg::<ExplorationStrategyType>(&args, "strategy")?;
+            let input = expect_arg::<PathBuf>(args, "input-file")?;
+            let output = expect_optional_arg::<PathBuf>(args, "output-file")?;
+            let strategy = expect_arg::<ExplorationStrategyType>(args, "strategy")?;
             let options = SmtGenerationOptions {
                 max_execution_depth: expect_arg(args, "max-execution-depth")?,
                 memory_size: ByteSize::mib(expect_arg(args, "memory")?),
-                smt_type: expect_arg(&args, "smt-type")?,
+                smt_type: expect_arg(args, "smt-type")?,
             };
 
             let program = load_object_file(&input)?;
@@ -110,9 +110,9 @@ fn main() -> Result<()> {
             })
         }
         ("execute", Some(args)) => {
-            let input = expect_arg::<PathBuf>(&args, "input-file")?;
-            let solver = expect_arg::<SolverType>(&args, "solver")?;
-            let strategy = expect_arg::<ExplorationStrategyType>(&args, "strategy")?;
+            let input = expect_arg::<PathBuf>(args, "input-file")?;
+            let solver = expect_arg::<SolverType>(args, "solver")?;
+            let strategy = expect_arg::<ExplorationStrategyType>(args, "strategy")?;
             let options = SymbolicExecutionOptions {
                 max_exection_depth: expect_arg(args, "max-execution-depth")?,
                 memory_size: ByteSize::mib(expect_arg(args, "memory")?),

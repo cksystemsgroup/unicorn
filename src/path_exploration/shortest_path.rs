@@ -309,6 +309,7 @@ impl<'a> Context<'a> {
                     // end of while loop
                     let jump_idx = self.next();
 
+                    #[allow(clippy::branches_sharing_code)]
                     if self.visited.contains_key(&jump_idx) {
                         self.visit(jump_idx, g);
                         trace!("jal: (loop) visited => exiting");

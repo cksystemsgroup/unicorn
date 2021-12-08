@@ -1149,7 +1149,7 @@ where
 {
     let counter_addresses: Vec<Vec<Address>> = states
         .iter()
-        .map(|s| compute_counter_addresses(&s))
+        .map(|s| compute_counter_addresses(s))
         .collect();
 
     // create global counters for all states

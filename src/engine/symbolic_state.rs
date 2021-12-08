@@ -536,17 +536,9 @@ pub(crate) enum Term {
     Binary(usize, BVOperator, usize, u64),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct Witness {
     assignments: Vec<Term>,
-}
-
-impl Default for Witness {
-    fn default() -> Self {
-        Self {
-            assignments: Vec::new(),
-        }
-    }
 }
 
 impl Witness {

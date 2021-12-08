@@ -39,7 +39,7 @@ pub fn args() -> App<'static, 'static> {
                 .help("configure logging level to use")
                 .takes_value(true)
                 .value_name("LEVEL")
-                .possible_values(&LogLevel::VARIANTS)
+                .possible_values(LogLevel::VARIANTS)
                 .default_value(LogLevel::Info.into())
                 .global(true),
         )
@@ -97,7 +97,7 @@ pub fn args() -> App<'static, 'static> {
                         .long("solver")
                         .takes_value(true)
                         .value_name("SOLVER")
-                        .possible_values(&SolverType::VARIANTS)
+                        .possible_values(SolverType::VARIANTS)
                         .default_value(SolverType::Monster.into()),
                 )
                 .arg(
@@ -257,7 +257,7 @@ pub fn args() -> App<'static, 'static> {
                     .long("mean")
                     .takes_value(true)
                     .value_name("MEAN")
-                    .possible_values(&MeanType::VARIANTS)
+                    .possible_values(MeanType::VARIANTS)
                     .default_value(rarity_defaults::MEAN_TYPE.into())
                     )
         )

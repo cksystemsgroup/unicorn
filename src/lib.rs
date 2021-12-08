@@ -71,11 +71,11 @@ where
     Strategy: path_exploration::ExplorationStrategy,
     Solver: solver::Solver,
 {
-    let mut engine = SymbolicExecutionEngine::new(&options, strategy, solver);
+    let mut engine = SymbolicExecutionEngine::new(options, strategy, solver);
 
     let result = time_info!("finished symbolic execution", {
         engine
-            .search_for_bugs(&program)
+            .search_for_bugs(program)
             .map_err(MonsterError::SymbolicExecution)
     });
 
@@ -184,7 +184,7 @@ pub fn rarity_simulate_with(
     program: &Program,
     options: &RaritySimulationOptions,
 ) -> Result<Option<RaritySimulationBug>, MonsterError> {
-    RaritySimulation::new(&options)
+    RaritySimulation::new(options)
         .search_for_bugs(program)
         .map_err(MonsterError::RaritySimulation)
 }
