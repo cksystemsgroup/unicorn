@@ -5,7 +5,6 @@ use riscu::{decode, types::*, Instruction, Program, Register, INSTRUCTION_SIZE};
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::collections::LinkedList;
-use std::convert::TryInto;
 use std::mem::size_of;
 use std::rc::Rc;
 
@@ -252,8 +251,8 @@ struct ModelBuilder {
     zero_word: NodeRef,
     kernel_mode: NodeRef,
     kernel_not: NodeRef,
-    register_nodes: [NodeRef; NUMBER_OF_REGISTERS],
-    register_flow: [NodeRef; NUMBER_OF_REGISTERS - 1],
+    register_nodes: Vec<NodeRef>,
+    register_flow: Vec<NodeRef>,
     memory_node: NodeRef,
     memory_flow: NodeRef,
     ecall_flow: NodeRef,
@@ -269,76 +268,21 @@ struct InEdge {
 
 impl ModelBuilder {
     fn new() -> Self {
-        let zero_bit = Rc::new(Node::Const {
-            nid: 10,
-            sort: NodeType::Bit,
-            imm: 0,
-        });
-        let one_bit = Rc::new(Node::Const {
-            nid: 11,
-            sort: NodeType::Bit,
-            imm: 1,
-        });
-
-        let zero_word = Rc::new(Node::Const {
-            nid: 20,
-            sort: NodeType::Word,
-            imm: 0,
-        });
-
-        let mut registers = Vec::with_capacity(NUMBER_OF_REGISTERS - 1);
-        registers.push(Rc::new(Node::Const {
-            nid: 200,
-            sort: NodeType::Word,
-            imm: 0,
-        }));
-        for r in 1..NUMBER_OF_REGISTERS {
-            let reg = Register::from(r as u32);
-            registers.push(Rc::new(Node::State {
-                nid: 200 + 2 * r as u64,
-                sort: NodeType::Word,
-                init: Some(zero_word.clone()),
-                name: Some(format!("{:?}", reg)),
-            }));
-        }
-
-        let kernel_mode = Rc::new(Node::State {
-            nid: 60,
-            sort: NodeType::Bit,
-            init: Some(zero_bit.clone()),
-            name: Some("kernel-mode".to_string()),
-        });
-        let kernel_not = Rc::new(Node::Not {
-            nid: 62,
-            value: kernel_mode.clone(),
-        });
-
-        let register_flow = registers
-            .iter()
-            .skip(1)
-            .cloned()
-            .collect::<Vec<NodeRef>>()
-            .try_into()
-            .expect("size matches");
-        let register_nodes = registers.try_into().expect("size matches");
-        let memory_node = Rc::new(Node::Comment("dummy".to_string()));
-        let memory_flow = memory_node.clone();
-        let ecall_flow = zero_bit.clone();
-
+        let dummy_node = Rc::new(Node::Comment("dummy".to_string()));
         Self {
             lines: LinkedList::new(),
             pc_flags: HashMap::new(),
             control_in: HashMap::new(),
-            zero_bit,
-            one_bit,
-            zero_word,
-            kernel_mode,
-            kernel_not,
-            register_nodes,
-            register_flow,
-            memory_node,
-            memory_flow,
-            ecall_flow,
+            zero_bit: dummy_node.clone(),
+            one_bit: dummy_node.clone(),
+            zero_word: dummy_node.clone(),
+            kernel_mode: dummy_node.clone(),
+            kernel_not: dummy_node.clone(),
+            register_nodes: Vec::with_capacity(NUMBER_OF_REGISTERS),
+            register_flow: Vec::with_capacity(NUMBER_OF_REGISTERS - 1),
+            memory_node: dummy_node.clone(),
+            memory_flow: dummy_node.clone(),
+            ecall_flow: dummy_node,
             current_nid: 0,
             pc: 0,
         }
@@ -366,121 +310,97 @@ impl ModelBuilder {
         self.register_flow[reg as usize - 1] = node;
     }
 
+    fn add_node(&mut self, node_data: Node) -> NodeRef {
+        let node = Rc::new(node_data);
+        self.lines.push_back(node.clone());
+        self.current_nid += 1;
+        node
+    }
+
     fn new_const(&mut self, imm: u64) -> NodeRef {
-        let n = Rc::new(Node::Const {
+        self.add_node(Node::Const {
             nid: self.current_nid,
             sort: NodeType::Word,
             imm,
-        });
-        self.lines.push_back(n.clone());
-        self.current_nid += 1;
-        n
+        })
     }
 
     fn new_read(&mut self, address: NodeRef) -> NodeRef {
-        let n = Rc::new(Node::Read {
+        self.add_node(Node::Read {
             nid: self.current_nid,
             memory: self.memory_node.clone(),
             address,
-        });
-        self.lines.push_back(n.clone());
-        self.current_nid += 1;
-        n
+        })
     }
 
     fn new_write(&mut self, address: NodeRef, value: NodeRef) -> NodeRef {
-        let n = Rc::new(Node::Write {
+        self.add_node(Node::Write {
             nid: self.current_nid,
             memory: self.memory_node.clone(),
             address,
             value,
-        });
-        self.lines.push_back(n.clone());
-        self.current_nid += 1;
-        n
+        })
     }
 
     fn new_add(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
-        let n = Rc::new(Node::Add {
+        self.add_node(Node::Add {
             nid: self.current_nid,
             left,
             right,
-        });
-        self.lines.push_back(n.clone());
-        self.current_nid += 1;
-        n
+        })
     }
 
     fn new_sub(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
-        let n = Rc::new(Node::Sub {
+        self.add_node(Node::Sub {
             nid: self.current_nid,
             left,
             right,
-        });
-        self.lines.push_back(n.clone());
-        self.current_nid += 1;
-        n
+        })
     }
 
     fn new_rem(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
-        let n = Rc::new(Node::Rem {
+        self.add_node(Node::Rem {
             nid: self.current_nid,
             left,
             right,
-        });
-        self.lines.push_back(n.clone());
-        self.current_nid += 1;
-        n
+        })
     }
 
     fn new_ite(&mut self, cond: NodeRef, left: NodeRef, right: NodeRef, sort: NodeType) -> NodeRef {
-        let n = Rc::new(Node::Ite {
+        self.add_node(Node::Ite {
             nid: self.current_nid,
             sort,
             cond,
             left,
             right,
-        });
-        self.lines.push_back(n.clone());
-        self.current_nid += 1;
-        n
+        })
     }
 
     fn new_eq(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
-        let n = Rc::new(Node::Eq {
+        self.add_node(Node::Eq {
             nid: self.current_nid,
             left,
             right,
-        });
-        self.lines.push_back(n.clone());
-        self.current_nid += 1;
-        n
+        })
     }
 
     fn new_and(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
-        let n = Rc::new(Node::And {
+        self.add_node(Node::And {
             nid: self.current_nid,
             left,
             right,
-        });
-        self.lines.push_back(n.clone());
-        self.current_nid += 1;
-        n
+        })
     }
 
     fn new_not(&mut self, value: NodeRef) -> NodeRef {
-        let n = Rc::new(Node::Not {
+        self.add_node(Node::Not {
             nid: self.current_nid,
             value,
-        });
-        self.lines.push_back(n.clone());
-        self.current_nid += 1;
-        n
+        })
     }
 
     fn new_comment(&mut self, s: String) {
-        let n = Rc::new(Node::Comment(s));
-        self.lines.push_back(n);
+        self.lines.push_back(Rc::new(Node::Comment(s)));
     }
 
     fn go_to_instruction(
@@ -705,15 +625,13 @@ impl ModelBuilder {
             self.pc_flags[&edge.from_address].clone(),
             NodeType::Bit,
         );
-        let next_node = Rc::new(Node::Next {
+        self.add_node(Node::Next {
             nid: self.current_nid,
             sort: NodeType::Bit,
             state: state_node.clone(),
             next: ite_node,
             name: None,
         });
-        self.lines.push_back(next_node);
-        self.current_nid += 1;
         let and_node = self.new_and(state_node, self.kernel_not.clone());
         self.control_flow_from_any(and_node, flow)
     }
@@ -727,18 +645,62 @@ impl ModelBuilder {
 
     fn generate_model(&mut self, program: &Program) -> Result<()> {
         self.new_comment("common constants".to_string());
+        self.zero_bit = Rc::new(Node::Const {
+            nid: 10,
+            sort: NodeType::Bit,
+            imm: 0,
+        });
+        self.one_bit = Rc::new(Node::Const {
+            nid: 11,
+            sort: NodeType::Bit,
+            imm: 1,
+        });
+        self.zero_word = Rc::new(Node::Const {
+            nid: 20,
+            sort: NodeType::Word,
+            imm: 0,
+        });
         self.lines.push_back(self.zero_bit.clone());
         self.lines.push_back(self.one_bit.clone());
         self.lines.push_back(self.zero_word.clone());
+        self.ecall_flow = self.zero_bit.clone();
 
         self.new_comment("kernel-mode flag".to_string());
+        self.kernel_mode = Rc::new(Node::State {
+            nid: 60,
+            sort: NodeType::Bit,
+            init: Some(self.zero_bit.clone()),
+            name: Some("kernel-mode".to_string()),
+        });
+        self.kernel_not = Rc::new(Node::Not {
+            nid: 62,
+            value: self.kernel_mode.clone(),
+        });
         self.lines.push_back(self.kernel_mode.clone());
         self.lines.push_back(self.kernel_not.clone());
 
         self.new_comment("32 64-bit general-purpose registers".to_string());
-        for reg_node in self.register_nodes.iter() {
-            self.lines.push_back(reg_node.clone());
+        let zero_register = Rc::new(Node::Const {
+            nid: 200,
+            sort: NodeType::Word,
+            imm: 0,
+        });
+        self.lines.push_back(zero_register.clone());
+        self.register_nodes.push(zero_register);
+        for r in 1..NUMBER_OF_REGISTERS {
+            let reg = Register::from(r as u32);
+            let register_node = Rc::new(Node::State {
+                nid: 200 + 2 * r as u64,
+                sort: NodeType::Word,
+                init: Some(self.zero_word.clone()),
+                name: Some(format!("{:?}", reg)),
+            });
+            self.lines.push_back(register_node.clone());
+            self.register_nodes.push(register_node.clone());
+            self.register_flow.push(register_node);
         }
+        assert_eq!(self.register_nodes.len(), NUMBER_OF_REGISTERS);
+        assert_eq!(self.register_flow.len(), NUMBER_OF_REGISTERS - 1);
 
         self.new_comment("64-bit program counter encoded in Boolean flags".to_string());
         self.pc = program.code.address;
