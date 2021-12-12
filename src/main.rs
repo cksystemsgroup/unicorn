@@ -6,6 +6,7 @@ use bytesize::ByteSize;
 use cli::{expect_arg, expect_optional_arg, LogLevel};
 use env_logger::{Env, TimestampPrecision};
 use log::info;
+use modeler::unroller::unroll_model;
 use modeler::{generate_model, print_model};
 use monster::{
     disassemble::disassemble,
@@ -178,12 +179,20 @@ fn main() -> Result<()> {
         }
         ("model", Some(args)) => {
             let input = expect_arg::<PathBuf>(args, "input-file")?;
-            let _output = expect_optional_arg::<PathBuf>(args, "output-file")?;
             // TODO: Add support for redirecting to output file.
+            let _output = expect_optional_arg::<PathBuf>(args, "output-file")?;
+            let unroll = expect_optional_arg(args, "unroll-model")?;
 
             let program = load_object_file(&input)?;
 
-            let model = generate_model(&program)?;
+            let mut model = generate_model(&program)?;
+            if let Some(unroll_depth) = unroll {
+                // TODO: Clear `model.lines` here, they become invalid.
+                for n in 0..unroll_depth {
+                    unroll_model(&mut model, n);
+                }
+                // TODO: Renumber nodes and repopulate `model.lines` here.
+            }
             print_model(&model);
 
             Ok(())

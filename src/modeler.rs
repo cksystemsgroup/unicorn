@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use byteorder::{ByteOrder, LittleEndian};
 use log::trace;
 use riscu::{decode, types::*, Instruction, Program, Register, INSTRUCTION_SIZE};
-use std::borrow::Borrow;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::LinkedList;
 use std::mem::size_of;
@@ -12,8 +12,10 @@ use std::rc::Rc;
 // Public Interface
 //
 
+pub mod unroller;
+
 pub type Nid = u64;
-pub type NodeRef = Rc<Node>;
+pub type NodeRef = Rc<RefCell<Node>>;
 
 #[derive(Debug)]
 pub enum Node {
@@ -85,7 +87,7 @@ pub enum Node {
     Comment(String),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum NodeType {
     Bit,
     Word,
@@ -96,7 +98,7 @@ pub enum NodeType {
 pub struct Model {
     // TODO: Switch from `LinkedList` to `Vec` here.
     pub lines: LinkedList<NodeRef>,
-    // TODO: Add dedicated list/set of variables for later passes.
+    pub sequentials: LinkedList<NodeRef>,
 }
 
 pub fn generate_model(program: &Program) -> Result<Model> {
@@ -106,6 +108,7 @@ pub fn generate_model(program: &Program) -> Result<Model> {
     Ok(builder.finalize())
 }
 
+#[rustfmt::skip]
 pub fn print_model(model: &Model) {
     trace!("Model: {:?}", model);
     println!("; cksystemsgroup.github.io/monster\n");
@@ -113,92 +116,37 @@ pub fn print_model(model: &Model) {
     println!("2 sort bitvec 64 ; 64-bit machine word");
     println!("3 sort array 2 2 ; 64-bit physical memory");
     for node in model.lines.iter() {
-        match node.borrow() {
-            Node::Const { nid, sort, imm } => println!("{} constd {} {}", nid, get_sort(sort), imm),
-            Node::Read {
-                nid,
-                memory,
-                address,
-            } => println!("{} read 2 {} {}", nid, get_nid(memory), get_nid(address)),
-            Node::Write {
-                nid,
-                memory,
-                address,
-                value,
-            } => println!(
-                "{} write 3 {} {} {}",
-                nid,
-                get_nid(memory),
-                get_nid(address),
-                get_nid(value)
-            ),
-            Node::Add { nid, left, right } => {
-                println!("{} add 2 {} {}", nid, get_nid(left), get_nid(right))
-            }
-            Node::Sub { nid, left, right } => {
-                println!("{} sub 2 {} {}", nid, get_nid(left), get_nid(right))
-            }
-            Node::Rem { nid, left, right } => {
-                println!("{} urem 2 {} {}", nid, get_nid(left), get_nid(right))
-            }
-            Node::Ite {
-                nid,
-                sort,
-                cond,
-                left,
-                right,
-            } => println!(
-                "{} ite {} {} {} {}",
-                nid,
-                get_sort(sort),
-                get_nid(cond),
-                get_nid(left),
-                get_nid(right)
-            ),
-            Node::Eq { nid, left, right } => {
-                println!("{} eq 1 {} {}", nid, get_nid(left), get_nid(right))
-            }
-            Node::And { nid, left, right } => {
-                println!("{} and 1 {} {}", nid, get_nid(left), get_nid(right))
-            }
-            Node::Not { nid, value } => println!("{} not 1 {}", nid, get_nid(value)),
-            Node::State {
-                nid,
-                sort,
-                init,
-                name,
-            } => {
-                println!(
-                    "{} state {} {}",
-                    nid,
-                    get_sort(sort),
-                    name.as_ref().map_or("?", |s| &*s)
-                );
+        match &*node.borrow() {
+            Node::Const { nid, sort, imm } =>
+                println!("{} constd {} {}", nid, get_sort(sort), imm),
+            Node::Read { nid, memory, address } =>
+                println!("{} read 2 {} {}", nid, get_nid(memory), get_nid(address)),
+            Node::Write { nid, memory, address, value } =>
+                println!("{} write 3 {} {} {}", nid, get_nid(memory), get_nid(address), get_nid(value)),
+            Node::Add { nid, left, right } =>
+                println!("{} add 2 {} {}", nid, get_nid(left), get_nid(right)),
+            Node::Sub { nid, left, right } =>
+                println!("{} sub 2 {} {}", nid, get_nid(left), get_nid(right)),
+            Node::Rem { nid, left, right } =>
+                println!("{} urem 2 {} {}", nid, get_nid(left), get_nid(right)),
+            Node::Ite { nid, sort, cond, left, right } =>
+                println!("{} ite {} {} {} {}", nid, get_sort(sort), get_nid(cond), get_nid(left), get_nid(right)),
+            Node::Eq { nid, left, right } =>
+                println!("{} eq 1 {} {}", nid, get_nid(left), get_nid(right)),
+            Node::And { nid, left, right } =>
+                println!("{} and 1 {} {}", nid, get_nid(left), get_nid(right)),
+            Node::Not { nid, value } =>
+                println!("{} not 1 {}", nid, get_nid(value)),
+            Node::State { nid, sort, init, name } => {
+                println!("{} state {} {}", nid, get_sort(sort), name.as_ref().map_or("?", |s| &*s));
                 if let Some(value) = init {
-                    println!(
-                        "{} init {} {} {}",
-                        nid + 1,
-                        get_sort(sort),
-                        nid,
-                        get_nid(value)
-                    );
+                    println!("{} init {} {} {}", nid + 1, get_sort(sort), nid, get_nid(value));
                 }
             }
-            Node::Next {
-                nid,
-                sort,
-                state,
-                next,
-                name,
-            } => println!(
-                "{} next {} {} {} {}",
-                nid,
-                get_sort(sort),
-                get_nid(state),
-                get_nid(next),
-                name.as_ref().map_or("?", |s| &*s)
-            ),
-            Node::Comment(s) => println!("\n; {}\n", s),
+            Node::Next { nid, sort, state, next, name } =>
+                println!("{} next {} {} {} {}", nid, get_sort(sort), get_nid(state), get_nid(next), name.as_ref().map_or("?", |s| &*s)),
+            Node::Comment(s) =>
+                println!("\n; {}\n", s),
         }
     }
     println!("\n; end of BTOR2 file");
@@ -209,19 +157,19 @@ pub fn print_model(model: &Model) {
 //
 
 fn get_nid(node: &NodeRef) -> Nid {
-    match node.borrow() {
-        Node::Const { nid, .. } => *nid,
-        Node::Read { nid, .. } => *nid,
-        Node::Write { nid, .. } => *nid,
-        Node::Add { nid, .. } => *nid,
-        Node::Sub { nid, .. } => *nid,
-        Node::Rem { nid, .. } => *nid,
-        Node::Ite { nid, .. } => *nid,
-        Node::Eq { nid, .. } => *nid,
-        Node::And { nid, .. } => *nid,
-        Node::Not { nid, .. } => *nid,
-        Node::State { nid, .. } => *nid,
-        Node::Next { nid, .. } => *nid,
+    match *node.borrow() {
+        Node::Const { nid, .. } => nid,
+        Node::Read { nid, .. } => nid,
+        Node::Write { nid, .. } => nid,
+        Node::Add { nid, .. } => nid,
+        Node::Sub { nid, .. } => nid,
+        Node::Rem { nid, .. } => nid,
+        Node::Ite { nid, .. } => nid,
+        Node::Eq { nid, .. } => nid,
+        Node::And { nid, .. } => nid,
+        Node::Not { nid, .. } => nid,
+        Node::State { nid, .. } => nid,
+        Node::Next { nid, .. } => nid,
         Node::Comment(_) => panic!("has no nid"),
     }
 }
@@ -244,6 +192,7 @@ const NUMBER_OF_REGISTERS: usize = 32;
 // TODO(test): Test builder on existing samples automatically.
 struct ModelBuilder {
     lines: LinkedList<NodeRef>,
+    sequentials: LinkedList<NodeRef>,
     pc_flags: HashMap<u64, NodeRef>,
     control_in: HashMap<u64, Vec<InEdge>>,
     zero_bit: NodeRef,
@@ -268,9 +217,10 @@ struct InEdge {
 
 impl ModelBuilder {
     fn new() -> Self {
-        let dummy_node = Rc::new(Node::Comment("dummy".to_string()));
+        let dummy_node = Rc::new(RefCell::new(Node::Comment("dummy".to_string())));
         Self {
             lines: LinkedList::new(),
+            sequentials: LinkedList::new(),
             pc_flags: HashMap::new(),
             control_in: HashMap::new(),
             zero_bit: dummy_node.clone(),
@@ -289,7 +239,10 @@ impl ModelBuilder {
     }
 
     fn finalize(self) -> Model {
-        Model { lines: self.lines }
+        Model {
+            lines: self.lines,
+            sequentials: self.sequentials,
+        }
     }
 
     fn pc_flag(&self) -> NodeRef {
@@ -311,7 +264,7 @@ impl ModelBuilder {
     }
 
     fn add_node(&mut self, node_data: Node) -> NodeRef {
-        let node = Rc::new(node_data);
+        let node = Rc::new(RefCell::new(node_data));
         self.lines.push_back(node.clone());
         self.current_nid += 1;
         node
@@ -399,8 +352,27 @@ impl ModelBuilder {
         })
     }
 
+    fn new_next(
+        &mut self,
+        state: NodeRef,
+        next: NodeRef,
+        name: Option<String>,
+        sort: NodeType,
+    ) -> NodeRef {
+        let next_node = self.add_node(Node::Next {
+            nid: self.current_nid,
+            sort,
+            state,
+            next,
+            name,
+        });
+        self.sequentials.push_back(next_node.clone());
+        next_node
+    }
+
     fn new_comment(&mut self, s: String) {
-        self.lines.push_back(Rc::new(Node::Comment(s)));
+        let node = Rc::new(RefCell::new(Node::Comment(s)));
+        self.lines.push_back(node);
     }
 
     fn go_to_instruction(
@@ -464,7 +436,13 @@ impl ModelBuilder {
         // TODO: Add proper memory-bounds checks.
         let address_node = self.model_address(itype.rs1(), itype.imm() as u64);
         let read_node = self.new_read(address_node);
-        self.reg_flow_update(itype.rd(), read_node);
+        let ite_node = self.new_ite(
+            self.pc_flag(),
+            read_node,
+            self.reg_flow(itype.rd()),
+            NodeType::Word,
+        );
+        self.reg_flow_update(itype.rd(), ite_node);
     }
 
     fn model_sd(&mut self, stype: SType) {
@@ -611,12 +589,12 @@ impl ModelBuilder {
     }
 
     fn control_flow_from_ecall(&mut self, edge: &InEdge, flow: NodeRef) -> NodeRef {
-        let state_node = Rc::new(Node::State {
+        let state_node = Rc::new(RefCell::new(Node::State {
             nid: self.current_nid,
             sort: NodeType::Bit,
             init: Some(self.zero_bit.clone()),
             name: Some(format!("kernel-mode-pc-flag-{}", edge.from_address)),
-        });
+        }));
         self.lines.push_back(state_node.clone());
         self.current_nid += 2;
         let ite_node = self.new_ite(
@@ -625,13 +603,7 @@ impl ModelBuilder {
             self.pc_flags[&edge.from_address].clone(),
             NodeType::Bit,
         );
-        self.add_node(Node::Next {
-            nid: self.current_nid,
-            sort: NodeType::Bit,
-            state: state_node.clone(),
-            next: ite_node,
-            name: None,
-        });
+        self.new_next(state_node.clone(), ite_node, None, NodeType::Bit);
         let and_node = self.new_and(state_node, self.kernel_not.clone());
         self.control_flow_from_any(and_node, flow)
     }
@@ -645,56 +617,56 @@ impl ModelBuilder {
 
     fn generate_model(&mut self, program: &Program) -> Result<()> {
         self.new_comment("common constants".to_string());
-        self.zero_bit = Rc::new(Node::Const {
+        self.zero_bit = Rc::new(RefCell::new(Node::Const {
             nid: 10,
             sort: NodeType::Bit,
             imm: 0,
-        });
-        self.one_bit = Rc::new(Node::Const {
+        }));
+        self.one_bit = Rc::new(RefCell::new(Node::Const {
             nid: 11,
             sort: NodeType::Bit,
             imm: 1,
-        });
-        self.zero_word = Rc::new(Node::Const {
+        }));
+        self.zero_word = Rc::new(RefCell::new(Node::Const {
             nid: 20,
             sort: NodeType::Word,
             imm: 0,
-        });
+        }));
         self.lines.push_back(self.zero_bit.clone());
         self.lines.push_back(self.one_bit.clone());
         self.lines.push_back(self.zero_word.clone());
         self.ecall_flow = self.zero_bit.clone();
 
         self.new_comment("kernel-mode flag".to_string());
-        self.kernel_mode = Rc::new(Node::State {
+        self.kernel_mode = Rc::new(RefCell::new(Node::State {
             nid: 60,
             sort: NodeType::Bit,
             init: Some(self.zero_bit.clone()),
             name: Some("kernel-mode".to_string()),
-        });
-        self.kernel_not = Rc::new(Node::Not {
+        }));
+        self.kernel_not = Rc::new(RefCell::new(Node::Not {
             nid: 62,
             value: self.kernel_mode.clone(),
-        });
+        }));
         self.lines.push_back(self.kernel_mode.clone());
         self.lines.push_back(self.kernel_not.clone());
 
         self.new_comment("32 64-bit general-purpose registers".to_string());
-        let zero_register = Rc::new(Node::Const {
+        let zero_register = Rc::new(RefCell::new(Node::Const {
             nid: 200,
             sort: NodeType::Word,
             imm: 0,
-        });
+        }));
         self.lines.push_back(zero_register.clone());
         self.register_nodes.push(zero_register);
         for r in 1..NUMBER_OF_REGISTERS {
             let reg = Register::from(r as u32);
-            let register_node = Rc::new(Node::State {
+            let register_node = Rc::new(RefCell::new(Node::State {
                 nid: 200 + 2 * r as u64,
                 sort: NodeType::Word,
                 init: Some(self.zero_word.clone()),
                 name: Some(format!("{:?}", reg)),
-            });
+            }));
             self.lines.push_back(register_node.clone());
             self.register_nodes.push(register_node.clone());
             self.register_flow.push(register_node);
@@ -711,24 +683,30 @@ impl ModelBuilder {
             } else {
                 self.zero_bit.clone()
             };
-            let flag_node = Rc::new(Node::State {
+            let flag_node = Rc::new(RefCell::new(Node::State {
                 nid: self.current_nid,
                 sort: NodeType::Bit,
                 init: Some(init),
                 name: Some(format!("pc={:#x}", self.pc)),
-            });
+            }));
             self.pc_flags.insert(self.pc, flag_node.clone());
             self.lines.push_back(flag_node);
             self.pc += INSTRUCTION_SIZE as u64;
         }
 
         self.new_comment("64-bit virtual memory".to_string());
-        let memory_node = Rc::new(Node::State {
+        let memory_dump = Rc::new(RefCell::new(Node::State {
             nid: 20000000,
             sort: NodeType::Memory,
             init: None,
+            name: Some("memory-dump".to_string()),
+        }));
+        let memory_node = Rc::new(RefCell::new(Node::State {
+            nid: 20000001,
+            sort: NodeType::Memory,
+            init: Some(memory_dump),
             name: Some("virtual-memory".to_string()),
-        });
+        }));
         self.memory_node = memory_node.clone();
         self.memory_flow = memory_node.clone();
         self.lines.push_back(memory_node);
@@ -764,14 +742,7 @@ impl ModelBuilder {
                     ),
                 }
             }
-            let next_node = Rc::new(Node::Next {
-                nid: self.current_nid,
-                sort: NodeType::Bit,
-                state: self.pc_flag(),
-                next: control_flow,
-                name: None,
-            });
-            self.lines.push_back(next_node);
+            self.new_next(self.pc_flag(), control_flow, None, NodeType::Bit);
             self.pc += INSTRUCTION_SIZE as u64;
         }
 
@@ -779,25 +750,22 @@ impl ModelBuilder {
         for r in 1..NUMBER_OF_REGISTERS {
             self.current_nid = 60000000 + (r as u64);
             let reg = Register::from(r as u32);
-            let next_node = Rc::new(Node::Next {
-                nid: self.current_nid,
-                sort: NodeType::Word,
-                state: self.reg_node(reg),
-                next: self.reg_flow(reg),
-                name: Some(format!("{:?}", reg)),
-            });
-            self.lines.push_back(next_node);
+            self.new_next(
+                self.reg_node(reg),
+                self.reg_flow(reg),
+                Some(format!("{:?}", reg)),
+                NodeType::Word,
+            );
         }
 
         self.new_comment("updating 64-bit virtual memory".to_string());
-        let next_node = Rc::new(Node::Next {
-            nid: 70000000,
-            sort: NodeType::Memory,
-            state: self.memory_node.clone(),
-            next: self.memory_flow.clone(),
-            name: Some("virtual-memory".to_string()),
-        });
-        self.lines.push_back(next_node);
+        self.current_nid = 70000000;
+        self.new_next(
+            self.memory_node.clone(),
+            self.memory_flow.clone(),
+            Some("virtual-memory".to_string()),
+            NodeType::Memory,
+        );
 
         Ok(())
     }

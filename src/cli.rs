@@ -147,6 +147,15 @@ pub fn args() -> App<'static, 'static> {
                     .long("out")
                     .takes_value(true)
                 )
+                .arg(
+                    Arg::with_name("unroll-model")
+                    .help("Number of instructions to unroll from model")
+                    .short("u")
+                    .long("unroll")
+                    .takes_value(true)
+                    .value_name("NUMBER")
+                    .validator(is::<usize>),
+                )
         )
         .subcommand(
             App::new("smt")
