@@ -352,6 +352,23 @@ impl ModelBuilder {
         })
     }
 
+    fn new_state(
+        &mut self,
+        init: Option<NodeRef>,
+        name: Option<String>,
+        sort: NodeType,
+    ) -> NodeRef {
+        let nid_increase = if init.is_some() { 1 } else { 0 };
+        let state_node = self.add_node(Node::State {
+            nid: self.current_nid,
+            sort,
+            init,
+            name,
+        });
+        self.current_nid += nid_increase;
+        state_node
+    }
+
     fn new_next(
         &mut self,
         state: NodeRef,
@@ -500,8 +517,8 @@ impl ModelBuilder {
     ) {
         let cond_true = self.new_eq(self.reg_node(btype.rs1()), self.reg_node(btype.rs2()));
         let cond_false = self.new_not(cond_true.clone());
-        *out_true = Some(cond_true);
-        *out_false = Some(cond_false);
+        out_true.replace(cond_true);
+        out_false.replace(cond_false);
     }
 
     fn model_jal(&mut self, jtype: JType) {
@@ -589,14 +606,11 @@ impl ModelBuilder {
     }
 
     fn control_flow_from_ecall(&mut self, edge: &InEdge, flow: NodeRef) -> NodeRef {
-        let state_node = Rc::new(RefCell::new(Node::State {
-            nid: self.current_nid,
-            sort: NodeType::Bit,
-            init: Some(self.zero_bit.clone()),
-            name: Some(format!("kernel-mode-pc-flag-{}", edge.from_address)),
-        }));
-        self.lines.push_back(state_node.clone());
-        self.current_nid += 2;
+        let state_node = self.new_state(
+            Some(self.zero_bit.clone()),
+            Some(format!("kernel-mode-pc-flag-{}", edge.from_address)),
+            NodeType::Bit,
+        );
         let ite_node = self.new_ite(
             state_node.clone(),
             self.kernel_mode.clone(),
@@ -617,57 +631,44 @@ impl ModelBuilder {
 
     fn generate_model(&mut self, program: &Program) -> Result<()> {
         self.new_comment("common constants".to_string());
-        self.zero_bit = Rc::new(RefCell::new(Node::Const {
+        self.zero_bit = self.add_node(Node::Const {
             nid: 10,
             sort: NodeType::Bit,
             imm: 0,
-        }));
-        self.one_bit = Rc::new(RefCell::new(Node::Const {
+        });
+        self.one_bit = self.add_node(Node::Const {
             nid: 11,
             sort: NodeType::Bit,
             imm: 1,
-        }));
-        self.zero_word = Rc::new(RefCell::new(Node::Const {
+        });
+        self.zero_word = self.add_node(Node::Const {
             nid: 20,
             sort: NodeType::Word,
             imm: 0,
-        }));
-        self.lines.push_back(self.zero_bit.clone());
-        self.lines.push_back(self.one_bit.clone());
-        self.lines.push_back(self.zero_word.clone());
+        });
         self.ecall_flow = self.zero_bit.clone();
 
         self.new_comment("kernel-mode flag".to_string());
-        self.kernel_mode = Rc::new(RefCell::new(Node::State {
-            nid: 60,
-            sort: NodeType::Bit,
-            init: Some(self.zero_bit.clone()),
-            name: Some("kernel-mode".to_string()),
-        }));
-        self.kernel_not = Rc::new(RefCell::new(Node::Not {
-            nid: 62,
-            value: self.kernel_mode.clone(),
-        }));
-        self.lines.push_back(self.kernel_mode.clone());
-        self.lines.push_back(self.kernel_not.clone());
+        self.current_nid = 60;
+        self.kernel_mode = self.new_state(
+            Some(self.zero_bit.clone()),
+            Some("kernel-mode".to_string()),
+            NodeType::Bit,
+        );
+        self.kernel_not = self.new_not(self.kernel_mode.clone());
 
         self.new_comment("32 64-bit general-purpose registers".to_string());
-        let zero_register = Rc::new(RefCell::new(Node::Const {
-            nid: 200,
-            sort: NodeType::Word,
-            imm: 0,
-        }));
-        self.lines.push_back(zero_register.clone());
+        self.current_nid = 200;
+        let zero_register = self.new_const(0);
         self.register_nodes.push(zero_register);
         for r in 1..NUMBER_OF_REGISTERS {
             let reg = Register::from(r as u32);
-            let register_node = Rc::new(RefCell::new(Node::State {
-                nid: 200 + 2 * r as u64,
-                sort: NodeType::Word,
-                init: Some(self.zero_word.clone()),
-                name: Some(format!("{:?}", reg)),
-            }));
-            self.lines.push_back(register_node.clone());
+            self.current_nid = 200 + 2 * r as u64;
+            let register_node = self.new_state(
+                Some(self.zero_word.clone()),
+                Some(format!("{:?}", reg)),
+                NodeType::Word,
+            );
             self.register_nodes.push(register_node.clone());
             self.register_flow.push(register_node);
         }
@@ -683,33 +684,25 @@ impl ModelBuilder {
             } else {
                 self.zero_bit.clone()
             };
-            let flag_node = Rc::new(RefCell::new(Node::State {
-                nid: self.current_nid,
-                sort: NodeType::Bit,
-                init: Some(init),
-                name: Some(format!("pc={:#x}", self.pc)),
-            }));
-            self.pc_flags.insert(self.pc, flag_node.clone());
-            self.lines.push_back(flag_node);
+            let flag_node = self.new_state(
+                Some(init),
+                Some(format!("pc={:#x}", self.pc)),
+                NodeType::Bit,
+            );
+            self.pc_flags.insert(self.pc, flag_node);
             self.pc += INSTRUCTION_SIZE as u64;
         }
 
         self.new_comment("64-bit virtual memory".to_string());
-        let memory_dump = Rc::new(RefCell::new(Node::State {
-            nid: 20000000,
-            sort: NodeType::Memory,
-            init: None,
-            name: Some("memory-dump".to_string()),
-        }));
-        let memory_node = Rc::new(RefCell::new(Node::State {
-            nid: 20000001,
-            sort: NodeType::Memory,
-            init: Some(memory_dump),
-            name: Some("virtual-memory".to_string()),
-        }));
+        self.current_nid = 20000000;
+        let memory_dump = self.new_state(None, Some("memory-dump".to_string()), NodeType::Memory);
+        let memory_node = self.new_state(
+            Some(memory_dump),
+            Some("virtual-memory".to_string()),
+            NodeType::Memory,
+        );
         self.memory_node = memory_node.clone();
-        self.memory_flow = memory_node.clone();
-        self.lines.push_back(memory_node);
+        self.memory_flow = memory_node;
 
         self.new_comment("data flow".to_string());
         self.pc = program.code.address;
