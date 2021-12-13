@@ -12,6 +12,7 @@ use std::rc::Rc;
 // Public Interface
 //
 
+pub mod optimize;
 pub mod unroller;
 
 pub type Nid = u64;
@@ -98,7 +99,7 @@ pub enum NodeType {
 pub struct Model {
     // TODO: Switch from `LinkedList` to `Vec` here.
     pub lines: LinkedList<NodeRef>,
-    pub sequentials: LinkedList<NodeRef>,
+    pub sequentials: Vec<NodeRef>,
 }
 
 pub fn generate_model(program: &Program) -> Result<Model> {
@@ -192,7 +193,7 @@ const NUMBER_OF_REGISTERS: usize = 32;
 // TODO(test): Test builder on existing samples automatically.
 struct ModelBuilder {
     lines: LinkedList<NodeRef>,
-    sequentials: LinkedList<NodeRef>,
+    sequentials: Vec<NodeRef>,
     pc_flags: HashMap<u64, NodeRef>,
     control_in: HashMap<u64, Vec<InEdge>>,
     zero_bit: NodeRef,
@@ -220,7 +221,7 @@ impl ModelBuilder {
         let dummy_node = Rc::new(RefCell::new(Node::Comment("dummy".to_string())));
         Self {
             lines: LinkedList::new(),
-            sequentials: LinkedList::new(),
+            sequentials: Vec::new(),
             pc_flags: HashMap::new(),
             control_in: HashMap::new(),
             zero_bit: dummy_node.clone(),
@@ -383,7 +384,7 @@ impl ModelBuilder {
             next,
             name,
         });
-        self.sequentials.push_back(next_node.clone());
+        self.sequentials.push(next_node.clone());
         next_node
     }
 

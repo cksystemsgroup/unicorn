@@ -6,6 +6,7 @@ use bytesize::ByteSize;
 use cli::{expect_arg, expect_optional_arg, LogLevel};
 use env_logger::{Env, TimestampPrecision};
 use log::info;
+use modeler::optimize::fold_constants;
 use modeler::unroller::{renumber_model, unroll_model};
 use modeler::{generate_model, print_model};
 use monster::{
@@ -190,6 +191,7 @@ fn main() -> Result<()> {
                 model.lines.clear();
                 for n in 0..unroll_depth {
                     unroll_model(&mut model, n);
+                    fold_constants(&mut model);
                 }
                 renumber_model(&mut model);
             }

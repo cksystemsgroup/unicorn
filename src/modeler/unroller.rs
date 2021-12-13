@@ -44,13 +44,14 @@ pub fn renumber_model(model: &mut Model) {
     model.lines = model_renumberer.lines;
 }
 
+// TODO: Move to module.
+pub struct HashableNodeRef {
+    pub value: NodeRef, // TODO: Fix public field.
+}
+
 //
 // Private Implementation
 //
-
-struct HashableNodeRef {
-    value: NodeRef,
-}
 
 impl Eq for HashableNodeRef {}
 
