@@ -1,7 +1,9 @@
-use crate::modeler::{Model, Node, NodeRef};
+use crate::modeler::{Model, Nid, Node, NodeRef};
 use log::debug;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::collections::HashSet;
+use std::collections::LinkedList;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
@@ -30,6 +32,18 @@ pub fn unroll_model(model: &mut Model, n: usize) {
     }
 }
 
+pub fn renumber_model(model: &mut Model) {
+    debug!("Renumbering nodes in unrolled model ...");
+    let mut model_renumberer = ModelRenumberer::new();
+    let s = "Model was renumbered and will be hard to read.";
+    let comment = Rc::new(RefCell::new(Node::Comment(s.to_string())));
+    model_renumberer.lines.push_back(comment);
+    for sequential in &model.sequentials {
+        model_renumberer.visit(sequential)
+    }
+    model.lines = model_renumberer.lines;
+}
+
 //
 // Private Implementation
 //
@@ -49,6 +63,111 @@ impl Hash for HashableNodeRef {
 impl PartialEq for HashableNodeRef {
     fn eq(&self, other: &Self) -> bool {
         RefCell::as_ptr(&self.value) == RefCell::as_ptr(&other.value)
+    }
+}
+
+struct ModelRenumberer {
+    current_nid: Nid,
+    marks: HashSet<HashableNodeRef>,
+    lines: LinkedList<NodeRef>,
+}
+
+impl ModelRenumberer {
+    fn new() -> Self {
+        Self {
+            current_nid: 10000000,
+            marks: HashSet::new(),
+            lines: LinkedList::new(),
+        }
+    }
+
+    fn add_line(&mut self, node: &NodeRef) {
+        self.lines.push_back(node.clone());
+    }
+
+    fn next_nid(&mut self, nid: &mut Nid) {
+        *nid = self.current_nid;
+        self.current_nid += 1;
+    }
+
+    fn visit(&mut self, node: &NodeRef) {
+        let key = HashableNodeRef {
+            value: node.clone(),
+        };
+        if !self.marks.contains(&key) {
+            self.process(node);
+            self.add_line(node);
+            self.marks.insert(key);
+        }
+    }
+
+    #[rustfmt::skip]
+    fn process(&mut self, node: &NodeRef) {
+        match *node.borrow_mut() {
+            Node::Const { ref mut nid, .. } => {
+                self.next_nid(nid);
+            }
+            Node::Read { ref mut nid, ref memory, ref address, .. } => {
+                self.visit(memory);
+                self.visit(address);
+                self.next_nid(nid);
+            }
+            Node::Write { ref mut nid, ref memory, ref address, ref value, .. } => {
+                self.visit(memory);
+                self.visit(address);
+                self.visit(value);
+                self.next_nid(nid);
+            }
+            Node::Add { ref mut nid, ref left, ref right, .. } => {
+                self.visit(left);
+                self.visit(right);
+                self.next_nid(nid);
+            }
+            Node::Sub { ref mut nid, ref left, ref right, .. } => {
+                self.visit(left);
+                self.visit(right);
+                self.next_nid(nid);
+            }
+            Node::Rem { ref mut nid, ref left, ref right, .. } => {
+                self.visit(left);
+                self.visit(right);
+                self.next_nid(nid);
+            }
+            Node::Ite { ref mut nid, ref cond, ref left, ref right, .. } => {
+                self.visit(cond);
+                self.visit(left);
+                self.visit(right);
+                self.next_nid(nid);
+            }
+            Node::Eq { ref mut nid, ref left, ref right, .. } => {
+                self.visit(left);
+                self.visit(right);
+                self.next_nid(nid);
+            }
+            Node::And { ref mut nid, ref left, ref right, .. } => {
+                self.visit(left);
+                self.visit(right);
+                self.next_nid(nid);
+            }
+            Node::Not { ref mut nid, ref value, .. } => {
+                self.visit(value);
+                self.next_nid(nid);
+            }
+            Node::State { ref mut nid, init: None, .. } => {
+                self.next_nid(nid);
+            }
+            Node::State { ref mut nid, init: Some(ref init), .. } => {
+                self.visit(init);
+                self.next_nid(nid);
+                self.current_nid += 1;
+            }
+            Node::Next { ref mut nid, ref state, ref next, .. } => {
+                self.visit(state);
+                self.visit(next);
+                self.next_nid(nid);
+            }
+            Node::Comment(_) => panic!("cannot renumber"),
+        }
     }
 }
 

@@ -6,7 +6,7 @@ use bytesize::ByteSize;
 use cli::{expect_arg, expect_optional_arg, LogLevel};
 use env_logger::{Env, TimestampPrecision};
 use log::info;
-use modeler::unroller::unroll_model;
+use modeler::unroller::{renumber_model, unroll_model};
 use modeler::{generate_model, print_model};
 use monster::{
     disassemble::disassemble,
@@ -187,11 +187,11 @@ fn main() -> Result<()> {
 
             let mut model = generate_model(&program)?;
             if let Some(unroll_depth) = unroll {
-                // TODO: Clear `model.lines` here, they become invalid.
+                model.lines.clear();
                 for n in 0..unroll_depth {
                     unroll_model(&mut model, n);
                 }
-                // TODO: Renumber nodes and repopulate `model.lines` here.
+                renumber_model(&mut model);
             }
             print_model(&model);
 
