@@ -1,5 +1,4 @@
-use crate::modeler::unroller::HashableNodeRef; // TODO: Move to module.
-use crate::modeler::{Model, Node, NodeRef, NodeType};
+use crate::modeler::{HashableNodeRef, Model, Node, NodeRef, NodeType};
 use log::{debug, trace};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -106,26 +105,20 @@ impl ConstantFolder {
     }
 
     fn pre_record_mapping(&mut self, node: &NodeRef, replacement: &NodeRef) {
-        let key = HashableNodeRef {
-            value: node.clone(),
-        };
+        let key = HashableNodeRef::from(node.clone());
         self.record_mapping(node, replacement);
         assert!(!self.marks.contains(&key));
         self.marks.insert(key);
     }
 
     fn record_mapping(&mut self, node: &NodeRef, replacement: &NodeRef) {
-        let key = HashableNodeRef {
-            value: node.clone(),
-        };
+        let key = HashableNodeRef::from(node.clone());
         assert!(!self.mapping.contains_key(&key));
         self.mapping.insert(key, replacement.clone());
     }
 
     fn visit(&mut self, node: &NodeRef) -> Option<NodeRef> {
-        let key = HashableNodeRef {
-            value: node.clone(),
-        };
+        let key = HashableNodeRef::from(node.clone());
         if !self.marks.contains(&key) {
             let replacement = self.process(node);
             assert!(!self.mapping.contains_key(&key));

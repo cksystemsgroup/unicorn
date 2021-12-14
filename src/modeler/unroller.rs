@@ -1,10 +1,9 @@
-use crate::modeler::{Model, Nid, Node, NodeRef};
+use crate::modeler::{HashableNodeRef, Model, Nid, Node, NodeRef};
 use log::debug;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::LinkedList;
-use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 //
@@ -44,28 +43,9 @@ pub fn renumber_model(model: &mut Model) {
     model.lines = model_renumberer.lines;
 }
 
-// TODO: Move to module.
-pub struct HashableNodeRef {
-    pub value: NodeRef, // TODO: Fix public field.
-}
-
 //
 // Private Implementation
 //
-
-impl Eq for HashableNodeRef {}
-
-impl Hash for HashableNodeRef {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        RefCell::as_ptr(&self.value).hash(state);
-    }
-}
-
-impl PartialEq for HashableNodeRef {
-    fn eq(&self, other: &Self) -> bool {
-        RefCell::as_ptr(&self.value) == RefCell::as_ptr(&other.value)
-    }
-}
 
 struct ModelRenumberer {
     current_nid: Nid,
@@ -92,9 +72,7 @@ impl ModelRenumberer {
     }
 
     fn visit(&mut self, node: &NodeRef) {
-        let key = HashableNodeRef {
-            value: node.clone(),
-        };
+        let key = HashableNodeRef::from(node.clone());
         if !self.marks.contains(&key) {
             self.process(node);
             self.add_line(node);
@@ -184,9 +162,7 @@ impl ModelUnroller {
     }
 
     fn unroll(&mut self, node: &NodeRef) -> NodeRef {
-        let key = HashableNodeRef {
-            value: node.clone(),
-        };
+        let key = HashableNodeRef::from(node.clone());
         self.copies.get(&key).cloned().unwrap_or_else(|| {
             let value = self.deep_copy(node);
             assert!(!self.copies.contains_key(&key));

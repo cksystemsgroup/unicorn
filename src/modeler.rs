@@ -5,6 +5,7 @@ use riscu::{decode, types::*, Instruction, Program, Register, INSTRUCTION_SIZE};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::LinkedList;
+use std::hash::{Hash, Hasher};
 use std::mem::size_of;
 use std::rc::Rc;
 
@@ -102,6 +103,11 @@ pub struct Model {
     pub sequentials: Vec<NodeRef>,
 }
 
+#[derive(Debug)]
+pub struct HashableNodeRef {
+    value: NodeRef,
+}
+
 pub fn generate_model(program: &Program) -> Result<Model> {
     trace!("Program: {:?}", program);
     let mut builder = ModelBuilder::new();
@@ -184,6 +190,26 @@ fn get_sort(sort: &NodeType) -> Nid {
 }
 
 const NUMBER_OF_REGISTERS: usize = 32;
+
+impl Eq for HashableNodeRef {}
+
+impl From<NodeRef> for HashableNodeRef {
+    fn from(node: NodeRef) -> Self {
+        Self { value: node }
+    }
+}
+
+impl Hash for HashableNodeRef {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        RefCell::as_ptr(&self.value).hash(state);
+    }
+}
+
+impl PartialEq for HashableNodeRef {
+    fn eq(&self, other: &Self) -> bool {
+        RefCell::as_ptr(&self.value) == RefCell::as_ptr(&other.value)
+    }
+}
 
 // TODO: Add implementation of all syscalls.
 // TODO: Add initialization of memory (data, heap, stack segments).
