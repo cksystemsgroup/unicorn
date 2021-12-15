@@ -22,6 +22,7 @@ pub fn unroll_model(model: &mut Model, n: usize) {
             panic!("expecting 'Next' node here");
         }
     }
+    // TODO: Also unroll bad states here.
     for (state, new_init) in replacements {
         if let Node::State { ref mut init, .. } = *state.borrow_mut() {
             *init = Some(new_init);
@@ -39,6 +40,9 @@ pub fn renumber_model(model: &mut Model) {
     model_renumberer.lines.push_back(comment);
     for sequential in &model.sequentials {
         model_renumberer.visit(sequential)
+    }
+    for bad_state in &model.bad_states {
+        model_renumberer.visit(bad_state)
     }
     model.lines = model_renumberer.lines;
 }
@@ -145,6 +149,10 @@ impl ModelRenumberer {
                 self.visit(next);
                 self.next_nid(nid);
             }
+            Node::Bad { ref mut nid, ref cond, .. } => {
+                self.visit(cond);
+                self.next_nid(nid);
+            }
             Node::Comment(_) => panic!("cannot renumber"),
         }
     }
@@ -243,6 +251,7 @@ impl ModelUnroller {
             Node::State { init: Some(init), .. } => init.clone(),
             Node::State { init: None, .. } => panic!("uninitialized"),
             Node::Next { .. } => panic!("should be unreachable"),
+            Node::Bad { .. } => unimplemented!("unroll bad"),
             Node::Comment(_) => panic!("cannot copy"),
         }
     }

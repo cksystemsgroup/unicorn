@@ -1,5 +1,5 @@
 use crate::modeler::{HashableNodeRef, Model, Node, NodeRef, NodeType};
-use log::{debug, trace};
+use log::{debug, trace, warn};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -13,10 +13,13 @@ pub fn fold_constants(model: &mut Model) {
     let mut constant_folder = ConstantFolder::new();
     model
         .sequentials
-        .retain(|s| !check_for_constant_sequential(s, &mut constant_folder));
+        .retain(|s| !constant_folder.check_for_constant_sequential(s));
     for sequential in &model.sequentials {
         constant_folder.visit(sequential);
     }
+    model
+        .bad_states
+        .retain(|s| !constant_folder.check_for_constant_bad_state(s));
 }
 
 //
@@ -28,46 +31,6 @@ struct ConstantFolder {
     mapping: HashMap<HashableNodeRef, NodeRef>,
     const_false: NodeRef,
     const_true: NodeRef,
-}
-
-fn check_for_constant_sequential(
-    sequential: &NodeRef,
-    constant_folder: &mut ConstantFolder,
-) -> bool {
-    if let Node::Next { state, next, .. } = &*sequential.borrow() {
-        if let Node::State { init, name, .. } = &*state.borrow() {
-            if let Some(init) = init {
-                if RefCell::as_ptr(state) == RefCell::as_ptr(next) {
-                    debug!(
-                        "Sequential state '{}' [{}] became trivial, removing",
-                        name.as_ref().map_or("?", |s| &*s),
-                        get_constant(init).map_or("X".to_string(), |i| i.to_string()),
-                    );
-                    constant_folder.pre_record_mapping(state, init);
-                    return true;
-                }
-                if let Some(init_imm) = get_constant(init) {
-                    if let Some(next_imm) = get_constant(next) {
-                        if init_imm == next_imm {
-                            debug!(
-                                "Sequential state '{}' [{} -> {}] became constant, removing",
-                                name.as_ref().map_or("?", |s| &*s),
-                                init_imm,
-                                next_imm
-                            );
-                            constant_folder.pre_record_mapping(state, init);
-                            return true;
-                        }
-                    }
-                }
-            }
-        } else {
-            panic!("expecting 'State' node here");
-        }
-    } else {
-        panic!("expecting 'Next' node here");
-    }
-    false
 }
 
 fn get_constant(node: &NodeRef) -> Option<u64> {
@@ -316,7 +279,70 @@ impl ConstantFolder {
                 if let Some(n) = self.visit(next) { *next = n }
                 None
             }
+            Node::Bad { ref mut cond, .. } => {
+                if let Some(n) = self.visit(cond) { *cond = n }
+                None
+            }
             Node::Comment(_) => panic!("cannot fold"),
         }
+    }
+
+    fn check_for_constant_bad_state(&mut self, bad_state: &NodeRef) -> bool {
+        self.visit(bad_state);
+        if let Node::Bad { cond, name, .. } = &*bad_state.borrow() {
+            if is_const_false(cond) {
+                debug!(
+                    "Bad state '{}' became unreachable, removing",
+                    name.as_ref().map_or("?", |s| &*s)
+                );
+                return true;
+            }
+            if is_const_true(cond) {
+                warn!(
+                    "Bad state '{}' became statically reachable!",
+                    name.as_ref().map_or("?", |s| &*s)
+                );
+            }
+        } else {
+            panic!("expecting 'Bad' node here");
+        }
+        false
+    }
+
+    fn check_for_constant_sequential(&mut self, sequential: &NodeRef) -> bool {
+        if let Node::Next { state, next, .. } = &*sequential.borrow() {
+            if let Node::State { init, name, .. } = &*state.borrow() {
+                if let Some(init) = init {
+                    if RefCell::as_ptr(state) == RefCell::as_ptr(next) {
+                        debug!(
+                            "Sequential state '{}' [{}] became trivial, removing",
+                            name.as_ref().map_or("?", |s| &*s),
+                            get_constant(init).map_or("X".to_string(), |i| i.to_string()),
+                        );
+                        self.pre_record_mapping(state, init);
+                        return true;
+                    }
+                    if let Some(init_imm) = get_constant(init) {
+                        if let Some(next_imm) = get_constant(next) {
+                            if init_imm == next_imm {
+                                debug!(
+                                    "Sequential state '{}' [{} -> {}] became constant, removing",
+                                    name.as_ref().map_or("?", |s| &*s),
+                                    init_imm,
+                                    next_imm
+                                );
+                                self.pre_record_mapping(state, init);
+                                return true;
+                            }
+                        }
+                    }
+                }
+            } else {
+                panic!("expecting 'State' node here");
+            }
+        } else {
+            panic!("expecting 'Next' node here");
+        }
+        false
     }
 }

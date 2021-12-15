@@ -86,6 +86,11 @@ pub enum Node {
         next: NodeRef,
         name: Option<String>,
     },
+    Bad {
+        nid: Nid,
+        cond: NodeRef,
+        name: Option<String>,
+    },
     Comment(String),
 }
 
@@ -101,6 +106,7 @@ pub struct Model {
     // TODO: Switch from `LinkedList` to `Vec` here.
     pub lines: LinkedList<NodeRef>,
     pub sequentials: Vec<NodeRef>,
+    pub bad_states: Vec<NodeRef>,
 }
 
 #[derive(Debug)]
@@ -152,6 +158,8 @@ pub fn print_model(model: &Model) {
             }
             Node::Next { nid, sort, state, next, name } =>
                 println!("{} next {} {} {} {}", nid, get_sort(sort), get_nid(state), get_nid(next), name.as_ref().map_or("?", |s| &*s)),
+            Node::Bad { nid, cond, name } =>
+                println!("{} bad {} {}", nid, get_nid(cond), name.as_ref().map_or("?", |s| &*s)),
             Node::Comment(s) =>
                 println!("\n; {}\n", s),
         }
@@ -177,6 +185,7 @@ fn get_nid(node: &NodeRef) -> Nid {
         Node::Not { nid, .. } => nid,
         Node::State { nid, .. } => nid,
         Node::Next { nid, .. } => nid,
+        Node::Bad { nid, .. } => nid,
         Node::Comment(_) => panic!("has no nid"),
     }
 }
@@ -220,6 +229,7 @@ impl PartialEq for HashableNodeRef {
 struct ModelBuilder {
     lines: LinkedList<NodeRef>,
     sequentials: Vec<NodeRef>,
+    bad_states: Vec<NodeRef>,
     pc_flags: HashMap<u64, NodeRef>,
     control_in: HashMap<u64, Vec<InEdge>>,
     zero_bit: NodeRef,
@@ -231,6 +241,8 @@ struct ModelBuilder {
     register_flow: Vec<NodeRef>,
     memory_node: NodeRef,
     memory_flow: NodeRef,
+    division_flow: NodeRef,
+    remainder_flow: NodeRef,
     ecall_flow: NodeRef,
     current_nid: Nid,
     pc: u64,
@@ -248,6 +260,7 @@ impl ModelBuilder {
         Self {
             lines: LinkedList::new(),
             sequentials: Vec::new(),
+            bad_states: Vec::new(),
             pc_flags: HashMap::new(),
             control_in: HashMap::new(),
             zero_bit: dummy_node.clone(),
@@ -259,6 +272,8 @@ impl ModelBuilder {
             register_flow: Vec::with_capacity(NUMBER_OF_REGISTERS - 1),
             memory_node: dummy_node.clone(),
             memory_flow: dummy_node.clone(),
+            division_flow: dummy_node.clone(),
+            remainder_flow: dummy_node.clone(),
             ecall_flow: dummy_node,
             current_nid: 0,
             pc: 0,
@@ -269,6 +284,7 @@ impl ModelBuilder {
         Model {
             lines: self.lines,
             sequentials: self.sequentials,
+            bad_states: self.bad_states,
         }
     }
 
@@ -414,6 +430,16 @@ impl ModelBuilder {
         next_node
     }
 
+    fn new_bad(&mut self, cond: NodeRef, name: Option<String>) -> NodeRef {
+        let bad_node = self.add_node(Node::Bad {
+            nid: self.current_nid,
+            cond,
+            name,
+        });
+        self.bad_states.push(bad_node.clone());
+        bad_node
+    }
+
     fn new_comment(&mut self, s: String) {
         let node = Rc::new(RefCell::new(Node::Comment(s)));
         self.lines.push_back(node);
@@ -525,7 +551,12 @@ impl ModelBuilder {
     }
 
     fn model_remu(&mut self, rtype: RType) {
-        // TODO: Add proper division-by-zero checks.
+        self.remainder_flow = self.new_ite(
+            self.pc_flag(),
+            self.reg_node(rtype.rs2()),
+            self.remainder_flow.clone(),
+            NodeType::Word,
+        );
         let rem_node = self.new_rem(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
         let ite_node = self.new_ite(
             self.pc_flag(),
@@ -673,6 +704,12 @@ impl ModelBuilder {
             sort: NodeType::Word,
             imm: 0,
         });
+        self.division_flow = self.add_node(Node::Const {
+            nid: 21,
+            sort: NodeType::Word,
+            imm: 1,
+        });
+        self.remainder_flow = self.division_flow.clone();
         self.ecall_flow = self.zero_bit.clone();
 
         self.new_comment("kernel-mode flag".to_string());
@@ -747,6 +784,15 @@ impl ModelBuilder {
             })
             .context("Failed to decode instructions of program")?;
 
+        self.new_comment("syscalls".to_string());
+        self.current_nid = 40000000;
+        self.new_next(
+            self.kernel_mode.clone(),
+            self.kernel_mode.clone(),
+            None,
+            NodeType::Bit,
+        );
+
         self.new_comment("control flow".to_string());
         self.pc = program.code.address;
         for _n in (0..program.code.content.len()).step_by(size_of::<u32>()) {
@@ -786,6 +832,13 @@ impl ModelBuilder {
             Some("virtual-memory".to_string()),
             NodeType::Memory,
         );
+
+        self.new_comment("checking division and remainder by zero".to_string());
+        self.current_nid = 80000000;
+        let check_div = self.new_eq(self.division_flow.clone(), self.zero_word.clone());
+        self.new_bad(check_div, Some("bad-division-by-zero".to_string()));
+        let check_rem = self.new_eq(self.remainder_flow.clone(), self.zero_word.clone());
+        self.new_bad(check_rem, Some("bad-remainder-by-zero".to_string()));
 
         Ok(())
     }
