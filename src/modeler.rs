@@ -1,7 +1,8 @@
 use anyhow::{Context, Result};
 use byteorder::{ByteOrder, LittleEndian};
 use log::trace;
-use riscu::{decode, types::*, Instruction, Program, Register, INSTRUCTION_SIZE};
+use monster::engine::system::SyscallId;
+use riscu::{decode, types::*, Instruction, Program, Register};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::LinkedList;
@@ -198,6 +199,7 @@ fn get_sort(sort: &NodeType) -> Nid {
     }
 }
 
+const INSTRUCTION_SIZE: u64 = riscu::INSTRUCTION_SIZE as u64;
 const NUMBER_OF_REGISTERS: usize = 32;
 
 impl Eq for HashableNodeRef {}
@@ -286,6 +288,10 @@ impl ModelBuilder {
             sequentials: self.sequentials,
             bad_states: self.bad_states,
         }
+    }
+
+    fn pc_add(&self, imm: u64) -> u64 {
+        self.pc.wrapping_add(imm)
     }
 
     fn pc_flag(&self) -> NodeRef {
@@ -380,6 +386,11 @@ impl ModelBuilder {
         })
     }
 
+    fn new_neq(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
+        let eq_node = self.new_eq(left, right);
+        self.new_not(eq_node)
+    }
+
     fn new_and(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
         self.add_node(Node::And {
             nid: self.current_nid,
@@ -463,6 +474,9 @@ impl ModelBuilder {
     }
 
     fn model_addi(&mut self, itype: IType) {
+        if itype.rd() == Register::Zero {
+            return;
+        };
         let imm = itype.imm() as u64;
         let result_node = if imm == 0 {
             self.reg_node(itype.rs1())
@@ -583,7 +597,7 @@ impl ModelBuilder {
         if jtype.rd() == Register::Zero {
             return;
         };
-        let link_node = self.new_const(self.pc + INSTRUCTION_SIZE as u64);
+        let link_node = self.new_const(self.pc_add(INSTRUCTION_SIZE));
         let ite_node = self.new_ite(
             self.pc_flag(),
             link_node,
@@ -635,14 +649,14 @@ impl ModelBuilder {
             | Instruction::Divu(_)
             | Instruction::Remu(_)
             | Instruction::Sltu(_) => {
-                self.go_to_instruction(inst, self.pc, self.pc + INSTRUCTION_SIZE as u64, None);
+                self.go_to_instruction(inst, self.pc, self.pc_add(INSTRUCTION_SIZE), None);
             }
             Instruction::Beq(btype) => {
-                self.go_to_instruction(inst, self.pc, self.pc + btype.imm() as u64, beq_true);
-                self.go_to_instruction(inst, self.pc, self.pc + INSTRUCTION_SIZE as u64, beq_false);
+                self.go_to_instruction(inst, self.pc, self.pc_add(btype.imm() as u64), beq_true);
+                self.go_to_instruction(inst, self.pc, self.pc_add(INSTRUCTION_SIZE), beq_false);
             }
             Instruction::Jal(jtype) => {
-                self.go_to_instruction(inst, self.pc, self.pc + jtype.imm() as u64, None);
+                self.go_to_instruction(inst, self.pc, self.pc_add(jtype.imm() as u64), None);
             }
             Instruction::Jalr(itype) => {
                 assert_eq!(itype.rd(), Register::Zero);
@@ -650,7 +664,7 @@ impl ModelBuilder {
                 assert_eq!(itype.imm(), 0);
             }
             Instruction::Ecall(_) => {
-                self.go_to_instruction(inst, self.pc, self.pc + INSTRUCTION_SIZE as u64, None);
+                self.go_to_instruction(inst, self.pc, self.pc_add(INSTRUCTION_SIZE), None);
             }
         }
     }
@@ -754,7 +768,7 @@ impl ModelBuilder {
                 NodeType::Bit,
             );
             self.pc_flags.insert(self.pc, flag_node);
-            self.pc += INSTRUCTION_SIZE as u64;
+            self.pc = self.pc_add(INSTRUCTION_SIZE);
         }
 
         self.new_comment("64-bit virtual memory".to_string());
@@ -779,19 +793,31 @@ impl ModelBuilder {
                 decode(raw).map(|inst| {
                     self.current_nid = 30000000 + self.pc * 100;
                     self.translate_to_model(inst);
-                    self.pc += INSTRUCTION_SIZE as u64;
+                    self.pc = self.pc_add(INSTRUCTION_SIZE);
                 })
             })
             .context("Failed to decode instructions of program")?;
 
         self.new_comment("syscalls".to_string());
         self.current_nid = 40000000;
-        self.new_next(
+        let num_openat = self.new_const(SyscallId::Openat as u64);
+        let is_openat = self.new_eq(self.reg_node(Register::A7), num_openat);
+        let num_read = self.new_const(SyscallId::Read as u64);
+        let is_read = self.new_eq(self.reg_node(Register::A7), num_read);
+        let num_write = self.new_const(SyscallId::Write as u64);
+        let is_write = self.new_eq(self.reg_node(Register::A7), num_write);
+        let num_exit = self.new_const(SyscallId::Exit as u64);
+        let is_exit = self.new_eq(self.reg_node(Register::A7), num_exit);
+        let num_brk = self.new_const(SyscallId::Brk as u64);
+        let is_brk = self.new_eq(self.reg_node(Register::A7), num_brk);
+        let active_exit = self.new_and(self.ecall_flow.clone(), is_exit.clone());
+        let kernel_flow = self.new_ite(
             self.kernel_mode.clone(),
-            self.kernel_mode.clone(),
-            None,
+            is_exit.clone(),
+            active_exit.clone(),
             NodeType::Bit,
         );
+        self.new_next(self.kernel_mode.clone(), kernel_flow, None, NodeType::Bit);
 
         self.new_comment("control flow".to_string());
         self.pc = program.code.address;
@@ -809,7 +835,7 @@ impl ModelBuilder {
                 }
             }
             self.new_next(self.pc_flag(), control_flow, None, NodeType::Bit);
-            self.pc += INSTRUCTION_SIZE as u64;
+            self.pc = self.pc_add(INSTRUCTION_SIZE);
         }
 
         self.new_comment("updating registers".to_string());
@@ -833,8 +859,26 @@ impl ModelBuilder {
             NodeType::Memory,
         );
 
-        self.new_comment("checking division and remainder by zero".to_string());
+        self.new_comment("checking syscall id".to_string());
         self.current_nid = 80000000;
+        let not_openat = self.new_not(is_openat);
+        let not_read = self.new_not(is_read);
+        let not_write = self.new_not(is_write);
+        let not_exit = self.new_not(is_exit);
+        let not_brk = self.new_not(is_brk);
+        let check_syscall_and1 = self.new_and(not_openat, not_read);
+        let check_syscall_and2 = self.new_and(check_syscall_and1, not_write);
+        let check_syscall_and3 = self.new_and(check_syscall_and2, not_exit);
+        let check_syscall_and4 = self.new_and(check_syscall_and3, not_brk);
+        let check_syscall = self.new_and(self.ecall_flow.clone(), check_syscall_and4);
+        self.new_bad(check_syscall, Some("invalid-syscall-id".to_string()));
+
+        self.new_comment("checking exit code".to_string());
+        let check_exit_code = self.new_neq(self.reg_node(Register::A0), self.zero_word.clone());
+        let check_exit = self.new_and(active_exit, check_exit_code);
+        self.new_bad(check_exit, Some("non-zero-exit-code".to_string()));
+
+        self.new_comment("checking division and remainder by zero".to_string());
         let check_div = self.new_eq(self.division_flow.clone(), self.zero_word.clone());
         self.new_bad(check_div, Some("bad-division-by-zero".to_string()));
         let check_rem = self.new_eq(self.remainder_flow.clone(), self.zero_word.clone());
