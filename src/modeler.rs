@@ -85,7 +85,6 @@ pub enum Node {
         sort: NodeType,
         state: NodeRef,
         next: NodeRef,
-        name: Option<String>,
     },
     Bad {
         nid: Nid,
@@ -157,8 +156,8 @@ pub fn print_model(model: &Model) {
                     println!("{} init {} {} {}", nid + 1, get_sort(sort), nid, get_nid(value));
                 }
             }
-            Node::Next { nid, sort, state, next, name } =>
-                println!("{} next {} {} {} {}", nid, get_sort(sort), get_nid(state), get_nid(next), name.as_ref().map_or("?", |s| &*s)),
+            Node::Next { nid, sort, state, next } =>
+                println!("{} next {} {} {}", nid, get_sort(sort), get_nid(state), get_nid(next)),
             Node::Bad { nid, cond, name } =>
                 println!("{} bad {} {}", nid, get_nid(cond), name.as_ref().map_or("?", |s| &*s)),
             Node::Comment(s) =>
@@ -234,6 +233,9 @@ struct ModelBuilder {
     bad_states: Vec<NodeRef>,
     pc_flags: HashMap<u64, NodeRef>,
     control_in: HashMap<u64, Vec<InEdge>>,
+    call_return: HashMap<u64, u64>,
+    current_reg_a7: u64,
+    current_callee: u64,
     zero_bit: NodeRef,
     one_bit: NodeRef,
     zero_word: NodeRef,
@@ -265,6 +267,9 @@ impl ModelBuilder {
             bad_states: Vec::new(),
             pc_flags: HashMap::new(),
             control_in: HashMap::new(),
+            call_return: HashMap::new(),
+            current_reg_a7: 0,
+            current_callee: 0,
             zero_bit: dummy_node.clone(),
             one_bit: dummy_node.clone(),
             zero_word: dummy_node.clone(),
@@ -423,19 +428,12 @@ impl ModelBuilder {
         state_node
     }
 
-    fn new_next(
-        &mut self,
-        state: NodeRef,
-        next: NodeRef,
-        name: Option<String>,
-        sort: NodeType,
-    ) -> NodeRef {
+    fn new_next(&mut self, state: NodeRef, next: NodeRef, sort: NodeType) -> NodeRef {
         let next_node = self.add_node(Node::Next {
             nid: self.current_nid,
             sort,
             state,
             next,
-            name,
         });
         self.sequentials.push(next_node.clone());
         next_node
@@ -593,18 +591,19 @@ impl ModelBuilder {
         out_false.replace(cond_false);
     }
 
-    fn model_jal(&mut self, jtype: JType) {
+    fn model_jal(&mut self, jtype: JType, out_link: &mut Option<NodeRef>) {
         if jtype.rd() == Register::Zero {
             return;
         };
         let link_node = self.new_const(self.pc_add(INSTRUCTION_SIZE));
         let ite_node = self.new_ite(
             self.pc_flag(),
-            link_node,
+            link_node.clone(),
             self.reg_flow(jtype.rd()),
             NodeType::Word,
         );
         self.reg_flow_update(jtype.rd(), ite_node);
+        out_link.replace(link_node);
     }
 
     fn model_ecall(&mut self) {
@@ -620,6 +619,7 @@ impl ModelBuilder {
     fn translate_to_model(&mut self, inst: Instruction) {
         let mut beq_true = None;
         let mut beq_false = None;
+        let mut jal_link = None;
 
         match inst {
             Instruction::Addi(itype) => self.model_addi(itype),
@@ -633,14 +633,19 @@ impl ModelBuilder {
             Instruction::Remu(rtype) => self.model_remu(rtype),
             Instruction::Sltu(_rtype) => panic!("implement SLTU"),
             Instruction::Beq(btype) => self.model_beq(btype, &mut beq_true, &mut beq_false),
-            Instruction::Jal(jtype) => self.model_jal(jtype),
+            Instruction::Jal(jtype) => self.model_jal(jtype, &mut jal_link),
             Instruction::Jalr(_itype) => {} // TODO: Implement me!
             Instruction::Ecall(_) => self.model_ecall(),
         }
 
         match inst {
-            Instruction::Addi(_)
-            | Instruction::Lui(_)
+            Instruction::Addi(itype) => {
+                if itype.rd() == Register::A7 && itype.rs1() == Register::Zero {
+                    self.current_reg_a7 = itype.imm() as u64;
+                }
+                self.go_to_instruction(inst, self.pc, self.pc_add(INSTRUCTION_SIZE), None);
+            }
+            Instruction::Lui(_)
             | Instruction::Ld(_)
             | Instruction::Sd(_)
             | Instruction::Add(_)
@@ -656,14 +661,24 @@ impl ModelBuilder {
                 self.go_to_instruction(inst, self.pc, self.pc_add(INSTRUCTION_SIZE), beq_false);
             }
             Instruction::Jal(jtype) => {
+                if jtype.rd() != Register::Zero {
+                    let jalr = Instruction::Jalr(IType(0));
+                    let jalr_pc = self.pc_add(jtype.imm() as u64);
+                    self.go_to_instruction(jalr, jalr_pc, self.pc_add(INSTRUCTION_SIZE), jal_link);
+                }
                 self.go_to_instruction(inst, self.pc, self.pc_add(jtype.imm() as u64), None);
             }
             Instruction::Jalr(itype) => {
                 assert_eq!(itype.rd(), Register::Zero);
                 assert_eq!(itype.rs1(), Register::Ra);
                 assert_eq!(itype.imm(), 0);
+                self.call_return.insert(self.current_callee, self.pc);
+                self.current_callee = self.pc_add(INSTRUCTION_SIZE);
             }
             Instruction::Ecall(_) => {
+                if self.current_reg_a7 == SyscallId::Exit as u64 {
+                    self.current_callee = self.pc_add(INSTRUCTION_SIZE);
+                }
                 self.go_to_instruction(inst, self.pc, self.pc_add(INSTRUCTION_SIZE), None);
             }
         }
@@ -673,6 +688,19 @@ impl ModelBuilder {
         let and_node = self.new_and(
             self.pc_flags[&edge.from_address].clone(),
             edge.condition.as_ref().expect("must exist").clone(),
+        );
+        self.control_flow_from_any(and_node, flow)
+    }
+
+    fn control_flow_from_jalr(&mut self, edge: &InEdge, flow: NodeRef) -> NodeRef {
+        // TODO: Mask out LSB of $ra register here.
+        let eq_node = self.new_eq(
+            self.reg_node(Register::Ra),
+            edge.condition.as_ref().expect("must exist").clone(),
+        );
+        let and_node = self.new_and(
+            self.pc_flags[&self.call_return[&edge.from_address]].clone(),
+            eq_node,
         );
         self.control_flow_from_any(and_node, flow)
     }
@@ -689,7 +717,7 @@ impl ModelBuilder {
             self.pc_flags[&edge.from_address].clone(),
             NodeType::Bit,
         );
-        self.new_next(state_node.clone(), ite_node, None, NodeType::Bit);
+        self.new_next(state_node.clone(), ite_node, NodeType::Bit);
         let and_node = self.new_and(state_node, self.kernel_not.clone());
         self.control_flow_from_any(and_node, flow)
     }
@@ -817,7 +845,7 @@ impl ModelBuilder {
             active_exit.clone(),
             NodeType::Bit,
         );
-        self.new_next(self.kernel_mode.clone(), kernel_flow, None, NodeType::Bit);
+        self.new_next(self.kernel_mode.clone(), kernel_flow, NodeType::Bit);
 
         self.new_comment("control flow".to_string());
         self.pc = program.code.address;
@@ -827,6 +855,7 @@ impl ModelBuilder {
             for in_edge in self.control_in.remove(&self.pc).unwrap_or_default() {
                 control_flow = match in_edge.from_instruction {
                     Instruction::Beq(_) => self.control_flow_from_beq(&in_edge, control_flow),
+                    Instruction::Jalr(_) => self.control_flow_from_jalr(&in_edge, control_flow),
                     Instruction::Ecall(_) => self.control_flow_from_ecall(&in_edge, control_flow),
                     _ => self.control_flow_from_any(
                         self.pc_flags[&in_edge.from_address].clone(),
@@ -834,7 +863,7 @@ impl ModelBuilder {
                     ),
                 }
             }
-            self.new_next(self.pc_flag(), control_flow, None, NodeType::Bit);
+            self.new_next(self.pc_flag(), control_flow, NodeType::Bit);
             self.pc = self.pc_add(INSTRUCTION_SIZE);
         }
 
@@ -842,12 +871,7 @@ impl ModelBuilder {
         for r in 1..NUMBER_OF_REGISTERS {
             self.current_nid = 60000000 + (r as u64);
             let reg = Register::from(r as u32);
-            self.new_next(
-                self.reg_node(reg),
-                self.reg_flow(reg),
-                Some(format!("{:?}", reg)),
-                NodeType::Word,
-            );
+            self.new_next(self.reg_node(reg), self.reg_flow(reg), NodeType::Word);
         }
 
         self.new_comment("updating 64-bit virtual memory".to_string());
@@ -855,7 +879,6 @@ impl ModelBuilder {
         self.new_next(
             self.memory_node.clone(),
             self.memory_flow.clone(),
-            Some("virtual-memory".to_string()),
             NodeType::Memory,
         );
 
@@ -880,9 +903,9 @@ impl ModelBuilder {
 
         self.new_comment("checking division and remainder by zero".to_string());
         let check_div = self.new_eq(self.division_flow.clone(), self.zero_word.clone());
-        self.new_bad(check_div, Some("bad-division-by-zero".to_string()));
+        self.new_bad(check_div, Some("division-by-zero".to_string()));
         let check_rem = self.new_eq(self.remainder_flow.clone(), self.zero_word.clone());
-        self.new_bad(check_rem, Some("bad-remainder-by-zero".to_string()));
+        self.new_bad(check_rem, Some("remainder-by-zero".to_string()));
 
         Ok(())
     }
