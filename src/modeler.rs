@@ -106,7 +106,8 @@ pub struct Model {
     // TODO: Switch from `LinkedList` to `Vec` here.
     pub lines: LinkedList<NodeRef>,
     pub sequentials: Vec<NodeRef>,
-    pub bad_states: Vec<NodeRef>,
+    pub bad_states_initial: Vec<NodeRef>,
+    pub bad_states_sequential: Vec<NodeRef>,
 }
 
 #[derive(Debug)]
@@ -291,7 +292,8 @@ impl ModelBuilder {
         Model {
             lines: self.lines,
             sequentials: self.sequentials,
-            bad_states: self.bad_states,
+            bad_states_initial: Vec::new(),
+            bad_states_sequential: self.bad_states,
         }
     }
 

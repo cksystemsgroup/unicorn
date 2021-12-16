@@ -18,7 +18,10 @@ pub fn fold_constants(model: &mut Model) {
         constant_folder.visit(sequential);
     }
     model
-        .bad_states
+        .bad_states_initial
+        .retain(|s| !constant_folder.check_for_constant_bad_state(s));
+    model
+        .bad_states_sequential
         .retain(|s| !constant_folder.check_for_constant_bad_state(s));
 }
 
@@ -123,6 +126,12 @@ impl ConstantFolder {
         None
     }
 
+    // SMT-LIB does not specify the result of remainder by zero, for BTOR we
+    // take the largest unsigned integer that can be represented.
+    fn btor_u64_rem(left: u64, right: u64) -> u64 {
+        u64::checked_rem(left, right).unwrap_or(u64::MAX)
+    }
+
     fn fold_add(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
         self.fold_arithmetic_binary(left, right, u64::wrapping_add, "ADD")
     }
@@ -132,7 +141,7 @@ impl ConstantFolder {
     }
 
     fn fold_rem(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
-        self.fold_arithmetic_binary(left, right, u64::wrapping_rem, "REM")
+        self.fold_arithmetic_binary(left, right, Self::btor_u64_rem, "REM")
     }
 
     fn fold_eq(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
