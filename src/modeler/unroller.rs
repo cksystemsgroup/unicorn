@@ -13,7 +13,7 @@ use std::rc::Rc;
 pub fn unroll_model(model: &mut Model, n: usize) {
     debug!("Unrolling iteration #{} from sequential model ...", n);
     let mut replacements = Vec::<(NodeRef, NodeRef)>::new();
-    let mut model_unroller = ModelUnroller::new();
+    let mut model_unroller = ModelUnroller::new(n);
     for sequential in &model.sequentials {
         if let Node::Next { state, next, .. } = &*sequential.borrow() {
             let unrolled = model_unroller.unroll(next);
@@ -23,17 +23,8 @@ pub fn unroll_model(model: &mut Model, n: usize) {
         }
     }
     for bad_state in &model.bad_states_sequential {
-        if let Node::Bad { cond, name, .. } = &*bad_state.borrow() {
-            let new_name = format!("{}@{}", name.as_ref().map_or("?", |s| &*s), n);
-            let bad_copy = Rc::new(RefCell::new(Node::Bad {
-                nid: 0,
-                cond: model_unroller.unroll(cond),
-                name: Some(new_name),
-            }));
-            model.bad_states_initial.push(bad_copy);
-        } else {
-            panic!("expecting 'Bad' node here");
-        }
+        let bad_copy = model_unroller.unroll(bad_state);
+        model.bad_states_initial.push(bad_copy);
     }
     for (state, new_init) in replacements {
         if let Node::State { ref mut init, .. } = *state.borrow_mut() {
@@ -131,6 +122,10 @@ impl ModelRenumberer {
                 self.visit(right);
                 self.next_nid(nid);
             }
+            Node::Ext { ref mut nid, ref value, .. } => {
+                self.visit(value);
+                self.next_nid(nid);
+            }
             Node::Ite { ref mut nid, ref cond, ref left, ref right, .. } => {
                 self.visit(cond);
                 self.visit(left);
@@ -164,6 +159,9 @@ impl ModelRenumberer {
                 self.visit(next);
                 self.next_nid(nid);
             }
+            Node::Input { ref mut nid, .. } => {
+                self.next_nid(nid);
+            }
             Node::Bad { ref mut nid, ref cond, .. } => {
                 self.visit(cond);
                 self.next_nid(nid);
@@ -174,12 +172,14 @@ impl ModelRenumberer {
 }
 
 struct ModelUnroller {
+    current_iteration: usize,
     copies: HashMap<HashableNodeRef, NodeRef>,
 }
 
 impl ModelUnroller {
-    fn new() -> Self {
+    fn new(n: usize) -> Self {
         Self {
+            current_iteration: n,
             copies: HashMap::new(),
         }
     }
@@ -234,6 +234,13 @@ impl ModelUnroller {
                     right: self.unroll(right),
                 }))
             }
+            Node::Ext { from, value, .. } => {
+                Rc::new(RefCell::new(Node::Ext {
+                    nid: 0,
+                    from: from.clone(),
+                    value: self.unroll(value),
+                }))
+            }
             Node::Ite { sort, cond, left, right, .. } => {
                 Rc::new(RefCell::new(Node::Ite {
                     nid: 0,
@@ -263,10 +270,27 @@ impl ModelUnroller {
                     value: self.unroll(value),
                 }))
             }
+            Node::Input { sort, name, .. } => {
+                let new_name = format!("{}[n={}]", name, self.current_iteration);
+                Rc::new(RefCell::new(Node::State {
+                    nid: 0,
+                    sort: sort.clone(),
+                    init: None,
+                    name: Some(new_name),
+                }))
+            }
+            Node::Bad { cond, name, .. } => {
+                let name = name.as_ref().map_or("?", |s| &*s);
+                let new_name = format!("{}[n={}]", name, self.current_iteration);
+                Rc::new(RefCell::new(Node::Bad {
+                    nid: 0,
+                    cond: self.unroll(cond),
+                    name: Some(new_name),
+                }))
+            }
             Node::State { init: Some(init), .. } => init.clone(),
             Node::State { init: None, .. } => panic!("uninitialized"),
             Node::Next { .. } => panic!("should be unreachable"),
-            Node::Bad { .. } => panic!("should be unreachable"),
             Node::Comment(_) => panic!("cannot copy"),
         }
     }

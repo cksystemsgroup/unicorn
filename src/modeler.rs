@@ -53,6 +53,11 @@ pub enum Node {
         left: NodeRef,
         right: NodeRef,
     },
+    Ext {
+        nid: Nid,
+        from: NodeType,
+        value: NodeRef,
+    },
     Ite {
         nid: Nid,
         sort: NodeType,
@@ -86,6 +91,11 @@ pub enum Node {
         state: NodeRef,
         next: NodeRef,
     },
+    Input {
+        nid: Nid,
+        sort: NodeType,
+        name: String,
+    },
     Bad {
         nid: Nid,
         cond: NodeRef,
@@ -94,11 +104,18 @@ pub enum Node {
     Comment(String),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum NodeType {
     Bit,
     Word,
     Memory,
+    Input1Byte,
+    Input2Byte,
+    Input3Byte,
+    Input4Byte,
+    Input5Byte,
+    Input6Byte,
+    Input7Byte,
 }
 
 #[derive(Debug)]
@@ -129,6 +146,13 @@ pub fn print_model(model: &Model) {
     println!("1 sort bitvec 1 ; Boolean");
     println!("2 sort bitvec 64 ; 64-bit machine word");
     println!("3 sort array 2 2 ; 64-bit physical memory");
+    println!("11 sort bitvec 8 ; 1 byte");
+    println!("12 sort bitvec 16 ; 2 bytes");
+    println!("13 sort bitvec 24 ; 3 bytes");
+    println!("14 sort bitvec 32 ; 4 bytes");
+    println!("15 sort bitvec 40 ; 5 bytes");
+    println!("16 sort bitvec 48 ; 6 bytes");
+    println!("17 sort bitvec 56 ; 7 bytes");
     for node in model.lines.iter() {
         match &*node.borrow() {
             Node::Const { nid, sort, imm } =>
@@ -143,6 +167,8 @@ pub fn print_model(model: &Model) {
                 println!("{} sub 2 {} {}", nid, get_nid(left), get_nid(right)),
             Node::Rem { nid, left, right } =>
                 println!("{} urem 2 {} {}", nid, get_nid(left), get_nid(right)),
+            Node::Ext { nid, from, value } =>
+                println!("{} uext 2 {} {}", nid, get_nid(value), 64 - get_bitsize(from)),
             Node::Ite { nid, sort, cond, left, right } =>
                 println!("{} ite {} {} {} {}", nid, get_sort(sort), get_nid(cond), get_nid(left), get_nid(right)),
             Node::Eq { nid, left, right } =>
@@ -159,6 +185,8 @@ pub fn print_model(model: &Model) {
             }
             Node::Next { nid, sort, state, next } =>
                 println!("{} next {} {} {}", nid, get_sort(sort), get_nid(state), get_nid(next)),
+            Node::Input { nid, sort, name } =>
+                println!("{} input {} {}", nid, get_sort(sort), name),
             Node::Bad { nid, cond, name } =>
                 println!("{} bad {} {}", nid, get_nid(cond), name.as_ref().map_or("?", |s| &*s)),
             Node::Comment(s) =>
@@ -180,12 +208,14 @@ fn get_nid(node: &NodeRef) -> Nid {
         Node::Add { nid, .. } => nid,
         Node::Sub { nid, .. } => nid,
         Node::Rem { nid, .. } => nid,
+        Node::Ext { nid, .. } => nid,
         Node::Ite { nid, .. } => nid,
         Node::Eq { nid, .. } => nid,
         Node::And { nid, .. } => nid,
         Node::Not { nid, .. } => nid,
         Node::State { nid, .. } => nid,
         Node::Next { nid, .. } => nid,
+        Node::Input { nid, .. } => nid,
         Node::Bad { nid, .. } => nid,
         Node::Comment(_) => panic!("has no nid"),
     }
@@ -196,6 +226,26 @@ fn get_sort(sort: &NodeType) -> Nid {
         NodeType::Bit => 1,
         NodeType::Word => 2,
         NodeType::Memory => 3,
+        NodeType::Input1Byte => 11,
+        NodeType::Input2Byte => 12,
+        NodeType::Input3Byte => 13,
+        NodeType::Input4Byte => 14,
+        NodeType::Input5Byte => 15,
+        NodeType::Input6Byte => 16,
+        NodeType::Input7Byte => 17,
+    }
+}
+
+fn get_bitsize(sort: &NodeType) -> usize {
+    match *sort {
+        NodeType::Input1Byte => 8,
+        NodeType::Input2Byte => 16,
+        NodeType::Input3Byte => 24,
+        NodeType::Input4Byte => 32,
+        NodeType::Input5Byte => 40,
+        NodeType::Input6Byte => 48,
+        NodeType::Input7Byte => 56,
+        _ => panic!("unknown bitsize"),
     }
 }
 
@@ -439,6 +489,22 @@ impl ModelBuilder {
         });
         self.sequentials.push(next_node.clone());
         next_node
+    }
+
+    fn new_input(&mut self, name: String, sort: NodeType) -> NodeRef {
+        let input_node = self.add_node(Node::Input {
+            nid: self.current_nid,
+            sort: sort.clone(),
+            name,
+        });
+        if sort == NodeType::Word {
+            return input_node;
+        }
+        self.add_node(Node::Ext {
+            nid: self.current_nid,
+            from: sort,
+            value: input_node,
+        })
     }
 
     fn new_bad(&mut self, cond: NodeRef, name: Option<String>) -> NodeRef {
@@ -734,22 +800,22 @@ impl ModelBuilder {
     fn generate_model(&mut self, program: &Program) -> Result<()> {
         self.new_comment("common constants".to_string());
         self.zero_bit = self.add_node(Node::Const {
-            nid: 10,
+            nid: 20,
             sort: NodeType::Bit,
             imm: 0,
         });
         self.one_bit = self.add_node(Node::Const {
-            nid: 11,
+            nid: 21,
             sort: NodeType::Bit,
             imm: 1,
         });
         self.zero_word = self.add_node(Node::Const {
-            nid: 20,
+            nid: 30,
             sort: NodeType::Word,
             imm: 0,
         });
         self.division_flow = self.add_node(Node::Const {
-            nid: 21,
+            nid: 31,
             sort: NodeType::Word,
             imm: 1,
         });
@@ -830,6 +896,7 @@ impl ModelBuilder {
 
         self.new_comment("syscalls".to_string());
         self.current_nid = 40000000;
+        let mut kernel_flow = self.kernel_mode.clone();
         let num_openat = self.new_const(SyscallId::Openat as u64);
         let is_openat = self.new_eq(self.reg_node(Register::A7), num_openat);
         let num_read = self.new_const(SyscallId::Read as u64);
@@ -840,13 +907,59 @@ impl ModelBuilder {
         let is_exit = self.new_eq(self.reg_node(Register::A7), num_exit);
         let num_brk = self.new_const(SyscallId::Brk as u64);
         let is_brk = self.new_eq(self.reg_node(Register::A7), num_brk);
+
+        self.current_nid = 41000000;
         let active_exit = self.new_and(self.ecall_flow.clone(), is_exit.clone());
-        let kernel_flow = self.new_ite(
-            self.kernel_mode.clone(),
+        kernel_flow = self.new_ite(
+            kernel_flow,
             is_exit.clone(),
             active_exit.clone(),
             NodeType::Bit,
         );
+
+        self.current_nid = 42000000;
+        let active_read = self.new_and(self.ecall_flow.clone(), is_read.clone());
+        // TODO: Add support for reading more than 8 bytes of input.
+        let read_bytes = self.reg_node(Register::A2);
+        let read_input1 = self.new_input("1-byte-input".to_string(), NodeType::Input1Byte);
+        let read_input2 = self.new_input("2-byte-input".to_string(), NodeType::Input2Byte);
+        let read_const_2 = self.new_const(2);
+        let read_bytes_eq_2 = self.new_eq(read_bytes.clone(), read_const_2);
+        let read_ite_2 = self.new_ite(read_bytes_eq_2, read_input2, read_input1, NodeType::Word);
+        let read_input3 = self.new_input("3-byte-input".to_string(), NodeType::Input3Byte);
+        let read_const_3 = self.new_const(3);
+        let read_bytes_eq_3 = self.new_eq(read_bytes.clone(), read_const_3);
+        let read_ite_3 = self.new_ite(read_bytes_eq_3, read_input3, read_ite_2, NodeType::Word);
+        let read_input4 = self.new_input("4-byte-input".to_string(), NodeType::Input4Byte);
+        let read_const_4 = self.new_const(4);
+        let read_bytes_eq_4 = self.new_eq(read_bytes.clone(), read_const_4);
+        let read_ite_4 = self.new_ite(read_bytes_eq_4, read_input4, read_ite_3, NodeType::Word);
+        let read_input5 = self.new_input("5-byte-input".to_string(), NodeType::Input5Byte);
+        let read_const_5 = self.new_const(5);
+        let read_bytes_eq_5 = self.new_eq(read_bytes.clone(), read_const_5);
+        let read_ite_5 = self.new_ite(read_bytes_eq_5, read_input5, read_ite_4, NodeType::Word);
+        let read_input6 = self.new_input("6-byte-input".to_string(), NodeType::Input6Byte);
+        let read_const_6 = self.new_const(6);
+        let read_bytes_eq_6 = self.new_eq(read_bytes.clone(), read_const_6);
+        let read_ite_6 = self.new_ite(read_bytes_eq_6, read_input6, read_ite_5, NodeType::Word);
+        let read_input7 = self.new_input("7-byte-input".to_string(), NodeType::Input7Byte);
+        let read_const_7 = self.new_const(7);
+        let read_bytes_eq_7 = self.new_eq(read_bytes.clone(), read_const_7);
+        let read_ite_7 = self.new_ite(read_bytes_eq_7, read_input7, read_ite_6, NodeType::Word);
+        let read_input8 = self.new_input("8-byte-input".to_string(), NodeType::Word);
+        let read_const_8 = self.new_const(8);
+        let read_bytes_eq_8 = self.new_eq(read_bytes, read_const_8);
+        let read_ite_8 = self.new_ite(read_bytes_eq_8, read_input8, read_ite_7, NodeType::Word);
+        let read_store = self.new_write(self.reg_node(Register::A1), read_ite_8);
+        let read_ite = self.new_ite(
+            active_read,
+            read_store,
+            self.memory_flow.clone(),
+            NodeType::Memory,
+        );
+        self.memory_flow = read_ite;
+
+        self.current_nid = 46000000;
         self.new_next(self.kernel_mode.clone(), kernel_flow, NodeType::Bit);
 
         self.new_comment("control flow".to_string());

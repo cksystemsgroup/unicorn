@@ -247,6 +247,11 @@ impl ConstantFolder {
                 if let Some(n) = self.visit(right) { *right = n }
                 self.fold_rem(left, right)
             }
+            Node::Ext { ref mut value, .. } => {
+                if let Some(n) = self.visit(value) { *value = n }
+                // TODO: Implement folding of `Node::Ext` here.
+                None
+            }
             Node::Ite { ref mut cond, ref mut left, ref mut right, .. } => {
                 if let Some(n) = self.visit(cond) { *cond = n }
                 if is_const_true(cond) {
@@ -288,6 +293,7 @@ impl ConstantFolder {
                 if let Some(n) = self.visit(next) { *next = n }
                 None
             }
+            Node::Input { .. } => None,
             Node::Bad { ref mut cond, .. } => {
                 if let Some(n) = self.visit(cond) { *cond = n }
                 None
