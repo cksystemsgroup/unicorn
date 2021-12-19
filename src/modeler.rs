@@ -53,6 +53,11 @@ pub enum Node {
         left: NodeRef,
         right: NodeRef,
     },
+    Ult {
+        nid: Nid,
+        left: NodeRef,
+        right: NodeRef,
+    },
     Ext {
         nid: Nid,
         from: NodeType,
@@ -167,6 +172,8 @@ pub fn print_model(model: &Model) {
                 println!("{} sub 2 {} {}", nid, get_nid(left), get_nid(right)),
             Node::Rem { nid, left, right } =>
                 println!("{} urem 2 {} {}", nid, get_nid(left), get_nid(right)),
+            Node::Ult { nid, left, right } =>
+                println!("{} ult 1 {} {}", nid, get_nid(left), get_nid(right)),
             Node::Ext { nid, from, value } =>
                 println!("{} uext 2 {} {}", nid, get_nid(value), 64 - get_bitsize(from)),
             Node::Ite { nid, sort, cond, left, right } =>
@@ -208,6 +215,7 @@ fn get_nid(node: &NodeRef) -> Nid {
         Node::Add { nid, .. } => nid,
         Node::Sub { nid, .. } => nid,
         Node::Rem { nid, .. } => nid,
+        Node::Ult { nid, .. } => nid,
         Node::Ext { nid, .. } => nid,
         Node::Ite { nid, .. } => nid,
         Node::Eq { nid, .. } => nid,
@@ -238,6 +246,7 @@ fn get_sort(sort: &NodeType) -> Nid {
 
 fn get_bitsize(sort: &NodeType) -> usize {
     match *sort {
+        NodeType::Bit => 1,
         NodeType::Input1Byte => 8,
         NodeType::Input2Byte => 16,
         NodeType::Input3Byte => 24,
@@ -419,6 +428,14 @@ impl ModelBuilder {
 
     fn new_rem(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
         self.add_node(Node::Rem {
+            nid: self.current_nid,
+            left,
+            right,
+        })
+    }
+
+    fn new_ult(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
+        self.add_node(Node::Ult {
             nid: self.current_nid,
             left,
             right,
@@ -647,6 +664,22 @@ impl ModelBuilder {
         self.reg_flow_update(rtype.rd(), ite_node);
     }
 
+    fn model_sltu(&mut self, rtype: RType) {
+        let ult_node = self.new_ult(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
+        let ext_node = self.add_node(Node::Ext {
+            nid: self.current_nid,
+            from: NodeType::Bit,
+            value: ult_node,
+        });
+        let ite_node = self.new_ite(
+            self.pc_flag(),
+            ext_node,
+            self.reg_flow(rtype.rd()),
+            NodeType::Word,
+        );
+        self.reg_flow_update(rtype.rd(), ite_node);
+    }
+
     fn model_beq(
         &mut self,
         btype: BType,
@@ -699,7 +732,7 @@ impl ModelBuilder {
             Instruction::Mul(_rtype) => panic!("implement MUL"),
             Instruction::Divu(_rtype) => panic!("implement DIV"),
             Instruction::Remu(rtype) => self.model_remu(rtype),
-            Instruction::Sltu(_rtype) => panic!("implement SLTU"),
+            Instruction::Sltu(rtype) => self.model_sltu(rtype),
             Instruction::Beq(btype) => self.model_beq(btype, &mut beq_true, &mut beq_false),
             Instruction::Jal(jtype) => self.model_jal(jtype, &mut jal_link),
             Instruction::Jalr(_itype) => {} // TODO: Implement me!

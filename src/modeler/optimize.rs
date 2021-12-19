@@ -144,6 +144,29 @@ impl ConstantFolder {
         self.fold_arithmetic_binary(left, right, Self::btor_u64_rem, "REM")
     }
 
+    fn fold_ult(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
+        if let Some(left_imm) = get_constant(left) {
+            if let Some(right_imm) = get_constant(right) {
+                let result = left_imm < right_imm;
+                trace!(
+                    "Folding ULT({:?}[{}],{:?}[{}]) -> {}",
+                    RefCell::as_ptr(left),
+                    left_imm,
+                    RefCell::as_ptr(right),
+                    right_imm,
+                    if result { "T" } else { "F" }
+                );
+                let result_node = if result {
+                    &self.const_true
+                } else {
+                    &self.const_false
+                };
+                return Some(result_node.clone());
+            }
+        }
+        None
+    }
+
     fn fold_eq(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
         if RefCell::as_ptr(left) == RefCell::as_ptr(right) {
             trace!(
@@ -207,6 +230,13 @@ impl ConstantFolder {
         None
     }
 
+    fn fold_ext(&self, value: &NodeRef) -> Option<NodeRef> {
+        if let Some(value_imm) = get_constant(value) {
+            return Some(new_const(value_imm));
+        }
+        None
+    }
+
     #[rustfmt::skip]
     fn process(&mut self, node: &NodeRef) -> Option<NodeRef> {
         match *node.borrow_mut() {
@@ -247,10 +277,14 @@ impl ConstantFolder {
                 if let Some(n) = self.visit(right) { *right = n }
                 self.fold_rem(left, right)
             }
+            Node::Ult { ref mut left, ref mut right, .. } => {
+                if let Some(n) = self.visit(left) { *left = n }
+                if let Some(n) = self.visit(right) { *right = n }
+                self.fold_ult(left, right)
+            }
             Node::Ext { ref mut value, .. } => {
                 if let Some(n) = self.visit(value) { *value = n }
-                // TODO: Implement folding of `Node::Ext` here.
-                None
+                self.fold_ext(value)
             }
             Node::Ite { ref mut cond, ref mut left, ref mut right, .. } => {
                 if let Some(n) = self.visit(cond) { *cond = n }
