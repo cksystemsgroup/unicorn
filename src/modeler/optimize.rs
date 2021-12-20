@@ -237,6 +237,41 @@ impl ConstantFolder {
         None
     }
 
+    // TODO: The following implementation of store-to-load forwarding is not
+    // linear, it is in O(n*m) where 'n' and 'm' are the number of load and
+    // store instructions respectively. It can be improved with a time-stamped
+    // hash-map representing the memory.
+    fn find_in_memory(memory: &NodeRef, address_imm: u64) -> Option<NodeRef> {
+        if let Node::Write {
+            memory,
+            address,
+            value,
+            ..
+        } = &*memory.borrow()
+        {
+            if Some(address_imm) == get_constant(address) {
+                return Some(value.clone());
+            }
+            return Self::find_in_memory(memory, address_imm);
+        }
+        None
+    }
+
+    fn fold_read(&self, memory: &NodeRef, address: &NodeRef) -> Option<NodeRef> {
+        if let Some(address_imm) = get_constant(address) {
+            if let Some(value) = Self::find_in_memory(memory, address_imm) {
+                trace!(
+                    "Folding READ({:?}[{}]) -> {:?}",
+                    RefCell::as_ptr(address),
+                    address_imm,
+                    RefCell::as_ptr(&value),
+                );
+                return Some(value);
+            }
+        }
+        None
+    }
+
     #[rustfmt::skip]
     fn process(&mut self, node: &NodeRef) -> Option<NodeRef> {
         match *node.borrow_mut() {
@@ -252,14 +287,12 @@ impl ConstantFolder {
             Node::Read { ref mut memory, ref mut address, .. } => {
                 if let Some(n) = self.visit(memory) { *memory = n }
                 if let Some(n) = self.visit(address) { *address = n }
-                // TODO: Implement store-to-load forwarding.
-                None
+                self.fold_read(memory, address)
             }
             Node::Write { ref mut memory, ref mut address, ref mut value, .. } => {
                 if let Some(n) = self.visit(memory) { *memory = n }
                 if let Some(n) = self.visit(address) { *address = n }
                 if let Some(n) = self.visit(value) { *value = n }
-                // TODO: Implement store-to-load forwarding.
                 None
             }
             Node::Add { ref mut left, ref mut right, .. } => {
