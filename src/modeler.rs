@@ -442,6 +442,17 @@ impl ModelBuilder {
         })
     }
 
+    // We represent `ugt(a, b)` as `ult(b, a)` instead.
+    fn new_ugt(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
+        self.new_ult(right, left)
+    }
+
+    // We represent `ugte(a, b)` as `not(ult(a, b))` instead.
+    fn new_ugte(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
+        let ult_node = self.new_ult(left, right);
+        self.new_not(ult_node)
+    }
+
     fn new_ite(&mut self, cond: NodeRef, left: NodeRef, right: NodeRef, sort: NodeType) -> NodeRef {
         self.add_node(Node::Ite {
             nid: self.current_nid,
@@ -460,6 +471,7 @@ impl ModelBuilder {
         })
     }
 
+    // We represent `neq(a, b)` as `not(eq(a, b))` instead.
     fn new_neq(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
         let eq_node = self.new_eq(left, right);
         self.new_not(eq_node)
@@ -952,8 +964,22 @@ impl ModelBuilder {
 
         self.current_nid = 42000000;
         let active_read = self.new_and(self.ecall_flow.clone(), is_read.clone());
-        // TODO: Add support for reading more than 8 bytes of input.
-        let read_bytes = self.reg_node(Register::A2);
+        kernel_flow = self.new_ite(
+            active_read.clone(),
+            self.one_bit.clone(),
+            kernel_flow,
+            NodeType::Bit,
+        );
+        let read_a0_zero = self.new_ite(
+            active_read,
+            self.zero_word.clone(),
+            self.reg_flow(Register::A0),
+            NodeType::Word,
+        );
+        let read_remaining = self.new_sub(self.reg_node(Register::A2), self.reg_node(Register::A0));
+        let read_const_8 = self.new_const(8);
+        let read_full_word = self.new_ugte(read_remaining.clone(), read_const_8.clone());
+        let read_bytes = self.new_ite(read_full_word, read_const_8, read_remaining, NodeType::Word);
         let read_input1 = self.new_input("1-byte-input".to_string(), NodeType::Input1Byte);
         let read_input2 = self.new_input("2-byte-input".to_string(), NodeType::Input2Byte);
         let read_const_2 = self.new_const(2);
@@ -981,16 +1007,36 @@ impl ModelBuilder {
         let read_ite_7 = self.new_ite(read_bytes_eq_7, read_input7, read_ite_6, NodeType::Word);
         let read_input8 = self.new_input("8-byte-input".to_string(), NodeType::Word);
         let read_const_8 = self.new_const(8);
-        let read_bytes_eq_8 = self.new_eq(read_bytes, read_const_8);
+        let read_bytes_eq_8 = self.new_eq(read_bytes.clone(), read_const_8);
         let read_ite_8 = self.new_ite(read_bytes_eq_8, read_input8, read_ite_7, NodeType::Word);
-        let read_store = self.new_write(self.reg_node(Register::A1), read_ite_8);
-        let read_ite = self.new_ite(
-            active_read,
+        let read_address = self.new_add(self.reg_node(Register::A1), self.reg_node(Register::A0));
+        let read_store = self.new_write(read_address, read_ite_8);
+        let read_more = self.new_ult(self.reg_node(Register::A0), self.reg_node(Register::A2));
+        let read_more = self.new_and(is_read.clone(), read_more);
+        let read_not_done = self.new_and(self.kernel_mode.clone(), read_more);
+        let read_not_zero = self.new_ugt(read_bytes.clone(), self.zero_word.clone());
+        let read_do_store = self.new_and(read_not_done.clone(), read_not_zero);
+        let read_ite_mem = self.new_ite(
+            read_do_store,
             read_store,
             self.memory_flow.clone(),
             NodeType::Memory,
         );
-        self.memory_flow = read_ite;
+        self.memory_flow = read_ite_mem;
+        let read_new_a0 = self.new_add(self.reg_node(Register::A0), read_bytes);
+        let read_ite_a0 = self.new_ite(
+            read_not_done.clone(),
+            read_new_a0,
+            read_a0_zero,
+            NodeType::Word,
+        );
+        self.reg_flow_update(Register::A0, read_ite_a0);
+        kernel_flow = self.new_ite(
+            read_not_done,
+            self.one_bit.clone(),
+            kernel_flow,
+            NodeType::Bit,
+        );
 
         self.current_nid = 46000000;
         self.new_next(self.kernel_mode.clone(), kernel_flow, NodeType::Bit);
