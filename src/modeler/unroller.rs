@@ -292,7 +292,7 @@ impl ModelUnroller {
                 }))
             }
             Node::Bad { cond, name, .. } => {
-                let name = name.as_ref().map_or("?", |s| &*s);
+                let name = name.as_deref().unwrap_or("?");
                 let new_name = format!("{}[n={}]", name, self.current_iteration);
                 Rc::new(RefCell::new(Node::Bad {
                     nid: 0,

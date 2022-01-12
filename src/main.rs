@@ -6,6 +6,7 @@ use bytesize::ByteSize;
 use cli::{expect_arg, expect_optional_arg, LogLevel};
 use env_logger::{Env, TimestampPrecision};
 use log::info;
+use modeler::memory::replace_memory;
 use modeler::optimize::fold_constants;
 use modeler::unroller::{renumber_model, unroll_model};
 use modeler::{generate_model, print_model};
@@ -189,6 +190,8 @@ fn main() -> Result<()> {
             let mut model = generate_model(&program)?;
             if let Some(unroll_depth) = unroll {
                 model.lines.clear();
+                // TODO: Check if memory replacement is requested.
+                replace_memory(&mut model);
                 for n in 0..unroll_depth {
                     unroll_model(&mut model, n);
                     fold_constants(&mut model);

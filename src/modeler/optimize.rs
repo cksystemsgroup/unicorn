@@ -375,14 +375,14 @@ impl ConstantFolder {
             if is_const_false(cond) {
                 debug!(
                     "Bad state '{}' became unreachable, removing",
-                    name.as_ref().map_or("?", |s| &*s)
+                    name.as_deref().unwrap_or("?")
                 );
                 return true;
             }
             if is_const_true(cond) {
                 warn!(
                     "Bad state '{}' became statically reachable!",
-                    name.as_ref().map_or("?", |s| &*s)
+                    name.as_deref().unwrap_or("?")
                 );
             }
         } else {
@@ -398,7 +398,7 @@ impl ConstantFolder {
                     if RefCell::as_ptr(state) == RefCell::as_ptr(next) {
                         debug!(
                             "Sequential state '{}' [{}] became trivial, removing",
-                            name.as_ref().map_or("?", |s| &*s),
+                            name.as_deref().unwrap_or("?"),
                             get_constant(init).map_or("X".to_string(), |i| i.to_string()),
                         );
                         self.pre_record_mapping(state, init);
@@ -409,7 +409,7 @@ impl ConstantFolder {
                             if init_imm == next_imm {
                                 debug!(
                                     "Sequential state '{}' [{} -> {}] became constant, removing",
-                                    name.as_ref().map_or("?", |s| &*s),
+                                    name.as_deref().unwrap_or("?"),
                                     init_imm,
                                     next_imm
                                 );

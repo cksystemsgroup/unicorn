@@ -14,6 +14,7 @@ use std::rc::Rc;
 // Public Interface
 //
 
+pub mod memory;
 pub mod optimize;
 pub mod unroller;
 
@@ -130,6 +131,8 @@ pub struct Model {
     pub sequentials: Vec<NodeRef>,
     pub bad_states_initial: Vec<NodeRef>,
     pub bad_states_sequential: Vec<NodeRef>,
+    pub memory_size: u64,
+    pub program_break: u64,
 }
 
 #[derive(Debug)]
@@ -146,11 +149,10 @@ pub fn generate_model(program: &Program) -> Result<Model> {
 
 #[rustfmt::skip]
 pub fn print_model(model: &Model) {
-    trace!("Model: {:?}", model);
     println!("; cksystemsgroup.github.io/monster\n");
     println!("1 sort bitvec 1 ; Boolean");
     println!("2 sort bitvec 64 ; 64-bit machine word");
-    println!("3 sort array 2 2 ; 64-bit physical memory");
+    println!("3 sort array 2 2 ; 64-bit virtual memory");
     println!("11 sort bitvec 8 ; 1 byte");
     println!("12 sort bitvec 16 ; 2 bytes");
     println!("13 sort bitvec 24 ; 3 bytes");
@@ -185,7 +187,7 @@ pub fn print_model(model: &Model) {
             Node::Not { nid, value } =>
                 println!("{} not 1 {}", nid, get_nid(value)),
             Node::State { nid, sort, init, name } => {
-                println!("{} state {} {}", nid, get_sort(sort), name.as_ref().map_or("?", |s| &*s));
+                println!("{} state {} {}", nid, get_sort(sort), name.as_deref().unwrap_or("?"));
                 if let Some(value) = init {
                     println!("{} init {} {} {}", nid + 1, get_sort(sort), nid, get_nid(value));
                 }
@@ -195,7 +197,7 @@ pub fn print_model(model: &Model) {
             Node::Input { nid, sort, name } =>
                 println!("{} input {} {}", nid, get_sort(sort), name),
             Node::Bad { nid, cond, name } =>
-                println!("{} bad {} {}", nid, get_nid(cond), name.as_ref().map_or("?", |s| &*s)),
+                println!("{} bad {} {}", nid, get_nid(cond), name.as_deref().unwrap_or("?")),
             Node::Comment(s) =>
                 println!("\n; {}\n", s),
         }
@@ -260,6 +262,7 @@ fn get_bitsize(sort: &NodeType) -> usize {
 
 const INSTRUCTION_SIZE: u64 = riscu::INSTRUCTION_SIZE as u64;
 const NUMBER_OF_REGISTERS: usize = 32;
+const MEMORY_SIZE: u64 = bytesize::MIB; // TODO: Make this configurable.
 
 impl Eq for HashableNodeRef {}
 
@@ -308,6 +311,8 @@ struct ModelBuilder {
     division_flow: NodeRef,
     remainder_flow: NodeRef,
     ecall_flow: NodeRef,
+    memory_size: u64,
+    program_break: u64,
     current_nid: Nid,
     pc: u64,
 }
@@ -342,6 +347,8 @@ impl ModelBuilder {
             division_flow: dummy_node.clone(),
             remainder_flow: dummy_node.clone(),
             ecall_flow: dummy_node,
+            memory_size: MEMORY_SIZE,
+            program_break: 0,
             current_nid: 0,
             pc: 0,
         }
@@ -353,6 +360,8 @@ impl ModelBuilder {
             sequentials: self.sequentials,
             bad_states_initial: Vec::new(),
             bad_states_sequential: self.bad_states,
+            memory_size: self.memory_size,
+            program_break: self.program_break,
         }
     }
 
@@ -883,8 +892,12 @@ impl ModelBuilder {
         for r in 1..NUMBER_OF_REGISTERS {
             let reg = Register::from(r as u32);
             self.current_nid = 200 + 2 * r as u64;
+            let initial_value = match reg {
+                Register::Sp => self.new_const(self.memory_size - 8),
+                _ => self.zero_word.clone(),
+            };
             let register_node = self.new_state(
-                Some(self.zero_word.clone()),
+                Some(initial_value),
                 Some(format!("{:?}", reg)),
                 NodeType::Word,
             );
@@ -898,13 +911,13 @@ impl ModelBuilder {
         self.pc = program.code.address;
         for n in (0..program.code.content.len()).step_by(size_of::<u32>()) {
             self.current_nid = 10000000 + self.pc * 100;
-            let init = if n == 0 {
+            let initial_value = if n == 0 {
                 self.one_bit.clone()
             } else {
                 self.zero_bit.clone()
             };
             let flag_node = self.new_state(
-                Some(init),
+                Some(initial_value),
                 Some(format!("pc={:#x}", self.pc)),
                 NodeType::Bit,
             );
@@ -914,6 +927,7 @@ impl ModelBuilder {
 
         self.new_comment("64-bit virtual memory".to_string());
         self.current_nid = 20000000;
+        self.program_break = program.data.address + program.data.content.len() as u64;
         let memory_dump = self.new_state(None, Some("memory-dump".to_string()), NodeType::Memory);
         let memory_node = self.new_state(
             Some(memory_dump),
