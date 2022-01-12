@@ -6,10 +6,11 @@ use bytesize::ByteSize;
 use cli::{expect_arg, expect_optional_arg, LogLevel};
 use env_logger::{Env, TimestampPrecision};
 use log::info;
+use modeler::builder::generate_model;
 use modeler::memory::replace_memory;
 use modeler::optimize::fold_constants;
+use modeler::print_model;
 use modeler::unroller::{renumber_model, unroll_model};
-use modeler::{generate_model, print_model};
 use monster::{
     disassemble::disassemble,
     generate_smt, generate_smt_to_file,
