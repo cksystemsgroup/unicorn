@@ -633,12 +633,13 @@ impl ModelBuilder {
         self.new_comment("32 64-bit general-purpose registers".to_string());
         self.current_nid = 200;
         let zero_register = self.new_const(0);
+        let sp_value = self.new_const(self.memory_size - 8);
         self.register_nodes.push(zero_register);
         for r in 1..NUMBER_OF_REGISTERS {
             let reg = Register::from(r as u32);
             self.current_nid = 200 + 2 * r as u64;
             let initial_value = match reg {
-                Register::Sp => self.new_const(self.memory_size - 8),
+                Register::Sp => sp_value.clone(),
                 _ => self.zero_word.clone(),
             };
             let register_node = self.new_state(
