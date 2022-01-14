@@ -98,7 +98,7 @@ impl ConstantFolder {
         }
     }
 
-    fn fold_arithmetic_binary<F>(
+    fn  fold_arithmetic_binary<F>(
         &self,
         left: &NodeRef,
         right: &NodeRef,
@@ -132,12 +132,24 @@ impl ConstantFolder {
         u64::checked_rem(left, right).unwrap_or(u64::MAX)
     }
 
+    fn btor_u64_div(left: u64, right: u64) -> u64 {
+        u64::checked_div(left, right).unwrap_or(u64::MAX)
+    }
+
     fn fold_add(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
         self.fold_arithmetic_binary(left, right, u64::wrapping_add, "ADD")
     }
 
     fn fold_sub(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
         self.fold_arithmetic_binary(left, right, u64::wrapping_sub, "SUB")
+    }
+
+    fn fold_mul(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
+        self.fold_arithmetic_binary(left, right, u64::wrapping_mul, "MUL")
+    }
+
+    fn fold_div(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
+        self.fold_arithmetic_binary(left, right, Self::btor_u64_div, "DIV")
     }
 
     fn fold_rem(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
@@ -304,6 +316,16 @@ impl ConstantFolder {
                 if let Some(n) = self.visit(left) { *left = n }
                 if let Some(n) = self.visit(right) { *right = n }
                 self.fold_sub(left, right)
+            }
+            Node::Mul { ref mut left, ref mut right, .. } => {
+                if let Some(n) = self.visit(left) { *left = n }
+                if let Some(n) = self.visit(right) { *right = n }
+                self.fold_mul(left, right)
+            }
+            Node::Div { ref mut left, ref mut right, .. } => {
+                if let Some(n) = self.visit(left) { *left = n }
+                if let Some(n) = self.visit(right) { *right = n }
+                self.fold_div(left, right)
             }
             Node::Rem { ref mut left, ref mut right, .. } => {
                 if let Some(n) = self.visit(left) { *left = n }

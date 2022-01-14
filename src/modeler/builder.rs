@@ -180,6 +180,22 @@ impl ModelBuilder {
         })
     }
 
+    fn new_mul(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
+        self.add_node(Node::Mul {
+            nid: self.current_nid,
+            left,
+            right,
+        })
+    }
+
+    fn new_div(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
+        self.add_node(Node::Div {
+            nid: self.current_nid,
+            left,
+            right,
+        })
+    }
+
     fn new_rem(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
         self.add_node(Node::Rem {
             nid: self.current_nid,
@@ -413,6 +429,34 @@ impl ModelBuilder {
         self.reg_flow_update(rtype.rd(), ite_node);
     }
 
+    fn model_mul(&mut self, rtype: RType) {
+        let mul_node = self.new_mul(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
+        let ite_node = self.new_ite(
+            self.pc_flag(),
+            mul_node,
+            self.reg_flow(rtype.rd()),
+            NodeType::Word,
+        );
+        self.reg_flow_update(rtype.rd(), ite_node);
+    }
+
+    fn model_divu(&mut self, rtype: RType) {
+        self.division_flow = self.new_ite(
+            self.pc_flag(),
+            self.reg_node(rtype.rs2()),
+            self.division_flow.clone(),
+            NodeType::Word,
+        );
+        let div_node = self.new_div(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
+        let ite_node = self.new_ite(
+            self.pc_flag(),
+            div_node,
+            self.reg_flow(rtype.rd()),
+            NodeType::Word,
+        );
+        self.reg_flow_update(rtype.rd(), ite_node);
+    }
+
     fn model_remu(&mut self, rtype: RType) {
         self.remainder_flow = self.new_ite(
             self.pc_flag(),
@@ -495,8 +539,8 @@ impl ModelBuilder {
             Instruction::Sd(stype) => self.model_sd(stype),
             Instruction::Add(rtype) => self.model_add(rtype),
             Instruction::Sub(rtype) => self.model_sub(rtype),
-            Instruction::Mul(_rtype) => panic!("implement MUL"),
-            Instruction::Divu(_rtype) => panic!("implement DIV"),
+            Instruction::Mul(rtype) => self.model_mul(rtype),
+            Instruction::Divu(rtype) => self.model_divu(rtype),
             Instruction::Remu(rtype) => self.model_remu(rtype),
             Instruction::Sltu(rtype) => self.model_sltu(rtype),
             Instruction::Beq(btype) => self.model_beq(btype, &mut beq_true, &mut beq_false),
