@@ -98,7 +98,7 @@ impl ConstantFolder {
         }
     }
 
-    fn  fold_arithmetic_binary<F>(
+    fn fold_arithmetic_binary<F>(
         &self,
         left: &NodeRef,
         right: &NodeRef,

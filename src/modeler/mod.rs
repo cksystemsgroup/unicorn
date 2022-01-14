@@ -217,7 +217,7 @@ fn get_nid(node: &NodeRef) -> Nid {
         Node::Write { nid, .. } => nid,
         Node::Add { nid, .. } => nid,
         Node::Sub { nid, .. } => nid,
-        Node::Mul {nid, ..} => nid,
+        Node::Mul { nid, .. } => nid,
         Node::Div { nid, .. } => nid,
         Node::Rem { nid, .. } => nid,
         Node::Ult { nid, .. } => nid,
