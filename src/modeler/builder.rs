@@ -33,8 +33,7 @@ const MAX_HEAP_SIZE: u64 = 8 * size_of::<u64>() as u64; // TODO: Make this confi
 const MAX_STACK_SIZE: u64 = 16 * size_of::<u64>() as u64; // TODO: Make this configurable.
 
 // TODO: Add implementation of all syscalls.
-// TODO: Add initialization of memory (data, heap, stack segments).
-// TODO: Add support for input variables (used by `read` syscall).
+// TODO: Add initialization of stack segment.
 // TODO: Fix initialization of `current_nid` based on binary size.
 // TODO(test): Test model by adding a poor-man's type-checker.
 // TODO(test): Test builder on existing samples automatically.
@@ -761,14 +760,28 @@ impl ModelBuilder {
 
         self.new_comment("64-bit virtual memory".to_string());
         self.current_nid = 20000000;
-        let memory_dump = self.new_state(None, Some("memory-dump".to_string()), NodeType::Memory);
-        let memory_node = self.new_state(
-            Some(memory_dump),
+        self.memory_node = self.new_state(None, Some("memory-dump".to_string()), NodeType::Memory);
+        program
+            .data
+            .content
+            .chunks(size_of::<u64>())
+            .map(LittleEndian::read_u64)
+            .zip((data_start..data_end).step_by(size_of::<u64>()))
+            .for_each(|(val, adr)| {
+                let address = self.new_const(adr as u64);
+                let value = if val == 0 {
+                    self.zero_word.clone()
+                } else {
+                    self.new_const(val)
+                };
+                self.memory_node = self.new_write(address, value);
+            });
+        self.memory_node = self.new_state(
+            Some(self.memory_node.clone()),
             Some("virtual-memory".to_string()),
             NodeType::Memory,
         );
-        self.memory_node = memory_node.clone();
-        self.memory_flow = memory_node;
+        self.memory_flow = self.memory_node.clone();
 
         self.new_comment("data flow".to_string());
         self.pc = program.code.address;
