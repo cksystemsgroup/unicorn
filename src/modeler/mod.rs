@@ -169,7 +169,7 @@ pub fn print_model(model: &Model) {
                 println!("{} add 2 {} {}", nid, get_nid(left), get_nid(right)),
             Node::Sub { nid, left, right } =>
                 println!("{} sub 2 {} {}", nid, get_nid(left), get_nid(right)),
-            Node::Mul {nid, left, right} =>
+            Node::Mul { nid, left, right } =>
                 println!("{} mul 2 {} {}", nid, get_nid(left), get_nid(right)),
             Node::Div { nid, left, right } =>
                 println!("{} udiv 2 {} {}", nid, get_nid(left), get_nid(right)),

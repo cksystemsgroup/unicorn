@@ -242,7 +242,7 @@ impl ModelUnroller {
                     right: self.unroll(right),
                 }))
             }
-            Node::Mul {left, right, .. } => {
+            Node::Mul { left, right, .. } => {
                 Rc::new(RefCell::new(Node::Mul {
                     nid: 0,
                     left: self.unroll(left),
