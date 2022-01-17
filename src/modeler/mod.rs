@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::LinkedList;
 use std::hash::{Hash, Hasher};
+use std::ops::Range;
 use std::rc::Rc;
 
 //
@@ -135,8 +136,10 @@ pub struct Model {
     pub sequentials: Vec<NodeRef>,
     pub bad_states_initial: Vec<NodeRef>,
     pub bad_states_sequential: Vec<NodeRef>,
+    pub data_range: Range<u64>,
+    pub heap_range: Range<u64>,
+    pub stack_range: Range<u64>,
     pub memory_size: u64,
-    pub program_break: u64,
 }
 
 #[derive(Debug)]
@@ -147,6 +150,13 @@ pub struct HashableNodeRef {
 #[rustfmt::skip]
 pub fn print_model(model: &Model) {
     println!("; cksystemsgroup.github.io/monster\n");
+    println!(
+        "; {} total virtual memory, {} data, {} max heap, {} max stack\n",
+        bytesize::ByteSize(model.memory_size).to_string_as(true),
+        bytesize::ByteSize(model.data_range.size_hint().0 as u64),
+        bytesize::ByteSize(model.heap_range.size_hint().0 as u64),
+        bytesize::ByteSize(model.stack_range.size_hint().0 as u64)
+    );
     println!("1 sort bitvec 1 ; Boolean");
     println!("2 sort bitvec 64 ; 64-bit machine word");
     println!("3 sort array 2 2 ; 64-bit virtual memory");

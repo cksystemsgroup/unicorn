@@ -8,6 +8,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::LinkedList;
 use std::mem::size_of;
+use std::ops::Range;
 use std::rc::Rc;
 
 //
@@ -28,6 +29,8 @@ pub fn generate_model(program: &Program) -> Result<Model> {
 const INSTRUCTION_SIZE: u64 = riscu::INSTRUCTION_SIZE as u64;
 const NUMBER_OF_REGISTERS: usize = 32;
 const MEMORY_SIZE: u64 = bytesize::MIB; // TODO: Make this configurable.
+const MAX_HEAP_SIZE: u64 = 8 * size_of::<u64>() as u64; // TODO: Make this configurable.
+const MAX_STACK_SIZE: u64 = 16 * size_of::<u64>() as u64; // TODO: Make this configurable.
 
 // TODO: Add implementation of all syscalls.
 // TODO: Add initialization of memory (data, heap, stack segments).
@@ -55,9 +58,13 @@ struct ModelBuilder {
     memory_flow: NodeRef,
     division_flow: NodeRef,
     remainder_flow: NodeRef,
+    access_flow: NodeRef,
+    bump_pointer: NodeRef,
     ecall_flow: NodeRef,
     memory_size: u64,
-    program_break: u64,
+    data_range: Range<u64>,
+    heap_range: Range<u64>,
+    stack_range: Range<u64>,
     current_nid: Nid,
     pc: u64,
 }
@@ -91,9 +98,13 @@ impl ModelBuilder {
             memory_flow: dummy_node.clone(),
             division_flow: dummy_node.clone(),
             remainder_flow: dummy_node.clone(),
+            access_flow: dummy_node.clone(),
+            bump_pointer: dummy_node.clone(),
             ecall_flow: dummy_node,
             memory_size: MEMORY_SIZE,
-            program_break: 0,
+            data_range: 0..0,
+            heap_range: 0..0,
+            stack_range: 0..0,
             current_nid: 0,
             pc: 0,
         }
@@ -105,8 +116,10 @@ impl ModelBuilder {
             sequentials: self.sequentials,
             bad_states_initial: Vec::new(),
             bad_states_sequential: self.bad_states,
+            data_range: self.data_range,
+            heap_range: self.heap_range,
+            stack_range: self.stack_range,
             memory_size: self.memory_size,
-            program_break: self.program_break,
         }
     }
 
@@ -306,11 +319,11 @@ impl ModelBuilder {
         })
     }
 
-    fn new_bad(&mut self, cond: NodeRef, name: Option<String>) -> NodeRef {
+    fn new_bad(&mut self, cond: NodeRef, name: &str) -> NodeRef {
         let bad_node = self.add_node(Node::Bad {
             nid: self.current_nid,
             cond,
-            name,
+            name: Some(name.to_string()),
         });
         self.bad_states.push(bad_node.clone());
         bad_node
@@ -382,8 +395,13 @@ impl ModelBuilder {
     }
 
     fn model_ld(&mut self, itype: IType) {
-        // TODO: Add proper memory-bounds checks.
         let address_node = self.model_address(itype.rs1(), itype.imm() as u64);
+        self.access_flow = self.new_ite(
+            self.pc_flag(),
+            address_node.clone(),
+            self.access_flow.clone(),
+            NodeType::Word,
+        );
         let read_node = self.new_read(address_node);
         let ite_node = self.new_ite(
             self.pc_flag(),
@@ -395,8 +413,13 @@ impl ModelBuilder {
     }
 
     fn model_sd(&mut self, stype: SType) {
-        // TODO: Add proper memory-bounds checks.
         let address_node = self.model_address(stype.rs1(), stype.imm() as u64);
+        self.access_flow = self.new_ite(
+            self.pc_flag(),
+            address_node.clone(),
+            self.access_flow.clone(),
+            NodeType::Word,
+        );
         let write_node = self.new_write(address_node, self.reg_node(stype.rs2()));
         let ite_node = self.new_ite(
             self.pc_flag(),
@@ -641,6 +664,17 @@ impl ModelBuilder {
     }
 
     fn generate_model(&mut self, program: &Program) -> Result<()> {
+        let program_break = program.data.address + program.data.content.len() as u64;
+        let data_start = program.data.address;
+        let data_end = program_break;
+        self.data_range = data_start..data_end;
+        let heap_start = program_break;
+        let heap_end = program_break + MAX_HEAP_SIZE;
+        self.heap_range = heap_start..heap_end;
+        let stack_start = self.memory_size - MAX_STACK_SIZE;
+        let stack_end = self.memory_size;
+        self.stack_range = stack_start..stack_end;
+
         self.new_comment("common constants".to_string());
         self.zero_bit = self.add_node(Node::Const {
             nid: 20,
@@ -663,6 +697,16 @@ impl ModelBuilder {
             imm: 1,
         });
         self.remainder_flow = self.division_flow.clone();
+        self.access_flow = self.add_node(Node::Const {
+            nid: 40,
+            sort: NodeType::Word,
+            imm: self.data_range.start,
+        });
+        self.bump_pointer = self.add_node(Node::Const {
+            nid: 41,
+            sort: NodeType::Word,
+            imm: self.heap_range.start,
+        });
         self.ecall_flow = self.zero_bit.clone();
 
         self.new_comment("kernel-mode flag".to_string());
@@ -717,7 +761,6 @@ impl ModelBuilder {
 
         self.new_comment("64-bit virtual memory".to_string());
         self.current_nid = 20000000;
-        self.program_break = program.data.address + program.data.content.len() as u64;
         let memory_dump = self.new_state(None, Some("memory-dump".to_string()), NodeType::Memory);
         let memory_node = self.new_state(
             Some(memory_dump),
@@ -892,18 +935,46 @@ impl ModelBuilder {
         let check_syscall_and3 = self.new_and(check_syscall_and2, not_exit);
         let check_syscall_and4 = self.new_and(check_syscall_and3, not_brk);
         let check_syscall = self.new_and(self.ecall_flow.clone(), check_syscall_and4);
-        self.new_bad(check_syscall, Some("invalid-syscall-id".to_string()));
+        self.new_bad(check_syscall, "invalid-syscall-id");
 
         self.new_comment("checking exit code".to_string());
         let check_exit_code = self.new_neq(self.reg_node(Register::A0), self.zero_word.clone());
         let check_exit = self.new_and(active_exit, check_exit_code);
-        self.new_bad(check_exit, Some("non-zero-exit-code".to_string()));
+        self.new_bad(check_exit, "non-zero-exit-code");
 
         self.new_comment("checking division and remainder by zero".to_string());
         let check_div = self.new_eq(self.division_flow.clone(), self.zero_word.clone());
-        self.new_bad(check_div, Some("division-by-zero".to_string()));
+        self.new_bad(check_div, "division-by-zero");
         let check_rem = self.new_eq(self.remainder_flow.clone(), self.zero_word.clone());
-        self.new_bad(check_rem, Some("remainder-by-zero".to_string()));
+        self.new_bad(check_rem, "remainder-by-zero");
+
+        self.new_comment("checking segmentation faults".to_string());
+        let data_start = self.new_const(self.data_range.start);
+        let data_end = self.new_const(self.data_range.end);
+        let heap_start = self.new_const(self.heap_range.start);
+        let heap_max_end = self.new_const(self.heap_range.end);
+        let stack_max_start = self.new_const(self.stack_range.start);
+        let stack_end_inclusive = self.new_const(self.stack_range.end - 1);
+        let below_data = self.new_ult(self.access_flow.clone(), data_start);
+        self.new_bad(below_data, "memory-access-below-data");
+        let above_data = self.new_ugte(self.access_flow.clone(), data_end);
+        let below_heap = self.new_ult(self.access_flow.clone(), heap_start);
+        let check_between1 = self.new_and(above_data, below_heap);
+        self.new_bad(check_between1, "memory-access-between-data-and-heap");
+        let above_max_heap = self.new_ugte(self.access_flow.clone(), heap_max_end);
+        let below_dyn_heap = self.new_ult(self.access_flow.clone(), self.bump_pointer.clone());
+        let check_between2 = self.new_and(above_max_heap, below_dyn_heap);
+        self.new_bad(check_between2, "memory-access-between-max-and-dyn-heap");
+        let above_dyn_heap = self.new_ugte(self.access_flow.clone(), self.bump_pointer.clone());
+        let below_dyn_stack = self.new_ult(self.access_flow.clone(), self.reg_node(Register::Sp));
+        let check_between3 = self.new_and(above_dyn_heap, below_dyn_stack);
+        self.new_bad(check_between3, "memory-access-between-heap-and-stack");
+        let above_dyn_stack = self.new_ugte(self.access_flow.clone(), self.reg_node(Register::Sp));
+        let below_max_stack = self.new_ult(self.access_flow.clone(), stack_max_start);
+        let check_between4 = self.new_and(above_dyn_stack, below_max_stack);
+        self.new_bad(check_between4, "memory-access-between-dyn-and-max-stack");
+        let above_stack = self.new_ugt(self.access_flow.clone(), stack_end_inclusive);
+        self.new_bad(above_stack, "memory-access-above-stack");
 
         Ok(())
     }

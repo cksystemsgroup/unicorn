@@ -46,19 +46,12 @@ struct MemoryReplacer {
     virtual_addresses: Vec<u64>,
 }
 
-const MAX_HEAP_SIZE: u64 = 8 * size_of::<u64>() as u64; // TODO: Make this configurable.
-const MAX_STACK_SIZE: u64 = 16 * size_of::<u64>() as u64; // TODO: Make this configurable.
-
 fn enumerate_virtual_addresses(model: &Model) -> Vec<u64> {
-    // TODO: The range for the data segment is missing.
-    let heap_start = model.program_break;
-    let heap_end = model.program_break + MAX_HEAP_SIZE;
-    let heap_range = heap_start..heap_end;
-    let stack_start = model.memory_size - MAX_STACK_SIZE;
-    let stack_end = model.memory_size;
-    let stack_range = stack_start..stack_end;
-    heap_range
-        .chain(stack_range)
+    model
+        .data_range
+        .clone()
+        .chain(model.heap_range.clone())
+        .chain(model.stack_range.clone())
         .step_by(size_of::<u64>())
         .collect()
 }
