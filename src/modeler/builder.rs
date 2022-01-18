@@ -58,7 +58,6 @@ struct ModelBuilder {
     division_flow: NodeRef,
     remainder_flow: NodeRef,
     access_flow: NodeRef,
-    bump_pointer: NodeRef,
     ecall_flow: NodeRef,
     memory_size: u64,
     data_range: Range<u64>,
@@ -98,7 +97,6 @@ impl ModelBuilder {
             division_flow: dummy_node.clone(),
             remainder_flow: dummy_node.clone(),
             access_flow: dummy_node.clone(),
-            bump_pointer: dummy_node.clone(),
             ecall_flow: dummy_node,
             memory_size: MEMORY_SIZE,
             data_range: 0..0,
@@ -229,6 +227,12 @@ impl ModelBuilder {
         self.new_ult(right, left)
     }
 
+    // We represent `ulte(a, b)` as `not(ult(b, a))` instead.
+    fn new_ulte(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
+        let ult_node = self.new_ult(right, left);
+        self.new_not(ult_node)
+    }
+
     // We represent `ugte(a, b)` as `not(ult(a, b))` instead.
     fn new_ugte(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
         let ult_node = self.new_ult(left, right);
@@ -274,18 +278,13 @@ impl ModelBuilder {
         })
     }
 
-    fn new_state(
-        &mut self,
-        init: Option<NodeRef>,
-        name: Option<String>,
-        sort: NodeType,
-    ) -> NodeRef {
+    fn new_state(&mut self, init: Option<NodeRef>, name: String, sort: NodeType) -> NodeRef {
         let nid_increase = if init.is_some() { 1 } else { 0 };
         let state_node = self.add_node(Node::State {
             nid: self.current_nid,
             sort,
             init,
-            name,
+            name: Some(name),
         });
         self.current_nid += nid_increase;
         state_node
@@ -641,7 +640,7 @@ impl ModelBuilder {
     fn control_flow_from_ecall(&mut self, edge: &InEdge, flow: NodeRef) -> NodeRef {
         let state_node = self.new_state(
             Some(self.zero_bit.clone()),
-            Some(format!("kernel-mode-pc-flag-{}", edge.from_address)),
+            format!("kernel-mode-pc-flag-{}", edge.from_address),
             NodeType::Bit,
         );
         let ite_node = self.new_ite(
@@ -701,18 +700,13 @@ impl ModelBuilder {
             sort: NodeType::Word,
             imm: self.data_range.start,
         });
-        self.bump_pointer = self.add_node(Node::Const {
-            nid: 41,
-            sort: NodeType::Word,
-            imm: self.heap_range.start,
-        });
         self.ecall_flow = self.zero_bit.clone();
 
         self.new_comment("kernel-mode flag".to_string());
         self.current_nid = 60;
         self.kernel_mode = self.new_state(
             Some(self.zero_bit.clone()),
-            Some("kernel-mode".to_string()),
+            "kernel-mode".to_string(),
             NodeType::Bit,
         );
         self.kernel_not = self.new_not(self.kernel_mode.clone());
@@ -729,11 +723,8 @@ impl ModelBuilder {
                 Register::Sp => sp_value.clone(),
                 _ => self.zero_word.clone(),
             };
-            let register_node = self.new_state(
-                Some(initial_value),
-                Some(format!("{:?}", reg)),
-                NodeType::Word,
-            );
+            let register_node =
+                self.new_state(Some(initial_value), format!("{:?}", reg), NodeType::Word);
             self.register_nodes.push(register_node.clone());
             self.register_flow.push(register_node);
         }
@@ -751,7 +742,7 @@ impl ModelBuilder {
             };
             let flag_node = self.new_state(
                 Some(initial_value),
-                Some(format!("pc={:#x}", self.pc)),
+                format!("pc={:#x}", self.pc),
                 NodeType::Bit,
             );
             self.pc_flags.insert(self.pc, flag_node);
@@ -760,7 +751,7 @@ impl ModelBuilder {
 
         self.new_comment("64-bit virtual memory".to_string());
         self.current_nid = 20000000;
-        self.memory_node = self.new_state(None, Some("memory-dump".to_string()), NodeType::Memory);
+        self.memory_node = self.new_state(None, "memory-dump".to_string(), NodeType::Memory);
         program
             .data
             .content
@@ -778,7 +769,7 @@ impl ModelBuilder {
             });
         self.memory_node = self.new_state(
             Some(self.memory_node.clone()),
-            Some("virtual-memory".to_string()),
+            "virtual-memory".to_string(),
             NodeType::Memory,
         );
         self.memory_flow = self.memory_node.clone();
@@ -898,6 +889,36 @@ impl ModelBuilder {
             NodeType::Bit,
         );
 
+        self.current_nid = 45000000;
+        let active_brk = self.new_and(self.ecall_flow.clone(), is_brk.clone());
+        let brk_init = self.new_const(self.heap_range.start);
+        let brk_bump = self.new_state(Some(brk_init), "bump-pointer".to_string(), NodeType::Word);
+        let brk_lower = self.new_ulte(brk_bump.clone(), self.reg_node(Register::A0));
+        let brk_upper = self.new_ult(self.reg_node(Register::A0), self.reg_node(Register::Sp));
+        let brk_bound = self.new_and(brk_lower, brk_upper);
+        // TODO: let brk_three_lsb = self.new_const(0b111); // TODO: Make work for 32-bit system
+        // TODO: let brk_mask = self.new_and(self.reg_node(Register::A0), brk_three_lsb);
+        let brk_mask = self.zero_word.clone();
+        let brk_aligned = self.new_eq(brk_mask, self.zero_word.clone());
+        let brk_valid1 = self.new_and(brk_bound, brk_aligned);
+        let brk_valid2 = self.new_and(active_brk.clone(), brk_valid1.clone());
+        let brk_bump_ite = self.new_ite(
+            brk_valid2,
+            self.reg_node(Register::A0),
+            brk_bump.clone(),
+            NodeType::Word,
+        );
+        self.new_next(brk_bump.clone(), brk_bump_ite, NodeType::Word);
+        let brk_invalid1 = self.new_not(brk_valid1);
+        let brk_invalid2 = self.new_and(active_brk, brk_invalid1);
+        let brk_a0_ite = self.new_ite(
+            brk_invalid2,
+            brk_bump.clone(),
+            self.reg_flow(Register::A0),
+            NodeType::Word,
+        );
+        self.reg_flow_update(Register::A0, brk_a0_ite);
+
         self.current_nid = 46000000;
         self.new_next(self.kernel_mode.clone(), kernel_flow, NodeType::Bit);
 
@@ -975,10 +996,10 @@ impl ModelBuilder {
         let check_between1 = self.new_and(above_data, below_heap);
         self.new_bad(check_between1, "memory-access-between-data-and-heap");
         let above_max_heap = self.new_ugte(self.access_flow.clone(), heap_max_end);
-        let below_dyn_heap = self.new_ult(self.access_flow.clone(), self.bump_pointer.clone());
+        let below_dyn_heap = self.new_ult(self.access_flow.clone(), brk_bump.clone());
         let check_between2 = self.new_and(above_max_heap, below_dyn_heap);
         self.new_bad(check_between2, "memory-access-between-max-and-dyn-heap");
-        let above_dyn_heap = self.new_ugte(self.access_flow.clone(), self.bump_pointer.clone());
+        let above_dyn_heap = self.new_ugte(self.access_flow.clone(), brk_bump);
         let below_dyn_stack = self.new_ult(self.access_flow.clone(), self.reg_node(Register::Sp));
         let check_between3 = self.new_and(above_dyn_heap, below_dyn_stack);
         self.new_bad(check_between3, "memory-access-between-heap-and-stack");
