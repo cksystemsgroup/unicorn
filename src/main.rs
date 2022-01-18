@@ -9,8 +9,8 @@ use log::info;
 use modeler::builder::generate_model;
 use modeler::memory::replace_memory;
 use modeler::optimize::fold_constants;
-use modeler::print_model;
 use modeler::unroller::{renumber_model, unroll_model};
+use modeler::write_model;
 use monster::{
     disassemble::disassemble,
     generate_smt, generate_smt_to_file,
@@ -182,8 +182,7 @@ fn main() -> Result<()> {
         }
         ("model", Some(args)) => {
             let input = expect_arg::<PathBuf>(args, "input-file")?;
-            // TODO: Add support for redirecting to output file.
-            let _output = expect_optional_arg::<PathBuf>(args, "output-file")?;
+            let output = expect_optional_arg::<PathBuf>(args, "output-file")?;
             let unroll = expect_optional_arg(args, "unroll-model")?;
             let prune = args.is_present("prune-model");
 
@@ -200,7 +199,13 @@ fn main() -> Result<()> {
                 }
                 renumber_model(&mut model, prune);
             }
-            print_model(&model);
+
+            if let Some(output_path) = output {
+                let file = File::create(output_path)?;
+                write_model(&model, file)?;
+            } else {
+                write_model(&model, stdout())?;
+            }
 
             Ok(())
         }
