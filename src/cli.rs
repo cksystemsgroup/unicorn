@@ -148,6 +148,12 @@ pub fn args() -> App<'static, 'static> {
                     .takes_value(true)
                 )
                 .arg(
+                    Arg::with_name("prune-model")
+                    .help("Prunes sequential part from model")
+                    .short("p")
+                    .long("prune")
+                )
+                .arg(
                     Arg::with_name("unroll-model")
                     .help("Number of instructions to unroll from model")
                     .short("u")

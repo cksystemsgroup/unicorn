@@ -185,6 +185,7 @@ fn main() -> Result<()> {
             // TODO: Add support for redirecting to output file.
             let _output = expect_optional_arg::<PathBuf>(args, "output-file")?;
             let unroll = expect_optional_arg(args, "unroll-model")?;
+            let prune = args.is_present("prune-model");
 
             let program = load_object_file(&input)?;
 
@@ -197,7 +198,7 @@ fn main() -> Result<()> {
                     unroll_model(&mut model, n);
                     fold_constants(&mut model);
                 }
-                renumber_model(&mut model);
+                renumber_model(&mut model, prune);
             }
             print_model(&model);
 
