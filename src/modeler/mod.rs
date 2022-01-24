@@ -194,7 +194,7 @@ where
             Node::Ult { nid, left, right } =>
                 writeln!(out, "{} ult 1 {} {}", nid, get_nid(left), get_nid(right))?,
             Node::Ext { nid, from, value } =>
-                writeln!(out, "{} uext 2 {} {}", nid, get_nid(value), 64 - get_bitsize(from))?,
+                writeln!(out, "{} uext 2 {} {}", nid, get_nid(value), 64 - from.bitsize())?,
             Node::Ite { nid, sort, cond, left, right } =>
                 writeln!(out, "{} ite {} {} {} {}", nid, get_sort(sort), get_nid(cond), get_nid(left), get_nid(right))?,
             Node::Eq { nid, left, right } =>
@@ -266,19 +266,20 @@ fn get_sort(sort: &NodeType) -> Nid {
     }
 }
 
-// TODO: Make this a member method on NodeType.
-pub fn get_bitsize(sort: &NodeType) -> usize {
-    match *sort {
-        NodeType::Bit => 1,
-        NodeType::Word => 64,
-        NodeType::Input1Byte => 8,
-        NodeType::Input2Byte => 16,
-        NodeType::Input3Byte => 24,
-        NodeType::Input4Byte => 32,
-        NodeType::Input5Byte => 40,
-        NodeType::Input6Byte => 48,
-        NodeType::Input7Byte => 56,
-        _ => panic!("unknown bitsize"),
+impl NodeType {
+    fn bitsize(&self) -> usize {
+        match *self {
+            NodeType::Bit => 1,
+            NodeType::Word => 64,
+            NodeType::Input1Byte => 8,
+            NodeType::Input2Byte => 16,
+            NodeType::Input3Byte => 24,
+            NodeType::Input4Byte => 32,
+            NodeType::Input5Byte => 40,
+            NodeType::Input6Byte => 48,
+            NodeType::Input7Byte => 56,
+            _ => panic!("unknown bitsize"),
+        }
     }
 }
 

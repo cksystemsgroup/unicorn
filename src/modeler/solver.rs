@@ -15,7 +15,7 @@ pub fn optimize_with_solver(_model: &mut Model) {
 
 #[cfg(feature = "boolector")]
 mod boolector_impl {
-    use crate::modeler::{get_bitsize, HashableNodeRef, Model, Node, NodeRef};
+    use crate::modeler::{HashableNodeRef, Model, Node, NodeRef};
     use boolector_solver::{
         option::{BtorOption, ModelGen, OutputFileFormat},
         Btor, SolverResult, BV,
@@ -107,7 +107,7 @@ mod boolector_impl {
         fn translate(&mut self, node: &NodeRef) -> BVRef {
             match &*node.borrow() {
                 Node::Const { sort, imm, .. } => {
-                    let width = get_bitsize(sort) as u32;
+                    let width = sort.bitsize() as u32;
                     BV::from_u64(self.solver.clone(), *imm, width)
                 }
                 Node::Read { .. } => panic!("missing array logic"),
@@ -139,13 +139,13 @@ mod boolector_impl {
                     bv_left.ult(&bv_right)
                 }
                 Node::Ext { from, value, .. } => {
-                    let width = get_bitsize(from) as u32;
+                    let width = from.bitsize() as u32;
                     let bv_value = self.visit(value);
                     assert_eq!(bv_value.get_width(), width);
                     bv_value.uext(64 - width)
                 }
                 Node::Ite { sort, cond, left, right, .. } => {
-                    let width = get_bitsize(sort) as u32;
+                    let width = sort.bitsize() as u32;
                     let bv_cond = self.visit(cond);
                     let bv_left = self.visit(left);
                     let bv_right = self.visit(right);
@@ -168,7 +168,7 @@ mod boolector_impl {
                     bv_value.not()
                 }
                 Node::State { init: None, sort, name, .. } => {
-                    let width = get_bitsize(sort) as u32;
+                    let width = sort.bitsize() as u32;
                     BV::new(self.solver.clone(), width, name.as_deref())
                 }
                 Node::State { init: Some(_), .. } => panic!("initialized"),
