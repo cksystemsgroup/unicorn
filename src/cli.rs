@@ -154,6 +154,16 @@ pub fn args() -> App<'static, 'static> {
                     .long("prune")
                 )
                 .arg(
+                    Arg::with_name("solver")
+                        .help("SMT solver used for optimization")
+                        .short("s")
+                        .long("solver")
+                        .takes_value(true)
+                        .value_name("SOLVER")
+                        .possible_values(SmtType::VARIANTS)
+                        .default_value(SmtType::Generic.into()),
+                )
+                .arg(
                     Arg::with_name("unroll-model")
                     .help("Number of instructions to unroll from model")
                     .short("u")

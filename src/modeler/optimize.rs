@@ -1,3 +1,4 @@
+use crate::modeler::solver::Solver;
 use crate::modeler::{HashableNodeRef, Model, Node, NodeRef, NodeType};
 use log::{debug, trace, warn};
 use std::cell::RefCell;
@@ -9,27 +10,29 @@ use std::rc::Rc;
 // Public Interface
 //
 
-pub fn fold_constants(model: &mut Model) {
-    let mut constant_folder = ConstantFolder::new();
+pub fn optimize_model<S: Solver>(model: &mut Model) {
+    debug!("Optimizing model using '{}' SMT solver ...", S::name());
+    let mut constant_folder = ConstantFolder::<S>::new();
     model
         .sequentials
-        .retain(|s| !constant_folder.check_for_constant_sequential(s));
+        .retain(|s| constant_folder.should_retain_sequential(s));
     for sequential in &model.sequentials {
         constant_folder.visit(sequential);
     }
     model
         .bad_states_initial
-        .retain(|s| !constant_folder.check_for_constant_bad_state(s));
+        .retain(|s| constant_folder.should_retain_bad_state(s, true));
     model
         .bad_states_sequential
-        .retain(|s| !constant_folder.check_for_constant_bad_state(s));
+        .retain(|s| constant_folder.should_retain_bad_state(s, false));
 }
 
 //
 // Private Implementation
 //
 
-struct ConstantFolder {
+struct ConstantFolder<S> {
+    smt_solver: S,
     marks: HashSet<HashableNodeRef>,
     mapping: HashMap<HashableNodeRef, NodeRef>,
     const_false: NodeRef,
@@ -60,9 +63,10 @@ fn new_const(imm: u64) -> NodeRef {
     new_const_with_type(imm, NodeType::Word)
 }
 
-impl ConstantFolder {
+impl<S: Solver> ConstantFolder<S> {
     fn new() -> Self {
         Self {
+            smt_solver: S::new(),
             marks: HashSet::new(),
             mapping: HashMap::new(),
             const_false: new_const_with_type(0, NodeType::Bit),
@@ -391,7 +395,7 @@ impl ConstantFolder {
         }
     }
 
-    fn check_for_constant_bad_state(&mut self, bad_state: &NodeRef) -> bool {
+    fn should_retain_bad_state(&mut self, bad_state: &NodeRef, use_smt: bool) -> bool {
         self.visit(bad_state);
         if let Node::Bad { cond, name, .. } = &*bad_state.borrow() {
             if is_const_false(cond) {
@@ -399,21 +403,25 @@ impl ConstantFolder {
                     "Bad state '{}' became unreachable, removing",
                     name.as_deref().unwrap_or("?")
                 );
-                return true;
+                return false;
             }
             if is_const_true(cond) {
                 warn!(
                     "Bad state '{}' became statically reachable!",
                     name.as_deref().unwrap_or("?")
                 );
+                return true;
             }
+            if use_smt {
+                return self.smt_solver.should_retain_bad_state(bad_state);
+            }
+            true
         } else {
             panic!("expecting 'Bad' node here");
         }
-        false
     }
 
-    fn check_for_constant_sequential(&mut self, sequential: &NodeRef) -> bool {
+    fn should_retain_sequential(&mut self, sequential: &NodeRef) -> bool {
         if let Node::Next { state, next, .. } = &*sequential.borrow() {
             if let Node::State { init, name, .. } = &*state.borrow() {
                 if let Some(init) = init {
@@ -424,7 +432,7 @@ impl ConstantFolder {
                             get_constant(init).map_or("X".to_string(), |i| i.to_string()),
                         );
                         self.pre_record_mapping(state, init);
-                        return true;
+                        return false;
                     }
                     if let Some(init_imm) = get_constant(init) {
                         if let Some(next_imm) = get_constant(next) {
@@ -436,17 +444,17 @@ impl ConstantFolder {
                                     next_imm
                                 );
                                 self.pre_record_mapping(state, init);
-                                return true;
+                                return false;
                             }
                         }
                     }
                 }
+                true
             } else {
                 panic!("expecting 'State' node here");
             }
         } else {
             panic!("expecting 'Next' node here");
         }
-        false
     }
 }

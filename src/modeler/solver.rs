@@ -1,38 +1,28 @@
-use crate::modeler::Model;
+use crate::modeler::{Node, NodeRef};
+use log::{debug, warn};
 
 //
 // Public Interface
 //
 
-pub fn optimize_with_solver(_model: &mut Model) {
-    #[cfg(feature = "boolector")]
-    boolector_impl::optimize_with_boolector(_model)
+#[allow(dead_code)]
+#[derive(Debug, Eq, PartialEq)]
+pub enum Solution {
+    Sat,
+    Unsat,
+    Timeout,
 }
 
-//
-// Private Implementation
-//
+pub trait Solver {
+    fn new() -> Self;
+    fn name() -> &'static str;
+    fn solve(&mut self, root: &NodeRef) -> Solution;
+    fn is_always_true(&mut self, node: &NodeRef) -> bool;
+    fn is_always_false(&mut self, node: &NodeRef) -> bool;
 
-#[cfg(feature = "boolector")]
-mod boolector_impl {
-    use crate::modeler::{HashableNodeRef, Model, Node, NodeRef};
-    use boolector_solver::{
-        option::{BtorOption, ModelGen, OutputFileFormat},
-        Btor, SolverResult, BV,
-    };
-    use log::{debug, warn};
-    use std::collections::HashMap;
-    use std::rc::Rc;
-
-    pub fn optimize_with_boolector(model: &mut Model) {
-        debug!("Optimizing model with 'Boolector' SMT solver ...");
-        model.bad_states_initial.retain(should_retain_bad_state);
-    }
-
-    fn should_retain_bad_state(bad_state: &NodeRef) -> bool {
+    fn should_retain_bad_state(&mut self, bad_state: &NodeRef) -> bool {
         if let Node::Bad { cond, name, .. } = &*bad_state.borrow() {
-            let mut solver = BoolectorSolver::new();
-            match solver.solve(cond) {
+            match self.solve(cond) {
                 Solution::Sat => {
                     warn!(
                         "Bad state '{}' is satisfiable!",
@@ -47,30 +37,72 @@ mod boolector_impl {
                     );
                     false
                 }
-                Solution::Timeout => {
-                    warn!("Timeout not yet implemented!");
-                    true
-                }
+                Solution::Timeout => true,
             }
         } else {
             panic!("expecting 'Bad' node here");
         }
     }
+}
 
-    enum Solution {
-        Sat,
-        Unsat,
-        Timeout,
+//
+// Private Implementation
+//
+
+// TODO: Move this module into separate file.
+pub mod none_impl {
+    use crate::modeler::solver::{Solution, Solver};
+    use crate::modeler::NodeRef;
+
+    pub struct NoneSolver {}
+
+    impl Solver for NoneSolver {
+        fn name() -> &'static str {
+            "None"
+        }
+
+        fn new() -> Self {
+            Self {}
+        }
+
+        fn is_always_true(&mut self, _node: &NodeRef) -> bool {
+            false
+        }
+
+        fn is_always_false(&mut self, _node: &NodeRef) -> bool {
+            false
+        }
+
+        fn solve(&mut self, _root: &NodeRef) -> Solution {
+            Solution::Timeout
+        }
     }
+}
+
+// TODO: Move this module into separate file.
+#[cfg(feature = "boolector")]
+pub mod boolector_impl {
+    use crate::modeler::solver::{Solution, Solver};
+    use crate::modeler::{HashableNodeRef, Node, NodeRef};
+    use boolector_solver::{
+        option::{BtorOption, ModelGen, OutputFileFormat},
+        Btor, SolverResult, BV,
+    };
+    use std::collections::HashMap;
+    use std::rc::Rc;
 
     type BVRef = BV<Rc<Btor>>;
 
-    struct BoolectorSolver {
+    pub struct BoolectorSolver {
         solver: Rc<Btor>,
         mapping: HashMap<HashableNodeRef, BVRef>,
     }
 
-    impl BoolectorSolver {
+    impl Solver for BoolectorSolver {
+        fn name() -> &'static str {
+            "Boolector"
+        }
+
         fn new() -> Self {
             let solver = Rc::new(Btor::new());
             // TODO: Properly configure the below options.
@@ -83,14 +115,33 @@ mod boolector_impl {
             }
         }
 
+        fn is_always_true(&mut self, node: &NodeRef) -> bool {
+            let bv = self.visit(node).not();
+            self.solve_impl(bv) == Solution::Unsat
+        }
+
+        fn is_always_false(&mut self, node: &NodeRef) -> bool {
+            let bv = self.visit(node);
+            self.solve_impl(bv) == Solution::Unsat
+        }
+
         fn solve(&mut self, root: &NodeRef) -> Solution {
             let bv = self.visit(root);
-            bv.slice(0, 0).assert();
-            match self.solver.sat() {
+            self.solve_impl(bv.slice(0, 0))
+        }
+    }
+
+    impl BoolectorSolver {
+        fn solve_impl(&mut self, bv: BVRef) -> Solution {
+            self.solver.push(1);
+            bv.assert();
+            let solution = match self.solver.sat() {
                 SolverResult::Sat => Solution::Sat,
                 SolverResult::Unsat => Solution::Unsat,
                 SolverResult::Unknown => Solution::Timeout,
-            }
+            };
+            self.solver.pop(1);
+            solution
         }
 
         fn visit(&mut self, node: &NodeRef) -> BVRef {
