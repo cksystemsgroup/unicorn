@@ -9,6 +9,7 @@ use log::info;
 use modeler::builder::generate_model;
 use modeler::memory::replace_memory;
 use modeler::optimize::fold_constants;
+use modeler::solver::optimize_with_solver;
 use modeler::unroller::{renumber_model, unroll_model};
 use modeler::write_model;
 use monster::{
@@ -196,6 +197,7 @@ fn main() -> Result<()> {
                 for n in 0..unroll_depth {
                     unroll_model(&mut model, n);
                     fold_constants(&mut model);
+                    optimize_with_solver(&mut model);
                 }
                 renumber_model(&mut model, prune);
             }

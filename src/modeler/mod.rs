@@ -13,6 +13,7 @@ use std::rc::Rc;
 pub mod builder;
 pub mod memory;
 pub mod optimize;
+pub mod solver;
 pub mod unroller;
 
 pub type Nid = u64;
@@ -265,9 +266,11 @@ fn get_sort(sort: &NodeType) -> Nid {
     }
 }
 
-fn get_bitsize(sort: &NodeType) -> usize {
+// TODO: Make this a member method on NodeType.
+pub fn get_bitsize(sort: &NodeType) -> usize {
     match *sort {
         NodeType::Bit => 1,
+        NodeType::Word => 64,
         NodeType::Input1Byte => 8,
         NodeType::Input2Byte => 16,
         NodeType::Input3Byte => 24,
