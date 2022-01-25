@@ -130,6 +130,34 @@ impl<S: Solver> ConstantFolder<S> {
         None
     }
 
+    fn solve_boolean_binary(
+        &mut self,
+        node: &NodeRef,
+        left: &NodeRef,
+        right: &NodeRef,
+        f_name: &str,
+    ) -> Option<NodeRef> {
+        if self.smt_solver.is_always_true(node) {
+            trace!(
+                "Solved {}({:?},{:?}) -> T",
+                f_name,
+                RefCell::as_ptr(left),
+                RefCell::as_ptr(right)
+            );
+            return Some(self.const_true.clone());
+        }
+        if self.smt_solver.is_always_false(node) {
+            trace!(
+                "Solved {}({:?},{:?}) -> F",
+                f_name,
+                RefCell::as_ptr(left),
+                RefCell::as_ptr(right)
+            );
+            return Some(self.const_false.clone());
+        }
+        None
+    }
+
     // SMT-LIB does not specify the result of remainder by zero, for BTOR we
     // take the largest unsigned integer that can be represented.
     fn btor_u64_rem(left: u64, right: u64) -> u64 {
@@ -183,29 +211,8 @@ impl<S: Solver> ConstantFolder<S> {
         None
     }
 
-    fn solve_ult(&mut self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
-        if self.smt_solver.is_always_lt(left, right) {
-            trace!(
-                "Solved ULT({:?},{:?}) -> T",
-                RefCell::as_ptr(left),
-                RefCell::as_ptr(right)
-            );
-            return Some(self.const_true.clone());
-        }
-        if self.smt_solver.is_always_ge(left, right) {
-            trace!(
-                "Solved ULT({:?},{:?}) -> F",
-                RefCell::as_ptr(left),
-                RefCell::as_ptr(right)
-            );
-            return Some(self.const_false.clone());
-        }
-        None
-    }
-
-    fn fold_or_solve_ult(&mut self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
-        self.fold_ult(left, right)
-            .or_else(|| self.solve_ult(left, right))
+    fn solve_ult(&mut self, node: &NodeRef, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
+        self.solve_boolean_binary(node, left, right, "ULT")
     }
 
     fn fold_eq(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
@@ -239,29 +246,8 @@ impl<S: Solver> ConstantFolder<S> {
         None
     }
 
-    fn solve_eq(&mut self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
-        if self.smt_solver.is_always_eq(left, right) {
-            trace!(
-                "Solved EQ({:?},{:?}) -> T",
-                RefCell::as_ptr(left),
-                RefCell::as_ptr(right)
-            );
-            return Some(self.const_true.clone());
-        }
-        if self.smt_solver.is_always_ne(left, right) {
-            trace!(
-                "Solved EQ({:?},{:?}) -> F",
-                RefCell::as_ptr(left),
-                RefCell::as_ptr(right)
-            );
-            return Some(self.const_false.clone());
-        }
-        None
-    }
-
-    fn fold_or_solve_eq(&mut self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
-        self.fold_eq(left, right)
-            .or_else(|| self.solve_eq(left, right))
+    fn solve_eq(&mut self, node: &NodeRef, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
+        self.solve_boolean_binary(node, left, right, "EQ")
     }
 
     fn fold_and(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
@@ -347,7 +333,7 @@ impl<S: Solver> ConstantFolder<S> {
     }
 
     #[rustfmt::skip]
-    fn process(&mut self, node: &NodeRef) -> Option<NodeRef> {
+    fn process_fold(&mut self, node: &NodeRef) -> Option<NodeRef> {
         match *node.borrow_mut() {
             // TODO: Remove and use global `false` constant.
             Node::Const { sort: NodeType::Bit, imm: 0, .. } => {
@@ -397,7 +383,7 @@ impl<S: Solver> ConstantFolder<S> {
             Node::Ult { ref mut left, ref mut right, .. } => {
                 if let Some(n) = self.visit(left) { *left = n }
                 if let Some(n) = self.visit(right) { *right = n }
-                self.fold_or_solve_ult(left, right)
+                self.fold_ult(left, right)
             }
             Node::Ext { ref mut value, .. } => {
                 if let Some(n) = self.visit(value) { *value = n }
@@ -423,7 +409,7 @@ impl<S: Solver> ConstantFolder<S> {
             Node::Eq { ref mut left, ref mut right, .. } => {
                 if let Some(n) = self.visit(left) { *left = n }
                 if let Some(n) = self.visit(right) { *right = n }
-                self.fold_or_solve_eq(left, right)
+                self.fold_eq(left, right)
             }
             Node::And { ref mut left, ref mut right, .. } => {
                 if let Some(n) = self.visit(left) { *left = n }
@@ -451,6 +437,25 @@ impl<S: Solver> ConstantFolder<S> {
             }
             Node::Comment(_) => panic!("cannot fold"),
         }
+    }
+
+    #[rustfmt::skip]
+    fn process_solve(&mut self, node: &NodeRef) -> Option<NodeRef> {
+        match &*node.borrow() {
+            Node::Ult { left, right, .. } => {
+                self.solve_ult(node, left, right)
+            }
+            Node::Eq { left, right, .. } => {
+                self.solve_eq(node, left, right)
+            }
+            _ => None
+        }
+    }
+
+    fn process(&mut self, node: &NodeRef) -> Option<NodeRef> {
+        // First try to constant-fold nodes and only invoke the SMT solver on
+        // some nodes (boolean operations) in case constant-folding fails.
+        self.process_fold(node).or_else(|| self.process_solve(node))
     }
 
     fn should_retain_bad_state(&mut self, bad_state: &NodeRef, use_smt: bool) -> bool {
