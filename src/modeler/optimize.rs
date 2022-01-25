@@ -278,6 +278,10 @@ impl<S: Solver> ConstantFolder<S> {
         None
     }
 
+    fn solve_and(&mut self, node: &NodeRef, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
+        self.solve_boolean_binary(node, left, right, "AND")
+    }
+
     fn fold_not(&self, value: &NodeRef) -> Option<NodeRef> {
         if is_const_true(value) {
             trace!("Folding NOT({:?}[T]) -> F", RefCell::as_ptr(value));
@@ -448,13 +452,16 @@ impl<S: Solver> ConstantFolder<S> {
             Node::Eq { left, right, .. } => {
                 self.solve_eq(node, left, right)
             }
+            Node::And { left, right, .. } => {
+                self.solve_and(node, left, right)
+            }
             _ => None
         }
     }
 
     fn process(&mut self, node: &NodeRef) -> Option<NodeRef> {
         // First try to constant-fold nodes and only invoke the SMT solver on
-        // some nodes (boolean operations) in case constant-folding fails.
+        // some binary boolean operations in case constant-folding fails.
         self.process_fold(node).or_else(|| self.process_solve(node))
     }
 
