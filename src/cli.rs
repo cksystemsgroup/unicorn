@@ -27,14 +27,14 @@ lazy_static! {
     static ref COPY_INIT_RATIO: String = format!("{}", rarity_defaults::COPY_INIT_RATIO);
 }
 
-pub fn args() -> App<'static, 'static> {
+pub fn args() -> App<'static> {
     App::new("Monster")
         .version(crate_version!())
         .author(crate_authors!(", "))
         .about(crate_description!())
         .arg(
-            Arg::with_name("verbose")
-                .short("v")
+            Arg::new("verbose")
+                .short('v')
                 .long("verbose")
                 .help("configure logging level to use")
                 .takes_value(true)
@@ -47,7 +47,7 @@ pub fn args() -> App<'static, 'static> {
             App::new("disassemble")
                 .about("Disassemble a RISC-V ELF binary")
                 .arg(
-                    Arg::with_name("input-file")
+                    Arg::new("input-file")
                         .value_name("FILE")
                         .help("Binary file to be disassembled")
                         .takes_value(true)
@@ -58,25 +58,25 @@ pub fn args() -> App<'static, 'static> {
             App::new("cfg")
                 .about("Generate control flow graph from RISC-U ELF binary")
                 .arg(
-                    Arg::with_name("input-file")
+                    Arg::new("input-file")
                         .help("Source RISC-U binary to be analyzed")
                         .takes_value(true)
                         .value_name("FILE")
                         .required(true),
                 )
                 .arg(
-                    Arg::with_name("output-file")
+                    Arg::new("output-file")
                         .help("Output file to write to")
-                        .short("o")
+                        .short('o')
                         .long("output-file")
                         .takes_value(true)
                         .value_name("FILE")
                         .default_value("cfg.dot"),
                 )
                 .arg(
-                    Arg::with_name("distances")
+                    Arg::new("distances")
                         .help("Compute also shortest path distances from exit")
-                        .short("d")
+                        .short('d')
                         .long("distances"),
                 ),
         )
@@ -84,16 +84,16 @@ pub fn args() -> App<'static, 'static> {
             App::new("execute")
                 .about("Symbolically execute a RISC-U ELF binary")
                 .arg(
-                    Arg::with_name("input-file")
+                    Arg::new("input-file")
                         .help("RISC-U ELF binary to be executed")
                         .takes_value(true)
                         .value_name("FILE")
                         .required(true),
                 )
                 .arg(
-                    Arg::with_name("solver")
+                    Arg::new("solver")
                         .help("SMT solver")
-                        .short("s")
+                        .short('s')
                         .long("solver")
                         .takes_value(true)
                         .value_name("SOLVER")
@@ -101,9 +101,9 @@ pub fn args() -> App<'static, 'static> {
                         .default_value(SolverType::Monster.into()),
                 )
                 .arg(
-                    Arg::with_name("max-execution-depth")
+                    Arg::new("max-execution-depth")
                         .help("Number of instructions, where the path execution will be aborted")
-                        .short("d")
+                        .short('d')
                         .long("execution-depth")
                         .takes_value(true)
                         .value_name("NUMBER")
@@ -111,9 +111,9 @@ pub fn args() -> App<'static, 'static> {
                         .validator(is::<u64>),
                 )
                 .arg(
-                    Arg::with_name("memory")
+                    Arg::new("memory")
                         .help("Amount of memory to be used per execution context in megabytes [possible_values: 1 .. 1024]")
-                        .short("m")
+                        .short('m')
                         .long("memory")
                         .takes_value(true)
                         .value_name("NUMBER")
@@ -121,7 +121,7 @@ pub fn args() -> App<'static, 'static> {
                         .validator(is_valid_memory_size),
                 )
                 .arg(
-                    Arg::with_name("strategy")
+                    Arg::new("strategy")
                     .help("Path exploration strategy to use when exploring state search space")
                     .long("strategy")
                     .takes_value(true)
@@ -134,29 +134,29 @@ pub fn args() -> App<'static, 'static> {
             App::new("model")
                 .about("Create a BTOR2 model for a RISC-U ELF binary")
                 .arg(
-                    Arg::with_name("input-file")
+                    Arg::new("input-file")
                         .help("RISC-U ELF binary to be converted")
                         .takes_value(true)
                         .value_name("FILE")
                         .required(true),
                 )
                 .arg(
-                    Arg::with_name("output-file")
+                    Arg::new("output-file")
                     .help("Output path for the generated BTOR2 file")
-                    .short("o")
+                    .short('o')
                     .long("out")
                     .takes_value(true)
                 )
                 .arg(
-                    Arg::with_name("prune-model")
+                    Arg::new("prune-model")
                     .help("Prunes sequential part from model")
-                    .short("p")
+                    .short('p')
                     .long("prune")
                 )
                 .arg(
-                    Arg::with_name("solver")
+                    Arg::new("solver")
                         .help("SMT solver used for optimization")
-                        .short("s")
+                        .short('s')
                         .long("solver")
                         .takes_value(true)
                         .value_name("SOLVER")
@@ -164,9 +164,9 @@ pub fn args() -> App<'static, 'static> {
                         .default_value(SmtType::Generic.into()),
                 )
                 .arg(
-                    Arg::with_name("unroll-model")
+                    Arg::new("unroll-model")
                     .help("Number of instructions to unroll from model")
-                    .short("u")
+                    .short('u')
                     .long("unroll")
                     .takes_value(true)
                     .value_name("NUMBER")
@@ -177,16 +177,16 @@ pub fn args() -> App<'static, 'static> {
             App::new("smt")
                 .about("Create an SMT-LIB file for a RISC-U ELF binary")
                 .arg(
-                    Arg::with_name("input-file")
+                    Arg::new("input-file")
                         .help("RISC-U ELF binary to be converted")
                         .takes_value(true)
                         .value_name("FILE")
                         .required(true),
                 )
                 .arg(
-                    Arg::with_name("max-execution-depth")
+                    Arg::new("max-execution-depth")
                         .help("Number of instructions, where the path execution will be aborted")
-                        .short("d")
+                        .short('d')
                         .long("execution-depth")
                         .takes_value(true)
                         .value_name("NUMBER")
@@ -194,9 +194,9 @@ pub fn args() -> App<'static, 'static> {
                         .validator(is::<u64>),
                 )
                 .arg(
-                    Arg::with_name("memory")
+                    Arg::new("memory")
                         .help("Amount of memory to be used per execution context in megabytes [possible_values: 1 .. 1024]")
-                        .short("m")
+                        .short('m')
                         .long("memory")
                         .takes_value(true)
                         .value_name("NUMBER")
@@ -204,7 +204,7 @@ pub fn args() -> App<'static, 'static> {
                         .validator(is_valid_memory_size),
                 )
                 .arg(
-                    Arg::with_name("strategy")
+                    Arg::new("strategy")
                     .help("Path exploration strategy to use when exploring state search space")
                     .long("strategy")
                     .takes_value(true)
@@ -213,18 +213,18 @@ pub fn args() -> App<'static, 'static> {
                     .possible_values(ExplorationStrategyType::VARIANTS)
                 )
                 .arg(
-                    Arg::with_name("smt-type")
+                    Arg::new("smt-type")
                     .help("Specify a solver type to generate the SMT file for")
                     .long("smt-type")
-                    .short("t")
+                    .short('t')
                     .takes_value(true)
                     .default_value(SmtType::Generic.into())
                     .possible_values(SmtType::VARIANTS)
                 )
                 .arg(
-                    Arg::with_name("output-file")
+                    Arg::new("output-file")
                     .help("Output path for the generated SMT-LIB file")
-                    .short("o")
+                    .short('o')
                     .long("out")
                     .takes_value(true)
                 )
@@ -233,16 +233,16 @@ pub fn args() -> App<'static, 'static> {
             App::new("rarity")
                 .about("Performs rarity simulation on a RISC-U ELF binary")
                 .arg(
-                    Arg::with_name("input-file")
+                    Arg::new("input-file")
                         .help("Source RISC-U binary to be analyzed")
                         .takes_value(true)
                         .value_name("FILE")
                         .required(true),
                 )
                 .arg(
-                    Arg::with_name("memory")
+                    Arg::new("memory")
                         .help("Amount of memory to be used per execution context in megabytes [possible_values: 1 .. 1024]")
-                        .short("m")
+                        .short('m')
                         .long("memory")
                         .takes_value(true)
                         .value_name("NUMBER")
@@ -250,7 +250,7 @@ pub fn args() -> App<'static, 'static> {
                         .validator(is_valid_memory_size),
                 )
                 .arg(
-                    Arg::with_name("step-size")
+                    Arg::new("step-size")
                         .help("Instructions to be executed for each round")
                         .long("step-size")
                         .takes_value(true)
@@ -259,7 +259,7 @@ pub fn args() -> App<'static, 'static> {
                         .validator(is::<u64>),
                 )
                 .arg(
-                    Arg::with_name("states")
+                    Arg::new("states")
                         .help("Number of distinct states")
                         .long("states")
                         .takes_value(true)
@@ -268,25 +268,25 @@ pub fn args() -> App<'static, 'static> {
                         .validator(is::<usize>),
                 )
                 .arg(
-                    Arg::with_name("selection")
+                    Arg::new("selection")
                     .help("Number of runs to select in every iteration")
-                    .short("s")
+                    .short('s')
                     .long("selection")
                     .takes_value(true)
                     .value_name("NUMBER")
                     .default_value(formatcp!("{}", rarity_defaults::SELECTION))
                     .validator(is::<usize>))
                 .arg(
-                    Arg::with_name("iterations")
+                    Arg::new("iterations")
                     .help("Iterations of rarity simulation to run")
-                    .short("i")
+                    .short('i')
                     .long("iterations")
                     .takes_value(true)
                     .value_name("NUMBER")
                     .default_value(formatcp!("{}", rarity_defaults::ITERATIONS))
                     .validator(is::<u64>))
                 .arg(
-                    Arg::with_name("copy-init-ratio")
+                    Arg::new("copy-init-ratio")
                         .help("Determines how much new states are copied instead of started from the beginning")
                         .long("copy-init-ratio")
                         .takes_value(true)
@@ -295,7 +295,7 @@ pub fn args() -> App<'static, 'static> {
                         .validator(is_ratio)
                     )
                 .arg(
-                    Arg::with_name("mean")
+                    Arg::new("mean")
                     .help("The average to be used for the counts")
                     .long("mean")
                     .takes_value(true)
@@ -305,7 +305,7 @@ pub fn args() -> App<'static, 'static> {
                     )
         )
         .setting(AppSettings::SubcommandRequiredElseHelp)
-        .global_setting(AppSettings::GlobalVersion)
+        .global_setting(AppSettings::PropagateVersion)
 }
 
 pub fn expect_arg<T: FromStr>(m: &ArgMatches, arg: &str) -> Result<T>
@@ -333,15 +333,15 @@ where
     }
 }
 
-fn is<T: FromStr>(v: String) -> Result<(), String>
+fn is<T: FromStr>(v: &str) -> Result<(), String>
 where
     <T as FromStr>::Err: std::fmt::Display,
 {
     v.parse::<T>().map(|_| ()).map_err(|e| e.to_string())
 }
 
-fn is_valid_memory_size(v: String) -> Result<(), String> {
-    is::<u64>(v.clone()).and_then(|_| {
+fn is_valid_memory_size(v: &str) -> Result<(), String> {
+    is::<u64>(v).and_then(|_| {
         let memory_size = v.parse::<u64>().expect("have checked that already");
 
         let valid_range = 1_u64..=1024_u64;
@@ -354,7 +354,7 @@ fn is_valid_memory_size(v: String) -> Result<(), String> {
     })
 }
 
-fn is_ratio(v: String) -> Result<(), String> {
+fn is_ratio(v: &str) -> Result<(), String> {
     let valid_range = 0.0_f64..=1.0f64;
 
     match v.parse::<f64>() {
@@ -398,21 +398,21 @@ mod tests {
     fn test_execute_memory_size_argument() {
         assert!(
             args()
-                .get_matches_from_safe(vec!["monster", "execute", "-m", "0", "file.o"])
+                .try_get_matches_from(vec!["monster", "execute", "-m", "0", "file.o"])
                 .is_err(),
             "Memory size 0 is invalid"
         );
 
         assert!(
             args()
-                .get_matches_from_safe(vec!["monster", "execute", "-m", "-23424", "file.o"])
+                .try_get_matches_from(vec!["monster", "execute", "-m", "-23424", "file.o"])
                 .is_err(),
             "Negative memory size is invalid"
         );
 
         assert!(
             args()
-                .get_matches_from_safe(vec!["monster", "execute", "-m", "23424", "file.o"])
+                .try_get_matches_from(vec!["monster", "execute", "-m", "23424", "file.o"])
                 .is_err(),
             "memory size is invalid (out of range)"
         );
@@ -422,14 +422,14 @@ mod tests {
     fn test_filename_argument_postitions() {
         assert!(
             args()
-                .get_matches_from_safe(vec!["monster", "smt", "-t", "generic", "file.o"])
+                .try_get_matches_from(vec!["monster", "smt", "-t", "generic", "file.o"])
                 .is_ok(),
             "Input file can be declared after flags"
         );
 
         assert!(
             args()
-                .get_matches_from_safe(vec!["monster", "smt", "filename", "-t", "generic"])
+                .try_get_matches_from(vec!["monster", "smt", "filename", "-t", "generic"])
                 .is_ok(),
             "Input file can be declared before flags"
         );

@@ -53,12 +53,12 @@ fn main() -> Result<()> {
 
     // process subcommands
     match matches.subcommand() {
-        ("disassemble", Some(args)) => {
+        Some(("disassemble", args)) => {
             let input = expect_arg::<PathBuf>(args, "input-file")?;
 
             disassemble(input)
         }
-        ("cfg", Some(args)) => {
+        Some(("cfg", args)) => {
             let input = expect_arg::<PathBuf>(args, "input-file")?;
             let output = expect_arg::<PathBuf>(args, "output-file")?;
             let distances = args.is_present("distances");
@@ -75,7 +75,7 @@ fn main() -> Result<()> {
                 write_to_file(output, &cfg)
             }
         }
-        ("smt", Some(args)) => {
+        Some(("smt", args)) => {
             let input = expect_arg::<PathBuf>(args, "input-file")?;
             let output = expect_optional_arg::<PathBuf>(args, "output-file")?;
             let strategy = expect_arg::<ExplorationStrategyType>(args, "strategy")?;
@@ -116,7 +116,7 @@ fn main() -> Result<()> {
                 }
             })
         }
-        ("execute", Some(args)) => {
+        Some(("execute", args)) => {
             let input = expect_arg::<PathBuf>(args, "input-file")?;
             let solver = expect_arg::<SolverType>(args, "solver")?;
             let strategy = expect_arg::<ExplorationStrategyType>(args, "strategy")?;
@@ -181,7 +181,7 @@ fn main() -> Result<()> {
                 }
             })
         }
-        ("model", Some(args)) => {
+        Some(("model", args)) => {
             let input = expect_arg::<PathBuf>(args, "input-file")?;
             let output = expect_optional_arg::<PathBuf>(args, "output-file")?;
             let unroll = expect_optional_arg(args, "unroll-model")?;
@@ -223,7 +223,7 @@ fn main() -> Result<()> {
 
             Ok(())
         }
-        ("rarity", Some(args)) => {
+        Some(("rarity", args)) => {
             let input = expect_arg::<PathBuf>(args, "input-file")?;
 
             let options = RaritySimulationOptions {

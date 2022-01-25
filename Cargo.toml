@@ -36,7 +36,7 @@ required-features = ["z3"]
 
 [dependencies]
 byteorder = "~1.4"
-clap = "~2.34"
+clap = { version = "~3.0", features = ["cargo"] }
 strum = { version = "~0.23", features = ["derive"] }
 riscu = "~0.5"
 petgraph = "~0.6"
