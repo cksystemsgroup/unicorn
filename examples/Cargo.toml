@@ -8,6 +8,4 @@ edition = "2018"
 name = "division-by-zero-3-35"
 path = "division-by-zero-3-35.rs"
 
-
-
 [dependencies]
