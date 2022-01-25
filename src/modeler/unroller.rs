@@ -35,17 +35,18 @@ pub fn unroll_model(model: &mut Model, n: usize) {
     }
 }
 
-pub fn renumber_model(model: &mut Model, prune: bool) {
+pub fn prune_model(model: &mut Model) {
+    debug!("Pruning sequential portion of unrolled model ...");
+    model.sequentials.clear();
+    model.bad_states_sequential.clear();
+}
+
+pub fn renumber_model(model: &mut Model) {
     debug!("Renumbering nodes in unrolled model ...");
     let mut model_renumberer = ModelRenumberer::new();
-    let s_prune = if prune { "pruned and " } else { "" };
-    let s = format!("Model was {}renumbered, it will be hard to read.", s_prune);
-    let comment = Rc::new(RefCell::new(Node::Comment(s)));
+    let s = "Model was renumbered, it will be hard to read.";
+    let comment = Rc::new(RefCell::new(Node::Comment(s.to_string())));
     model_renumberer.lines.push_back(comment);
-    if prune {
-        model.sequentials.clear();
-        model.bad_states_sequential.clear();
-    }
     for sequential in &model.sequentials {
         model_renumberer.visit(sequential)
     }

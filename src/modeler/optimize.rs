@@ -1,4 +1,4 @@
-use crate::modeler::solver::Solver;
+use crate::modeler::solver::{Solution, Solver};
 use crate::modeler::{HashableNodeRef, Model, Node, NodeRef, NodeType};
 use log::{debug, trace, warn};
 use std::cell::RefCell;
@@ -183,6 +183,31 @@ impl<S: Solver> ConstantFolder<S> {
         None
     }
 
+    fn solve_ult(&mut self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
+        if self.smt_solver.is_always_lt(left, right) {
+            trace!(
+                "Solved ULT({:?},{:?}) -> T",
+                RefCell::as_ptr(left),
+                RefCell::as_ptr(right)
+            );
+            return Some(self.const_true.clone());
+        }
+        if self.smt_solver.is_always_ge(left, right) {
+            trace!(
+                "Solved ULT({:?},{:?}) -> F",
+                RefCell::as_ptr(left),
+                RefCell::as_ptr(right)
+            );
+            return Some(self.const_false.clone());
+        }
+        None
+    }
+
+    fn fold_or_solve_ult(&mut self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
+        self.fold_ult(left, right)
+            .or_else(|| self.solve_ult(left, right))
+    }
+
     fn fold_eq(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
         if RefCell::as_ptr(left) == RefCell::as_ptr(right) {
             trace!(
@@ -214,6 +239,31 @@ impl<S: Solver> ConstantFolder<S> {
         None
     }
 
+    fn solve_eq(&mut self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
+        if self.smt_solver.is_always_eq(left, right) {
+            trace!(
+                "Solved EQ({:?},{:?}) -> T",
+                RefCell::as_ptr(left),
+                RefCell::as_ptr(right)
+            );
+            return Some(self.const_true.clone());
+        }
+        if self.smt_solver.is_always_ne(left, right) {
+            trace!(
+                "Solved EQ({:?},{:?}) -> F",
+                RefCell::as_ptr(left),
+                RefCell::as_ptr(right)
+            );
+            return Some(self.const_false.clone());
+        }
+        None
+    }
+
+    fn fold_or_solve_eq(&mut self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
+        self.fold_eq(left, right)
+            .or_else(|| self.solve_eq(left, right))
+    }
+
     fn fold_and(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
         if is_const_false(left) {
             trace!("Folding AND({:?}[F],_) -> F", RefCell::as_ptr(left));
@@ -230,6 +280,14 @@ impl<S: Solver> ConstantFolder<S> {
                 RefCell::as_ptr(right)
             );
             return Some(self.const_true.clone());
+        }
+        if is_const_true(left) {
+            trace!("Strength-reducing AND(T,x) -> x");
+            return Some(right.clone());
+        }
+        if is_const_true(right) {
+            trace!("Strength-reducing AND(x,T) -> x");
+            return Some(left.clone());
         }
         None
     }
@@ -339,7 +397,7 @@ impl<S: Solver> ConstantFolder<S> {
             Node::Ult { ref mut left, ref mut right, .. } => {
                 if let Some(n) = self.visit(left) { *left = n }
                 if let Some(n) = self.visit(right) { *right = n }
-                self.fold_ult(left, right)
+                self.fold_or_solve_ult(left, right)
             }
             Node::Ext { ref mut value, .. } => {
                 if let Some(n) = self.visit(value) { *value = n }
@@ -365,7 +423,7 @@ impl<S: Solver> ConstantFolder<S> {
             Node::Eq { ref mut left, ref mut right, .. } => {
                 if let Some(n) = self.visit(left) { *left = n }
                 if let Some(n) = self.visit(right) { *right = n }
-                self.fold_eq(left, right)
+                self.fold_or_solve_eq(left, right)
             }
             Node::And { ref mut left, ref mut right, .. } => {
                 if let Some(n) = self.visit(left) { *left = n }
@@ -413,7 +471,23 @@ impl<S: Solver> ConstantFolder<S> {
                 return true;
             }
             if use_smt {
-                return self.smt_solver.should_retain_bad_state(bad_state);
+                match self.smt_solver.solve(cond) {
+                    Solution::Sat => {
+                        warn!(
+                            "Bad state '{}' is satisfiable!",
+                            name.as_deref().unwrap_or("?")
+                        );
+                        return true;
+                    }
+                    Solution::Unsat => {
+                        debug!(
+                            "Bad state '{}' is unsatisfiable, removing",
+                            name.as_deref().unwrap_or("?")
+                        );
+                        return false;
+                    }
+                    Solution::Timeout => (),
+                }
             }
             true
         } else {

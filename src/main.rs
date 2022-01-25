@@ -10,7 +10,7 @@ use modeler::builder::generate_model;
 use modeler::memory::replace_memory;
 use modeler::optimize::optimize_model;
 use modeler::solver::*;
-use modeler::unroller::{renumber_model, unroll_model};
+use modeler::unroller::{prune_model, renumber_model, unroll_model};
 use modeler::write_model;
 use monster::{
     disassemble::disassemble,
@@ -197,21 +197,23 @@ fn main() -> Result<()> {
                 replace_memory(&mut model);
                 for n in 0..unroll_depth {
                     unroll_model(&mut model, n);
-                    match solver {
-                        monster::SmtType::Generic => {
-                            optimize_model::<none_impl::NoneSolver>(&mut model)
-                        }
-                        #[cfg(feature = "boolector")]
-                        monster::SmtType::Boolector => {
-                            optimize_model::<boolector_impl::BoolectorSolver>(&mut model)
-                        }
-                        #[cfg(feature = "z3")]
-                        monster::SmtType::Z3 => {
-                            panic!("solver Z3 not supported yet")
-                        }
+                    optimize_model::<none_impl::NoneSolver>(&mut model)
+                }
+                if prune {
+                    prune_model(&mut model);
+                }
+                match solver {
+                    monster::SmtType::Generic => (), // nothing left to do
+                    #[cfg(feature = "boolector")]
+                    monster::SmtType::Boolector => {
+                        optimize_model::<boolector_impl::BoolectorSolver>(&mut model)
+                    }
+                    #[cfg(feature = "z3")]
+                    monster::SmtType::Z3 => {
+                        panic!("solver Z3 not supported yet")
                     }
                 }
-                renumber_model(&mut model, prune);
+                renumber_model(&mut model);
             }
 
             if let Some(output_path) = output {

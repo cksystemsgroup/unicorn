@@ -1,5 +1,4 @@
-use crate::modeler::{Node, NodeRef};
-use log::{debug, warn};
+use crate::modeler::NodeRef;
 
 //
 // Public Interface
@@ -19,30 +18,10 @@ pub trait Solver {
     fn solve(&mut self, root: &NodeRef) -> Solution;
     fn is_always_true(&mut self, node: &NodeRef) -> bool;
     fn is_always_false(&mut self, node: &NodeRef) -> bool;
-
-    fn should_retain_bad_state(&mut self, bad_state: &NodeRef) -> bool {
-        if let Node::Bad { cond, name, .. } = &*bad_state.borrow() {
-            match self.solve(cond) {
-                Solution::Sat => {
-                    warn!(
-                        "Bad state '{}' is satisfiable!",
-                        name.as_deref().unwrap_or("?")
-                    );
-                    true
-                }
-                Solution::Unsat => {
-                    debug!(
-                        "Bad state '{}' is unsatisfiable, removing",
-                        name.as_deref().unwrap_or("?")
-                    );
-                    false
-                }
-                Solution::Timeout => true,
-            }
-        } else {
-            panic!("expecting 'Bad' node here");
-        }
-    }
+    fn is_always_eq(&mut self, left: &NodeRef, right: &NodeRef) -> bool;
+    fn is_always_ne(&mut self, left: &NodeRef, right: &NodeRef) -> bool;
+    fn is_always_lt(&mut self, left: &NodeRef, right: &NodeRef) -> bool;
+    fn is_always_ge(&mut self, left: &NodeRef, right: &NodeRef) -> bool;
 }
 
 //
@@ -70,6 +49,22 @@ pub mod none_impl {
         }
 
         fn is_always_false(&mut self, _node: &NodeRef) -> bool {
+            false
+        }
+
+        fn is_always_eq(&mut self, _left: &NodeRef, _right: &NodeRef) -> bool {
+            false
+        }
+
+        fn is_always_ne(&mut self, _left: &NodeRef, _right: &NodeRef) -> bool {
+            false
+        }
+
+        fn is_always_lt(&mut self, _left: &NodeRef, _right: &NodeRef) -> bool {
+            false
+        }
+
+        fn is_always_ge(&mut self, _left: &NodeRef, _right: &NodeRef) -> bool {
             false
         }
 
@@ -122,6 +117,34 @@ pub mod boolector_impl {
 
         fn is_always_false(&mut self, node: &NodeRef) -> bool {
             let bv = self.visit(node);
+            self.solve_impl(bv) == Solution::Unsat
+        }
+
+        fn is_always_eq(&mut self, left: &NodeRef, right: &NodeRef) -> bool {
+            let left_bv = self.visit(left);
+            let right_bv = self.visit(right);
+            let bv = left_bv._ne(&right_bv);
+            self.solve_impl(bv) == Solution::Unsat
+        }
+
+        fn is_always_ne(&mut self, left: &NodeRef, right: &NodeRef) -> bool {
+            let left_bv = self.visit(left);
+            let right_bv = self.visit(right);
+            let bv = left_bv._eq(&right_bv);
+            self.solve_impl(bv) == Solution::Unsat
+        }
+
+        fn is_always_lt(&mut self, left: &NodeRef, right: &NodeRef) -> bool {
+            let left_bv = self.visit(left);
+            let right_bv = self.visit(right);
+            let bv = left_bv.ugte(&right_bv);
+            self.solve_impl(bv) == Solution::Unsat
+        }
+
+        fn is_always_ge(&mut self, left: &NodeRef, right: &NodeRef) -> bool {
+            let left_bv = self.visit(left);
+            let right_bv = self.visit(right);
+            let bv = left_bv.ult(&right_bv);
             self.solve_impl(bv) == Solution::Unsat
         }
 
