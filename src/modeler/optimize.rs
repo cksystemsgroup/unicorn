@@ -301,6 +301,41 @@ impl<S: Solver> ConstantFolder<S> {
         None
     }
 
+    fn solve_ite_bit(
+        &mut self,
+        node: &NodeRef,
+        cond: &NodeRef,
+        left: &NodeRef,
+        right: &NodeRef,
+    ) -> Option<NodeRef> {
+        if let Some(x) = self.solve_boolean_binary(node, left, right, "ITE") {
+            return Some(x);
+        }
+        if self.smt_solver.is_always_equal(node, cond) {
+            trace!("Strength-reducing ITE(x,_,_) -> x");
+            return Some(cond.clone());
+        }
+        None
+    }
+
+    fn solve_ite_word(
+        &mut self,
+        node: &NodeRef,
+        _cond: &NodeRef,
+        left: &NodeRef,
+        right: &NodeRef,
+    ) -> Option<NodeRef> {
+        if self.smt_solver.is_always_equal(node, left) {
+            trace!("Strength-reducing ITE(_,x,_) -> x");
+            return Some(left.clone());
+        }
+        if self.smt_solver.is_always_equal(node, right) {
+            trace!("Strength-reducing ITE(_,_,x) -> x");
+            return Some(right.clone());
+        }
+        None
+    }
+
     // TODO: The following implementation of store-to-load forwarding is not
     // linear, it is in O(n*m) where 'n' and 'm' are the number of load and
     // store instructions respectively. It can be improved with a time-stamped
@@ -455,13 +490,19 @@ impl<S: Solver> ConstantFolder<S> {
             Node::And { left, right, .. } => {
                 self.solve_and(node, left, right)
             }
+            Node::Ite { sort: NodeType::Bit, cond, left, right, .. } => {
+                self.solve_ite_bit(node, cond, left, right)
+            }
+            Node::Ite { sort: NodeType::Word, cond, left, right, .. } => {
+                self.solve_ite_word(node, cond, left, right)
+            }
             _ => None
         }
     }
 
     fn process(&mut self, node: &NodeRef) -> Option<NodeRef> {
         // First try to constant-fold nodes and only invoke the SMT solver on
-        // some binary boolean operations in case constant-folding fails.
+        // some specific boolean operations in case constant-folding fails.
         self.process_fold(node).or_else(|| self.process_solve(node))
     }
 

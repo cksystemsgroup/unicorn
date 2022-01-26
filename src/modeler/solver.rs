@@ -18,6 +18,7 @@ pub trait Solver {
     fn solve(&mut self, root: &NodeRef) -> Solution;
     fn is_always_true(&mut self, node: &NodeRef) -> bool;
     fn is_always_false(&mut self, node: &NodeRef) -> bool;
+    fn is_always_equal(&mut self, left: &NodeRef, right: &NodeRef) -> bool;
 }
 
 //
@@ -45,6 +46,10 @@ pub mod none_impl {
         }
 
         fn is_always_false(&mut self, _node: &NodeRef) -> bool {
+            false
+        }
+
+        fn is_always_equal(&mut self, _left: &NodeRef, _right: &NodeRef) -> bool {
             false
         }
 
@@ -97,6 +102,13 @@ pub mod boolector_impl {
 
         fn is_always_false(&mut self, node: &NodeRef) -> bool {
             let bv = self.visit(node);
+            self.solve_impl(bv) == Solution::Unsat
+        }
+
+        fn is_always_equal(&mut self, left: &NodeRef, right: &NodeRef) -> bool {
+            let bv_left = self.visit(left);
+            let bv_right = self.visit(right);
+            let bv = bv_left._ne(&bv_right);
             self.solve_impl(bv) == Solution::Unsat
         }
 
