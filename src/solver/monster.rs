@@ -101,10 +101,8 @@ fn initialize_ab<F: Formula>(formula: &F) -> Vec<BitVector> {
         .max()
         .expect("formula should not be empty");
 
-    let mut ab = Vec::with_capacity(std::mem::size_of::<BitVector>() * (max_id + 1));
-    unsafe {
-        ab.set_len(max_id + 1);
-    }
+    let mut ab = Vec::with_capacity(max_id + 1);
+    ab.resize(max_id + 1, BitVector(0));
 
     formula.symbol_ids().for_each(|i| {
         ab[i] = match formula[i] {
