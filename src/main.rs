@@ -210,7 +210,7 @@ fn main() -> Result<()> {
                     }
                     #[cfg(feature = "z3")]
                     monster::SmtType::Z3 => {
-                        panic!("solver Z3 not supported yet")
+                        optimize_model::<z3solver_impl::Z3SolverWrapper>(&mut model)
                     }
                 }
                 renumber_model(&mut model);

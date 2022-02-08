@@ -143,7 +143,7 @@ pub struct Model {
     pub memory_size: u64,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct HashableNodeRef {
     value: NodeRef,
 }
