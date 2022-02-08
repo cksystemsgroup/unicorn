@@ -6,7 +6,6 @@ use monster::engine::system::SyscallId;
 use riscu::{decode, types::*, Instruction, Program, Register};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::collections::LinkedList;
 use std::mem::size_of;
 use std::ops::Range;
 use std::rc::Rc;
@@ -38,7 +37,7 @@ const MAX_STACK_SIZE: u64 = 16 * size_of::<u64>() as u64; // TODO: Make this con
 // TODO(test): Test model by adding a poor-man's type-checker.
 // TODO(test): Test builder on existing samples automatically.
 struct ModelBuilder {
-    lines: LinkedList<NodeRef>,
+    lines: Vec<NodeRef>,
     sequentials: Vec<NodeRef>,
     bad_states: Vec<NodeRef>,
     pc_flags: HashMap<u64, NodeRef>,
@@ -77,7 +76,7 @@ impl ModelBuilder {
     fn new() -> Self {
         let dummy_node = Rc::new(RefCell::new(Node::Comment("dummy".to_string())));
         Self {
-            lines: LinkedList::new(),
+            lines: Vec::new(),
             sequentials: Vec::new(),
             bad_states: Vec::new(),
             pc_flags: HashMap::new(),
@@ -144,7 +143,7 @@ impl ModelBuilder {
 
     fn add_node(&mut self, node_data: Node) -> NodeRef {
         let node = Rc::new(RefCell::new(node_data));
-        self.lines.push_back(node.clone());
+        self.lines.push(node.clone());
         self.current_nid += 1;
         node
     }
@@ -329,7 +328,7 @@ impl ModelBuilder {
 
     fn new_comment(&mut self, s: String) {
         let node = Rc::new(RefCell::new(Node::Comment(s)));
-        self.lines.push_back(node);
+        self.lines.push(node);
     }
 
     fn go_to_instruction(

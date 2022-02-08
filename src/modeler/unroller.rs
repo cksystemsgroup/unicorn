@@ -3,7 +3,6 @@ use log::debug;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::collections::LinkedList;
 use std::rc::Rc;
 
 //
@@ -46,7 +45,7 @@ pub fn renumber_model(model: &mut Model) {
     let mut model_renumberer = ModelRenumberer::new();
     let s = "Model was renumbered, it will be hard to read.";
     let comment = Rc::new(RefCell::new(Node::Comment(s.to_string())));
-    model_renumberer.lines.push_back(comment);
+    model_renumberer.lines.push(comment);
     for sequential in &model.sequentials {
         model_renumberer.visit(sequential)
     }
@@ -66,7 +65,7 @@ pub fn renumber_model(model: &mut Model) {
 struct ModelRenumberer {
     current_nid: Nid,
     marks: HashSet<HashableNodeRef>,
-    lines: LinkedList<NodeRef>,
+    lines: Vec<NodeRef>,
 }
 
 impl ModelRenumberer {
@@ -74,12 +73,12 @@ impl ModelRenumberer {
         Self {
             current_nid: 10000000,
             marks: HashSet::new(),
-            lines: LinkedList::new(),
+            lines: Vec::new(),
         }
     }
 
     fn add_line(&mut self, node: &NodeRef) {
-        self.lines.push_back(node.clone());
+        self.lines.push(node.clone());
     }
 
     fn next_nid(&mut self, nid: &mut Nid) {
