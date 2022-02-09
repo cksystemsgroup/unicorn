@@ -70,10 +70,9 @@ impl<W: Write> GateModelPrinter<W> {
                 writeln!(self.out, "{} constd 1 0", gate_nid)?;
                 Ok(gate_nid)
             }
-            Gate::InputBit => {
+            Gate::InputBit { name } => {
                 let gate_nid = self.next_nid();
-                // TODO: We need a sensible name on the Gate::InputBit struct.
-                writeln!(self.out, "{} state 1 needs-a-name[{}]", gate_nid, gate_nid)?;
+                writeln!(self.out, "{} state 1 {}", gate_nid, name)?;
                 Ok(gate_nid)
             }
             Gate::Not { value } => {
