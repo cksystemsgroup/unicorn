@@ -9,6 +9,8 @@ use std::rc::Rc;
 // Public Interface
 //
 
+pub mod bitblasting;
+pub mod bitblasting_printer;
 pub mod builder;
 pub mod memory;
 pub mod optimize;

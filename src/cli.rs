@@ -134,6 +134,12 @@ pub fn args() -> App<'static> {
             App::new("model")
                 .about("Create a BTOR2 model for a RISC-U ELF binary")
                 .arg(
+                    Arg::new("bitblast")
+                    .help("Perform bitblasting of the model")
+                    .short('b')
+                    .long("bitblast")
+                )
+                .arg(
                     Arg::new("input-file")
                         .help("RISC-U ELF binary to be converted")
                         .takes_value(true)

@@ -6,6 +6,8 @@ use bytesize::ByteSize;
 use cli::{expect_arg, expect_optional_arg, LogLevel};
 use env_logger::{Env, TimestampPrecision};
 use log::info;
+use modeler::bitblasting::BitBlasting;
+use modeler::bitblasting_printer::write_gate_model;
 use modeler::builder::generate_model;
 use modeler::memory::replace_memory;
 use modeler::optimize::optimize_model;
@@ -187,6 +189,7 @@ fn main() -> Result<()> {
             let unroll = expect_optional_arg(args, "unroll-model")?;
             let solver = expect_arg::<monster::SmtType>(args, "solver")?;
             let prune = args.is_present("prune-model");
+            let bitblast = args.is_present("bitblast");
 
             let program = load_object_file(&input)?;
 
@@ -213,14 +216,27 @@ fn main() -> Result<()> {
                         optimize_model::<z3solver_impl::Z3SolverWrapper>(&mut model)
                     }
                 }
-                renumber_model(&mut model);
             }
 
-            if let Some(output_path) = output {
-                let file = File::create(output_path)?;
-                write_model(&model, file)?;
+            if bitblast {
+                info!("Finished building model, starting bitblasting");
+                let mut bitblasting = BitBlasting::new(&model, true, 64);
+                let bad_states = bitblasting.process_model(&model);
+                if let Some(ref output_path) = output {
+                    let file = File::create(output_path)?;
+                    write_gate_model(&model, &bad_states, file)?;
+                } else {
+                    write_gate_model(&model, &bad_states, stdout())?;
+                }
+                // TODO: call_qubot(&bitblasting, &bad_states);
             } else {
-                write_model(&model, stdout())?;
+                renumber_model(&mut model);
+                if let Some(ref output_path) = output {
+                    let file = File::create(output_path)?;
+                    write_model(&model, file)?;
+                } else {
+                    write_model(&model, stdout())?;
+                }
             }
 
             Ok(())
