@@ -88,14 +88,30 @@ impl<W: Write> GateModelPrinter<W> {
                 writeln!(self.out, "{} and 1 {} {}", gate_nid, left_nid, right_nid)?;
                 Ok(gate_nid)
             }
-            Gate::Nand { left: _, right: _ } => {
-                panic!("implement Gate::Nand")
+            Gate::Nand { left, right} => {
+                let left_nid = self.visit(left);
+                let right_nid = self.visit(right);
+                let gate_nid = self.next_nid();
+                writeln!(self.out, "{} nand 1 {} {}", gate_nid, left_nid, right_nid)?;
+                Ok(gate_nid)
             }
-            Gate::Or { left: _, right: _ } => {
-                panic!("implement Gate::Or")
+            Gate::Or { left, right} => {
+                let left_nid = self.visit(left);
+                let right_nid = self.visit(right);
+                let gate_nid = self.next_nid();
+                writeln!(self.out, "{} or 1 {} {}", gate_nid, left_nid, right_nid)?;
+                Ok(gate_nid)
             }
-            Gate::Matriarch1 { cond: _, right: _ } => {
-                panic!("implement Gate::Matriarch1")
+            Gate::Matriarch1 { cond, right} => {
+                let left_nid = self.visit(cond);
+                let right_nid = self.visit(right);
+
+                let not_gate_nid = self.next_nid();
+                writeln!(self.out, "{} not 1 {}", not_gate_nid, left_nid)?;
+
+                let gate_nid = self.next_nid();
+                writeln!(self.out, "{} and 1 {} {}", gate_nid, not_gate_nid, right_nid)?;
+                Ok(gate_nid)
             }
             Gate::CarryHalfAdder { left, right } => {
                 let left_nid = self.visit(left);
