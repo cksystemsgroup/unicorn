@@ -14,7 +14,7 @@ use std::rc::Rc;
 
 pub type GateRef = Rc<RefCell<Gate>>;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum Gate {
     ConstTrue,
     ConstFalse,
@@ -139,31 +139,23 @@ fn get_gate_from_constant_bit(bit: u64) -> GateRef {
     }
 }
 
-fn is_constant(gate_type: GateRef) -> bool {
-    *gate_type == RefCell::new(Gate::ConstTrue) || *gate_type == RefCell::new(Gate::ConstFalse)
+fn is_constant(gate_type: &GateRef) -> bool {
+    matches!(&*gate_type.borrow(), Gate::ConstFalse | Gate::ConstTrue)
 }
 
-fn get_constant(gate_type: GateRef) -> Option<bool> {
-    if is_constant(gate_type.clone()) {
-        if *gate_type == RefCell::new(Gate::ConstFalse) {
-            Some(false)
-        } else {
-            Some(true)
-        }
-    } else {
-        None
+fn get_constant(gate_type: &GateRef) -> Option<bool> {
+    match &*gate_type.borrow() {
+        Gate::ConstFalse => Some(false),
+        Gate::ConstTrue => Some(true),
+        _ => None,
     }
 }
 
 fn get_numeric_from_gate(gate_type: &GateRef) -> Option<u8> {
-    if let Some(result) = get_constant(gate_type.clone()) {
-        if result {
-            Some(1)
-        } else {
-            Some(0)
-        }
-    } else {
-        None
+    match &*gate_type.borrow() {
+        Gate::ConstFalse => Some(0),
+        Gate::ConstTrue => Some(1),
+        _ => None,
     }
 }
 
@@ -239,7 +231,7 @@ fn are_both_constants(const1: Option<bool>, const2: Option<bool>) -> bool {
 
 fn get_non_constant_gate(gates: &[GateRef]) -> Option<GateRef> {
     for gate in gates {
-        if get_constant(gate.clone()).is_none() {
+        if get_constant(gate).is_none() {
             return Some((*gate).clone());
         }
     }
@@ -263,15 +255,15 @@ fn and_gate(a: Option<bool>, b: Option<bool>, a_gate: &GateRef, b_gate: &GateRef
         let val_b = b.unwrap();
 
         if val_a {
-            assert!(*a_gate == GateRef::from(Gate::ConstTrue));
+            assert!(matches!(*a_gate.borrow(), Gate::ConstTrue));
         } else {
-            assert!(*a_gate == GateRef::from(Gate::ConstFalse));
+            assert!(matches!(*a_gate.borrow(), Gate::ConstFalse));
         }
 
         if val_b {
-            assert!(*b_gate == GateRef::from(Gate::ConstTrue));
+            assert!(matches!(*b_gate.borrow(), Gate::ConstTrue));
         } else {
-            assert!(*b_gate == GateRef::from(Gate::ConstFalse));
+            assert!(matches!(*b_gate.borrow(), Gate::ConstFalse));
         }
 
         get_gate_from_boolean(a.unwrap() && b.unwrap())
@@ -295,13 +287,13 @@ fn matriarch1_gate(
 ) -> GateRef {
     if are_both_constants(cond, b) {
         get_gate_from_boolean(!cond.unwrap() && b.unwrap())
-    } else if let Some(const_cond) = get_constant(cond_gate.clone()) {
+    } else if let Some(const_cond) = get_constant(cond_gate) {
         if const_cond {
             GateRef::from(Gate::ConstFalse)
         } else {
             b_gate.clone()
         }
-    } else if let Some(const_bit) = get_constant(b_gate.clone()) {
+    } else if let Some(const_bit) = get_constant(b_gate) {
         if const_bit {
             GateRef::from(Gate::Not {
                 value: cond_gate.clone(),
@@ -333,7 +325,7 @@ fn or_gate(a: Option<bool>, b: Option<bool>, a_gate: &GateRef, b_gate: &GateRef)
 }
 
 fn not_gate(a_gate: GateRef) -> GateRef {
-    let a = get_constant(a_gate.clone());
+    let a = get_constant(&a_gate);
 
     if let Some(a_const) = a {
         if a_const {
@@ -381,9 +373,9 @@ fn xnor_gate(a: Option<bool>, b: Option<bool>, a_gate: &GateRef, b_gate: &GateRe
 }
 
 fn are_there_2_constants(bit1: &GateRef, bit2: &GateRef, bit3: &GateRef) -> bool {
-    let const1 = get_constant(bit1.clone()).is_some() as u8;
-    let const2 = get_constant(bit2.clone()).is_some() as u8;
-    let const3 = get_constant(bit3.clone()).is_some() as u8;
+    let const1 = get_constant(bit1).is_some() as u8;
+    let const2 = get_constant(bit2).is_some() as u8;
+    let const3 = get_constant(bit3).is_some() as u8;
     (const1 + const2 + const3) == 2
 }
 
@@ -401,8 +393,8 @@ where
     let mut replacement: Vec<GateRef> = Vec::new();
 
     for (l_bit, r_bit) in left.iter().zip(right.iter()) {
-        let l_bit_const = get_constant(l_bit.clone());
-        let r_bit_const = get_constant(r_bit.clone());
+        let l_bit_const = get_constant(l_bit);
+        let r_bit_const = get_constant(r_bit);
         replacement.push(f_gate(
             l_bit_const,
             r_bit_const,
@@ -421,8 +413,8 @@ where
 
     let mut current = word[0].clone();
     for w in word.iter().skip(1) {
-        let a = get_constant(current.clone());
-        let b = get_constant((*w).clone());
+        let a = get_constant(&current);
+        let b = get_constant(w);
         current = f_gate(a, b, &current, &(*w).clone());
     }
 
@@ -526,8 +518,8 @@ impl<'a> BitBlasting<'a> {
         let mut carry: GateRef = GateRef::from(Gate::ConstFalse); // initlaize so compiler not complains
         let mut is_first = true;
         for (l_bit, r_bit) in left.iter().zip(right.iter()) {
-            let l_const = get_constant(l_bit.clone());
-            let r_const = get_constant(r_bit.clone());
+            let l_const = get_constant(l_bit);
+            let r_const = get_constant(r_bit);
             if is_first {
                 // half adders
                 if are_both_constants(l_const, r_const) {
@@ -560,8 +552,8 @@ impl<'a> BitBlasting<'a> {
                 }
                 is_first = false;
             // Full adders
-            } else if are_both_constants(l_const, r_const) && is_constant(carry.clone()) {
-                let carry_const = get_constant(carry.clone());
+            } else if are_both_constants(l_const, r_const) && is_constant(&carry) {
+                let carry_const = get_constant(&carry);
                 let result = ((l_const.unwrap() as u64)
                     + (r_const.unwrap() as u64)
                     + (carry_const.unwrap() as u64))
@@ -575,7 +567,7 @@ impl<'a> BitBlasting<'a> {
                     > 1;
                 carry = get_gate_from_boolean(temp);
             } else if are_there_2_constants(l_bit, r_bit, &carry) {
-                let carry_const = get_constant(carry.clone());
+                let carry_const = get_constant(&carry);
                 let (const1, const2) = get_2_constants(l_const, r_const, carry_const);
                 if let Some(non_const) =
                     get_non_constant_gate(&[(*l_bit).clone(), (*r_bit).clone(), carry.clone()])
@@ -631,7 +623,7 @@ impl<'a> BitBlasting<'a> {
                 result.push(GateRef::from(Gate::ConstFalse));
             }
 
-            if let Some(const_digit) = get_constant(digit.clone()) {
+            if let Some(const_digit) = get_constant(digit) {
                 if const_digit {
                     for g in left_operand {
                         result.push(g.clone());
@@ -643,7 +635,7 @@ impl<'a> BitBlasting<'a> {
                 }
             } else {
                 for g in left_operand {
-                    if let Some(const_g) = get_constant((*g).clone()) {
+                    if let Some(const_g) = get_constant(g) {
                         if const_g {
                             result.push(digit.clone());
                         } else {
@@ -907,7 +899,7 @@ impl<'a> BitBlasting<'a> {
             } => {
                 let cond_operand = self.visit(cond);
                 assert!(cond_operand.len() == 1);
-                if let Some(cond_const) = get_constant(cond_operand[0].clone()) {
+                if let Some(cond_const) = get_constant(&cond_operand[0]) {
                     if cond_const {
                         let left_operand = self.visit(left);
                         self.nid_to_gates.insert(*nid, left_operand.clone());
@@ -924,12 +916,12 @@ impl<'a> BitBlasting<'a> {
 
                     let mut replacement: Vec<GateRef> = Vec::new();
                     for i in 0..left_operand.len() {
-                        let left_bit = get_constant(left_operand[i].clone());
-                        let right_bit = get_constant(right_operand[i].clone());
+                        let left_bit = get_constant(&left_operand[i]);
+                        let right_bit = get_constant(&right_operand[i]);
 
                         if are_both_constants(left_bit, right_bit) {
-                            let const_true_bit = get_constant(left_operand[i].clone()).unwrap();
-                            let const_false_bit = get_constant(right_operand[i].clone()).unwrap();
+                            let const_true_bit = get_constant(&left_operand[i]).unwrap();
+                            let const_false_bit = get_constant(&right_operand[i]).unwrap();
 
                             if const_true_bit == const_false_bit {
                                 replacement.push(left_operand[i].clone());
@@ -944,7 +936,7 @@ impl<'a> BitBlasting<'a> {
                             let true_bit: GateRef;
                             let false_bit: GateRef;
 
-                            if let Some(const_true) = get_constant(left_operand[i].clone()) {
+                            if let Some(const_true) = get_constant(&left_operand[i]) {
                                 if const_true {
                                     true_bit = cond_operand[0].clone();
                                 } else {
@@ -957,7 +949,7 @@ impl<'a> BitBlasting<'a> {
                                 });
                             }
 
-                            if let Some(const_false) = get_constant(right_operand[i].clone()) {
+                            if let Some(const_false) = get_constant(&right_operand[i]) {
                                 if const_false {
                                     false_bit = GateRef::from(Gate::Not {
                                         value: cond_operand[0].clone(),
@@ -972,8 +964,8 @@ impl<'a> BitBlasting<'a> {
                                 });
                             }
 
-                            let true_bit_const = get_constant(true_bit.clone());
-                            let false_bit_const = get_constant(false_bit.clone());
+                            let true_bit_const = get_constant(&true_bit);
+                            let false_bit_const = get_constant(&false_bit);
                             replacement.push(or_gate(
                                 true_bit_const,
                                 false_bit_const,
@@ -1070,8 +1062,8 @@ impl<'a> BitBlasting<'a> {
                             let current_bit = &memory_unfolded
                                 [i * (self.word_size as usize) + (bit_index as usize)];
 
-                            let const_current_bit = get_constant(current_bit.clone());
-                            let const_is_equal = get_constant(is_equal.clone());
+                            let const_current_bit = get_constant(current_bit);
+                            let const_is_equal = get_constant(&is_equal);
 
                             temp_word.push(and_gate(
                                 const_current_bit,
@@ -1131,15 +1123,15 @@ impl<'a> BitBlasting<'a> {
 
                             let actual_bit = &value_unfolded[bit_index];
 
-                            if let Some(const_is_equal) = get_constant(is_equal.clone()) {
+                            if let Some(const_is_equal) = get_constant(is_equal) {
                                 if const_is_equal {
                                     replacement.push(actual_bit.clone());
                                 } else {
                                     replacement.push(prev_bit.clone());
                                 }
                             } else {
-                                let const_prev_bit = get_constant(prev_bit.clone());
-                                let const_actual_bit = get_constant(actual_bit.clone());
+                                let const_prev_bit = get_constant(prev_bit);
+                                let const_actual_bit = get_constant(actual_bit);
 
                                 if are_both_constants(const_prev_bit, const_actual_bit) {
                                     if const_prev_bit.unwrap() == const_actual_bit.unwrap() {
@@ -1160,7 +1152,7 @@ impl<'a> BitBlasting<'a> {
                                         }));
                                     }
                                 } else {
-                                    let const_is_equal = get_constant((*is_equal).clone());
+                                    let const_is_equal = get_constant(is_equal);
                                     let temp_actual_bit = and_gate(
                                         const_prev_bit,
                                         const_is_equal,
@@ -1174,9 +1166,8 @@ impl<'a> BitBlasting<'a> {
                                         is_equal,
                                     );
 
-                                    let const_temp_actual_bit =
-                                        get_constant(temp_actual_bit.clone());
-                                    let const_temp_prev_bit = get_constant(temp_prev_bit.clone());
+                                    let const_temp_actual_bit = get_constant(&temp_actual_bit);
+                                    let const_temp_prev_bit = get_constant(&temp_prev_bit);
 
                                     replacement.push(or_gate(
                                         const_temp_actual_bit,
@@ -1220,9 +1211,9 @@ mod tests {
     #[test]
     fn constants_checking() {
         let v = "v".to_string();
-        assert!(is_constant(GateRef::from(Gate::ConstTrue)));
-        assert!(is_constant(GateRef::from(Gate::ConstFalse)));
-        assert!(!is_constant(GateRef::from(Gate::InputBit { name: v })));
+        assert!(is_constant(&GateRef::from(Gate::ConstTrue)));
+        assert!(is_constant(&GateRef::from(Gate::ConstFalse)));
+        assert!(!is_constant(&GateRef::from(Gate::InputBit { name: v })));
     }
 
     #[test]
@@ -1233,16 +1224,22 @@ mod tests {
 
     #[test]
     fn get_constant_from_bit() {
-        assert!(get_gate_from_constant_bit(0) == GateRef::from(Gate::ConstFalse));
-        assert!(get_gate_from_constant_bit(1) == GateRef::from(Gate::ConstTrue));
+        assert!(matches!(
+            &*get_gate_from_constant_bit(0).borrow(),
+            Gate::ConstFalse
+        ));
+        assert!(matches!(
+            &*get_gate_from_constant_bit(1).borrow(),
+            Gate::ConstTrue
+        ));
     }
 
     #[test]
     fn get_constant_from_gate() {
         let v = "v".to_string();
-        assert!(get_constant(GateRef::from(Gate::ConstFalse)) == Some(false));
-        assert!(get_constant(GateRef::from(Gate::ConstTrue)) == Some(true));
-        assert!(get_constant(GateRef::from(Gate::InputBit { name: v })) == None);
+        assert!(get_constant(&GateRef::from(Gate::ConstFalse)) == Some(false));
+        assert!(get_constant(&GateRef::from(Gate::ConstTrue)) == Some(true));
+        assert!(get_constant(&GateRef::from(Gate::InputBit { name: v })) == None);
     }
 
     #[test]
@@ -1273,8 +1270,14 @@ mod tests {
 
     #[test]
     fn t_get_gate_from_boolean() {
-        assert!(get_gate_from_boolean(true) == GateRef::from(Gate::ConstTrue));
-        assert!(get_gate_from_boolean(false) == GateRef::from(Gate::ConstFalse));
+        assert!(matches!(
+            &*get_gate_from_boolean(true).borrow(),
+            Gate::ConstTrue
+        ));
+        assert!(matches!(
+            &*get_gate_from_boolean(false).borrow(),
+            Gate::ConstFalse
+        ));
     }
 
     #[test]
@@ -1333,10 +1336,10 @@ mod tests {
         let v = "v".to_string();
         gates.push(GateRef::from(Gate::InputBit { name: v }));
 
-        let v = "v".to_string();
-        assert!(
-            get_non_constant_gate(&gates).unwrap() == GateRef::from(Gate::InputBit { name: v })
-        );
+        assert!(matches!(
+            &*get_non_constant_gate(&gates).unwrap().borrow(),
+            Gate::InputBit { name } if name == "v"
+        ));
     }
 
     #[test]
@@ -1363,18 +1366,29 @@ mod tests {
         let var = GateRef::from(Gate::InputBit { name: v1 });
         let var2 = GateRef::from(Gate::InputBit { name: v2 });
 
-        assert!(and_gate(Some(true), Some(true), &const_true, &const_true) == const_true);
-        assert!(and_gate(Some(false), Some(true), &const_false, &const_true) == const_false);
-        assert!(and_gate(Some(false), None, &const_true, &var) == const_false);
-        assert!(and_gate(Some(true), None, &const_true, &var) == var);
-        info!("{:?}", and_gate(None, None, &var, &var2));
-        assert!(
-            and_gate(None, None, &var, &var2)
-                == GateRef::from(Gate::And {
-                    left: var,
-                    right: var2
-                })
-        );
+        assert!(matches!(
+            &*and_gate(Some(true), Some(true), &const_true, &const_true).borrow(),
+            Gate::ConstTrue
+        ));
+        assert!(matches!(
+            &*and_gate(Some(false), Some(true), &const_false, &const_true).borrow(),
+            Gate::ConstFalse
+        ));
+        assert!(matches!(
+            &*and_gate(Some(false), None, &const_true, &var).borrow(),
+            Gate::ConstFalse
+        ));
+        assert!(matches!(
+            &*and_gate(Some(true), None, &const_true, &var).borrow(),
+            Gate::InputBit { name } if name == "v1"
+        ));
+
+        assert!(matches!(
+            &*and_gate(None, None, &var, &var2).borrow(),
+            Gate::And { left, right } if
+                matches!(&*left.borrow(), Gate::InputBit { name } if name == "v1") &&
+                matches!(&*right.borrow(), Gate::InputBit { name } if name == "v2")
+        ));
     }
 
     #[test]
@@ -1397,19 +1411,30 @@ mod tests {
         let var = GateRef::from(Gate::InputBit { name: v1 });
         let var2 = GateRef::from(Gate::InputBit { name: v2 });
 
-        assert!(matriarch1_gate(Some(true), Some(true), &const_true, &const_true) == const_false);
-        assert!(matriarch1_gate(Some(false), Some(true), &const_false, &const_true) == const_true);
+        assert!(matches!(
+            &*matriarch1_gate(Some(true), Some(true), &const_true, &const_true).borrow(),
+            Gate::ConstFalse
+        ));
+        assert!(matches!(
+            &*matriarch1_gate(Some(false), Some(true), &const_false, &const_true).borrow(),
+            Gate::ConstTrue
+        ));
 
-        assert!(matriarch1_gate(Some(false), None, &const_false, &var) == var);
-        assert!(matriarch1_gate(Some(true), None, &const_true, &var) == const_false);
+        assert!(matches!(
+            &*matriarch1_gate(Some(false), None, &const_false, &var).borrow(),
+            Gate::InputBit { name } if name == "v1"
+        ));
+        assert!(matches!(
+            &*matriarch1_gate(Some(true), None, &const_true, &var).borrow(),
+            Gate::ConstFalse
+        ));
 
-        assert!(
-            matriarch1_gate(None, None, &var2, &var)
-                == GateRef::from(Gate::Matriarch1 {
-                    cond: var2,
-                    right: var
-                })
-        );
+        assert!(matches!(
+            &*matriarch1_gate(None, None, &var2, &var).borrow(),
+            Gate::Matriarch1 { cond, right } if
+                matches!(&*cond.borrow(), Gate::InputBit { name } if name == "v2") &&
+                matches!(&*right.borrow(), Gate::InputBit { name } if name == "v1")
+        ));
     }
 
     #[test]
@@ -1421,24 +1446,47 @@ mod tests {
         let var = GateRef::from(Gate::InputBit { name: v1 });
         let var2 = GateRef::from(Gate::InputBit { name: v2 });
 
-        assert!(or_gate(Some(true), Some(true), &const_true, &const_true) == const_true);
-        assert!(or_gate(Some(true), Some(false), &const_true, &const_false) == const_true);
-        assert!(or_gate(Some(false), Some(true), &const_false, &const_true) == const_true);
-        assert!(or_gate(Some(false), Some(false), &const_false, &const_false) == const_false);
+        assert!(matches!(
+            &*or_gate(Some(true), Some(true), &const_true, &const_true).borrow(),
+            Gate::ConstTrue
+        ));
+        assert!(matches!(
+            &*or_gate(Some(true), Some(false), &const_true, &const_false).borrow(),
+            Gate::ConstTrue
+        ));
+        assert!(matches!(
+            &*or_gate(Some(false), Some(true), &const_false, &const_true).borrow(),
+            Gate::ConstTrue
+        ));
+        assert!(matches!(
+            &*or_gate(Some(false), Some(false), &const_false, &const_false).borrow(),
+            Gate::ConstFalse
+        ));
 
-        assert!(or_gate(None, Some(true), &var, &const_true) == const_true);
-        assert!(or_gate(Some(true), None, &const_true, &var) == const_true);
+        assert!(matches!(
+            &*or_gate(None, Some(true), &var, &const_true).borrow(),
+            Gate::ConstTrue
+        ));
+        assert!(matches!(
+            &*or_gate(Some(true), None, &const_true, &var).borrow(),
+            Gate::ConstTrue
+        ));
 
-        assert!(or_gate(Some(false), None, &const_false, &var) == var);
-        assert!(or_gate(None, Some(false), &var, &const_false) == var);
+        assert!(matches!(
+            &*or_gate(Some(false), None, &const_false, &var).borrow(),
+            Gate::InputBit { name } if name == "v1"
+        ));
+        assert!(matches!(
+            &*or_gate(None, Some(false), &var, &const_false).borrow(),
+            Gate::InputBit { name } if name == "v1"
+        ));
 
-        assert!(
-            or_gate(None, None, &var, &var2)
-                == GateRef::from(Gate::Or {
-                    left: var,
-                    right: var2
-                })
-        );
+        assert!(matches!(
+            &*or_gate(None, None, &var, &var2).borrow(),
+            Gate::Or { left, right } if
+                matches!(&*left.borrow(), Gate::InputBit { name } if name == "v1") &&
+                matches!(&*right.borrow(), Gate::InputBit { name } if name == "v2")
+        ));
     }
 
     #[test]
@@ -1448,10 +1496,14 @@ mod tests {
         let const_true = GateRef::from(Gate::ConstTrue);
         let var = GateRef::from(Gate::InputBit { name: v });
 
-        assert!(not_gate(const_false.clone()) == const_true);
-        assert!(not_gate(const_true) == const_false);
+        assert!(matches!(&*not_gate(const_false).borrow(), Gate::ConstTrue));
+        assert!(matches!(&*not_gate(const_true).borrow(), Gate::ConstFalse));
 
-        assert!(not_gate(var.clone()) == GateRef::from(Gate::Not { value: var }));
+        assert!(matches!(
+            &*not_gate(var).borrow(),
+            Gate::Not { value } if
+                matches!(&*value.borrow(), Gate::InputBit { name } if name == "v")
+        ));
     }
 
     #[test]
@@ -1463,24 +1515,42 @@ mod tests {
         let var = GateRef::from(Gate::InputBit { name: v1 });
         let var2 = GateRef::from(Gate::InputBit { name: v2 });
 
-        assert!(xnor_gate(Some(true), Some(true), &const_true, &const_true) == const_true);
-        assert!(xnor_gate(Some(true), Some(false), &const_true, &const_false) == const_false);
-        assert!(xnor_gate(Some(false), Some(true), &const_false, &const_true) == const_false);
-        assert!(xnor_gate(Some(false), Some(false), &const_false, &const_false) == const_true);
+        assert!(matches!(
+            &*xnor_gate(Some(true), Some(true), &const_true, &const_true).borrow(),
+            Gate::ConstTrue
+        ));
+        assert!(matches!(
+            &*xnor_gate(Some(true), Some(false), &const_true, &const_false).borrow(),
+            Gate::ConstFalse
+        ));
+        assert!(matches!(
+            &*xnor_gate(Some(false), Some(true), &const_false, &const_true).borrow(),
+            Gate::ConstFalse
+        ));
+        assert!(matches!(
+            &*xnor_gate(Some(false), Some(false), &const_false, &const_false).borrow(),
+            Gate::ConstTrue
+        ));
 
-        assert!(xnor_gate(None, Some(true), &var, &const_true) == var);
-        assert!(xnor_gate(Some(true), None, &const_true, &var) == var);
+        assert!(matches!(
+            &*xnor_gate(None, Some(true), &var, &const_true).borrow(),
+            Gate::InputBit { name } if name == "v1"
+        ));
+        assert!(matches!(
+            &*xnor_gate(Some(true), None, &const_true, &var).borrow(),
+            Gate::InputBit { name } if name == "v1"
+        ));
 
-        assert!(
-            xnor_gate(Some(false), None, &const_false, &var)
-                == GateRef::from(Gate::Not { value: var.clone() })
-        );
+        assert!(matches!(
+            &*xnor_gate(Some(false), None, &const_false, &var).borrow(),
+            Gate::Not { value } if
+                matches!(&*value.borrow(), Gate::InputBit { name } if name == "v1")
+        ));
 
         let result = xnor_gate(None, None, &var, &var2);
-        assert!(result != GateRef::from(Gate::Not { value: var }));
-        assert!(result != GateRef::from(Gate::Not { value: var2 }));
-        assert!(result != const_true);
-        assert!(result != const_false);
+        assert!(!matches!(&*result.borrow(), Gate::Not { .. }));
+        assert!(!matches!(&*result.borrow(), Gate::ConstTrue));
+        assert!(!matches!(&*result.borrow(), Gate::ConstFalse));
     }
 
     #[test]
