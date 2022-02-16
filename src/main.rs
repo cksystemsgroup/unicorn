@@ -189,12 +189,15 @@ fn main() -> Result<()> {
             let output = expect_optional_arg::<PathBuf>(args, "output-file")?;
             let unroll = expect_optional_arg(args, "unroll-model")?;
             let solver = expect_arg::<monster::SmtType>(args, "solver")?;
+            let max_heap = expect_arg::<u32>(args, "max-heap")?;
+            let max_stack = expect_arg::<u32>(args, "max-stack")?;
+            let memory_size = ByteSize::mib(expect_arg(args, "memory")?).as_u64();
             let prune = args.is_present("prune-model");
             let bitblast = args.is_present("bitblast");
 
             let program = load_object_file(&input)?;
 
-            let mut model = generate_model(&program)?;
+            let mut model = generate_model(&program, memory_size, max_heap, max_stack)?;
             if let Some(unroll_depth) = unroll {
                 model.lines.clear();
                 // TODO: Check if memory replacement is requested.
@@ -251,7 +254,8 @@ fn main() -> Result<()> {
 
             let program = load_object_file(&input)?;
 
-            let mut model = generate_model(&program)?;
+            // TODO: Unify "qubot" and "model" commands to get all options.
+            let mut model = generate_model(&program, bytesize::MIB, 8, 16)?;
 
             if let Some(unroll_depth) = unroll {
                 model.lines.clear();

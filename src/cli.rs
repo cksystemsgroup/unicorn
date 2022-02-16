@@ -147,6 +147,33 @@ pub fn args() -> App<'static> {
                         .required(true),
                 )
                 .arg(
+                    Arg::new("max-heap")
+                        .help("Number of machine-words usable as heap")
+                        .long("max-heap")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .default_value("8")
+                        .validator(is::<u32>),
+                )
+                .arg(
+                    Arg::new("max-stack")
+                        .help("Number of machine-words usable as stack")
+                        .long("max-stack")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .default_value("16")
+                        .validator(is::<u32>),
+                )
+                .arg(
+                    Arg::new("memory")
+                        .help("Total size of memory in MiB [possible: 1 .. 1024]")
+                        .long("memory")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .default_value(formatcp!("{}", symbolic_defaults::MEMORY_SIZE.0 / bytesize::MIB))
+                        .validator(is_valid_memory_size),
+                )
+                .arg(
                     Arg::new("output-file")
                     .help("Output path for the generated BTOR2 file")
                     .short('o')

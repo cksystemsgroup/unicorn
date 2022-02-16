@@ -14,9 +14,14 @@ use std::rc::Rc;
 // Public Interface
 //
 
-pub fn generate_model(program: &Program) -> Result<Model> {
+pub fn generate_model(
+    program: &Program,
+    memory_size: u64,
+    max_heap: u32,
+    max_stack: u32,
+) -> Result<Model> {
     trace!("Program: {:?}", program);
-    let mut builder = ModelBuilder::new();
+    let mut builder = ModelBuilder::new(memory_size, max_heap, max_stack);
     builder.generate_model(program)?;
     Ok(builder.finalize())
 }
@@ -27,9 +32,6 @@ pub fn generate_model(program: &Program) -> Result<Model> {
 
 const INSTRUCTION_SIZE: u64 = riscu::INSTRUCTION_SIZE as u64;
 const NUMBER_OF_REGISTERS: usize = 32;
-const MEMORY_SIZE: u64 = bytesize::MIB; // TODO: Make this configurable.
-const MAX_HEAP_SIZE: u64 = 8 * size_of::<u64>() as u64; // TODO: Make this configurable.
-const MAX_STACK_SIZE: u64 = 16 * size_of::<u64>() as u64; // TODO: Make this configurable.
 
 // TODO: Add implementation of all syscalls.
 // TODO: Add initialization of stack segment.
@@ -59,6 +61,8 @@ struct ModelBuilder {
     access_flow: NodeRef,
     ecall_flow: NodeRef,
     memory_size: u64,
+    max_heap_size: u64,
+    max_stack_size: u64,
     data_range: Range<u64>,
     heap_range: Range<u64>,
     stack_range: Range<u64>,
@@ -73,7 +77,7 @@ struct InEdge {
 }
 
 impl ModelBuilder {
-    fn new() -> Self {
+    fn new(memory_size: u64, max_heap: u32, max_stack: u32) -> Self {
         let dummy_node = Rc::new(RefCell::new(Node::Comment("dummy".to_string())));
         Self {
             lines: Vec::new(),
@@ -97,7 +101,9 @@ impl ModelBuilder {
             remainder_flow: dummy_node.clone(),
             access_flow: dummy_node.clone(),
             ecall_flow: dummy_node,
-            memory_size: MEMORY_SIZE,
+            memory_size,
+            max_heap_size: max_heap as u64 * size_of::<u64>() as u64,
+            max_stack_size: max_stack as u64 * size_of::<u64>() as u64,
             data_range: 0..0,
             heap_range: 0..0,
             stack_range: 0..0,
@@ -666,9 +672,9 @@ impl ModelBuilder {
         let data_end = program_break;
         self.data_range = data_start..data_end;
         let heap_start = program_break;
-        let heap_end = program_break + MAX_HEAP_SIZE;
+        let heap_end = program_break + self.max_heap_size;
         self.heap_range = heap_start..heap_end;
-        let stack_start = self.memory_size - MAX_STACK_SIZE;
+        let stack_start = self.memory_size - self.max_stack_size;
         let stack_end = self.memory_size;
         self.stack_range = stack_start..stack_end;
 
