@@ -760,15 +760,6 @@ impl<'a> BitBlasting<'a> {
         }
     }
 
-    fn query_existence(&mut self, node: &NodeRef) -> Option<Vec<GateRef>> {
-        let key = HashableNodeRef::from(node.clone());
-        if self.mapping.contains_key(&key) {
-            self.mapping.get(&key).cloned()
-        } else {
-            None
-        }
-    }
-
     fn visit(&mut self, node: &NodeRef) -> Vec<GateRef> {
         let key = HashableNodeRef::from(node.clone());
         if self.mapping.contains_key(&key) {
@@ -782,9 +773,6 @@ impl<'a> BitBlasting<'a> {
     }
 
     fn process(&mut self, node: &NodeRef) -> Vec<GateRef> {
-        if let Some(replacement) = self.query_existence(node) {
-            return replacement;
-        }
         match &*node.borrow() {
             Node::Const { nid, sort, imm } => {
                 let replacement = get_replacement_from_constant(sort, *imm);
@@ -1192,11 +1180,10 @@ impl<'a> BitBlasting<'a> {
     pub fn process_model(&mut self, model: &Model) -> Vec<GateRef> {
         // returns bad state bits
         let mut bad_state_gates: Vec<GateRef> = Vec::new();
-        info!("initial bad {}", model.bad_states_initial.len());
         for node in &model.bad_states_initial {
             let bitblasted_bad_state = self.process(node);
+            assert!(bitblasted_bad_state.len() == 1);
             bad_state_gates.push(bitblasted_bad_state[0].clone());
-
             let key = HashableGateRef::from(bitblasted_bad_state[0].clone());
             self.gates_to_bad_nids.insert(key, node.clone());
         }
