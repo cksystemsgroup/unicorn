@@ -14,6 +14,7 @@ pub mod bitblasting_printer;
 pub mod builder;
 pub mod memory;
 pub mod optimize;
+pub mod qubot;
 pub mod solver;
 pub mod unroller;
 
@@ -227,7 +228,7 @@ where
 // Private Implementation
 //
 
-fn get_nid(node: &NodeRef) -> Nid {
+pub fn get_nid(node: &NodeRef) -> Nid {
     match *node.borrow() {
         Node::Const { nid, .. } => nid,
         Node::Read { nid, .. } => nid,

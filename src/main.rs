@@ -1,6 +1,7 @@
 mod cli;
 mod modeler;
 
+use crate::modeler::qubot::{InputEvaluator, Qubot};
 use anyhow::{Context, Result};
 use bytesize::ByteSize;
 use cli::{expect_arg, expect_optional_arg, LogLevel};
@@ -239,6 +240,77 @@ fn main() -> Result<()> {
                 }
             }
 
+            Ok(())
+        }
+        Some(("qubot", args)) => {
+            let input = expect_arg::<PathBuf>(args, "input-file")?;
+            let output = expect_optional_arg::<PathBuf>(args, "output-file")?;
+            let inputs = expect_optional_arg::<String>(args, "input")?;
+            let unroll = expect_optional_arg(args, "unroll-model")?;
+            let solver = expect_arg::<monster::SmtType>(args, "solver")?;
+
+            let program = load_object_file(&input)?;
+
+            let mut model = generate_model(&program)?;
+
+            if let Some(unroll_depth) = unroll {
+                model.lines.clear();
+                // TODO: Check if memory replacement is requested.
+                replace_memory(&mut model);
+                for n in 0..unroll_depth {
+                    unroll_model(&mut model, n);
+                    optimize_model::<none_impl::NoneSolver>(&mut model)
+                }
+                prune_model(&mut model);
+                match solver {
+                    monster::SmtType::Generic => (), // nothing left to do
+                    #[cfg(feature = "boolector")]
+                    monster::SmtType::Boolector => {
+                        optimize_model::<boolector_impl::BoolectorSolver>(&mut model)
+                    }
+                    #[cfg(feature = "z3")]
+                    monster::SmtType::Z3 => {
+                        optimize_model::<z3solver_impl::Z3SolverWrapper>(&mut model)
+                    }
+                }
+            }
+
+            renumber_model(&mut model);
+            let mut bitblasting = BitBlasting::new(&model, true, 64);
+            let bad_states = bitblasting.process_model(&model);
+
+            let mut qubot = Qubot::new(&bitblasting);
+            let bad_state_qubits = qubot.build_qubo(&bad_states);
+            if let Some(ref output_path) = output {
+                let file = File::create(output_path)?;
+                qubot.dump_model(file, bad_state_qubits.clone())?;
+            }
+
+            if let Some(all_inputs) = inputs {
+                let total_variables = bitblasting.input_gates.len();
+                let instances: Vec<&str> = all_inputs.split('-').collect();
+
+                for instance in instances {
+                    let mut values: Vec<i64> = instance
+                        .split(',')
+                        .map(|x| i64::from_str(x).unwrap())
+                        .collect();
+
+                    while values.len() < total_variables {
+                        values.push(0);
+                    }
+
+                    let mut input_evaluator = InputEvaluator::new();
+                    let (final_offset, true_bad_states) = input_evaluator.evaluate_inputs(
+                        &qubot.qubo,
+                        &qubot.mapping,
+                        &bitblasting.input_gates,
+                        &values,
+                        bad_state_qubits.clone(),
+                    );
+                    println!("{} {}", final_offset, true_bad_states.len());
+                }
+            }
             Ok(())
         }
         Some(("rarity", args)) => {

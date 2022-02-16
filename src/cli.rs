@@ -310,6 +310,50 @@ pub fn args() -> App<'static> {
                     .default_value(rarity_defaults::MEAN_TYPE.into())
                     )
         )
+        .subcommand(
+            App::new("qubot")
+                .about("Create a QUBO model for a RISC-U ELF binary")
+                .arg(
+                    Arg::new("input-file")
+                        .help("RISC-U ELF binary to be converted")
+                        .takes_value(true)
+                        .value_name("FILE")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("output-file")
+                    .help("Output path for the generated QUBO model")
+                    .short('o')
+                    .long("out")
+                    .takes_value(true)
+                )
+                .arg(
+                    Arg::new("input")
+                    .help("Provide inputs to evaluate the model, separate by commas the values for a single instance, and with semicolon for various instances.")
+                    .short('i')
+                    .long("inputs")
+                    .takes_value(true)
+                )
+                .arg(
+                    Arg::new("solver")
+                        .help("SMT solver used for optimization")
+                        .short('s')
+                        .long("solver")
+                        .takes_value(true)
+                        .value_name("SOLVER")
+                        .possible_values(SmtType::VARIANTS)
+                        .default_value(SmtType::Generic.into()),
+                )
+                .arg(
+                    Arg::new("unroll-model")
+                    .help("Number of instructions to unroll from model")
+                    .short('u')
+                    .long("unroll")
+                    .takes_value(true)
+                    .value_name("NUMBER")
+                    .validator(is::<usize>),
+                )
+        )
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .global_setting(AppSettings::PropagateVersion)
 }
