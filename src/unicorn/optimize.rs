@@ -1,5 +1,5 @@
-use crate::modeler::solver::{Solution, Solver};
-use crate::modeler::{HashableNodeRef, Model, Node, NodeRef, NodeType};
+use crate::unicorn::solver::{Solution, Solver};
+use crate::unicorn::{HashableNodeRef, Model, Node, NodeRef, NodeType};
 use log::{debug, trace, warn};
 use std::cell::RefCell;
 use std::collections::HashMap;

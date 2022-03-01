@@ -1,4 +1,4 @@
-use crate::modeler::NodeRef;
+use crate::unicorn::NodeRef;
 
 //
 // Public Interface
@@ -27,8 +27,8 @@ pub trait Solver {
 
 // TODO: Move this module into separate file.
 pub mod none_impl {
-    use crate::modeler::solver::{Solution, Solver};
-    use crate::modeler::NodeRef;
+    use crate::unicorn::solver::{Solution, Solver};
+    use crate::unicorn::NodeRef;
 
     pub struct NoneSolver {}
 
@@ -62,8 +62,8 @@ pub mod none_impl {
 // TODO: Move this module into separate file.
 #[cfg(feature = "boolector")]
 pub mod boolector_impl {
-    use crate::modeler::solver::{Solution, Solver};
-    use crate::modeler::{HashableNodeRef, Node, NodeRef};
+    use crate::unicorn::solver::{Solution, Solver};
+    use crate::unicorn::{HashableNodeRef, Node, NodeRef};
     use boolector_solver::{
         option::{BtorOption, ModelGen, OutputFileFormat},
         Btor, SolverResult, BV,
@@ -222,8 +222,8 @@ pub mod boolector_impl {
 // TODO: Move this module into separate file.
 #[cfg(feature = "z3")]
 pub mod z3solver_impl {
-    use crate::modeler::solver::{Solution, Solver};
-    use crate::modeler::{HashableNodeRef, Node, NodeRef, NodeType};
+    use crate::unicorn::solver::{Solution, Solver};
+    use crate::unicorn::{HashableNodeRef, Node, NodeRef, NodeType};
     use std::collections::HashMap;
     use z3_solver::{
         ast::{Ast, Bool, Dynamic, BV},

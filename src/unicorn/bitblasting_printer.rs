@@ -1,5 +1,5 @@
-use crate::modeler::bitblasting::{Gate, GateRef, HashableGateRef};
-use crate::modeler::{Model, Nid, Node, NodeRef};
+use crate::unicorn::bitblasting::{Gate, GateRef, HashableGateRef};
+use crate::unicorn::{Model, Nid, Node, NodeRef};
 use anyhow::Result;
 use std::collections::HashMap;
 use std::io::Write;

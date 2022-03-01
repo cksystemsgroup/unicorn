@@ -1,20 +1,12 @@
 mod cli;
-mod modeler;
+mod unicorn;
 
-use crate::modeler::qubot::{InputEvaluator, Qubot};
+use crate::unicorn::qubot::{InputEvaluator, Qubot};
 use anyhow::{Context, Result};
 use bytesize::ByteSize;
 use cli::{expect_arg, expect_optional_arg, LogLevel};
 use env_logger::{Env, TimestampPrecision};
 use log::info;
-use modeler::bitblasting::BitBlasting;
-use modeler::bitblasting_printer::write_gate_model;
-use modeler::builder::generate_model;
-use modeler::memory::replace_memory;
-use modeler::optimize::optimize_model;
-use modeler::solver::*;
-use modeler::unroller::{prune_model, renumber_model, unroll_model};
-use modeler::write_model;
 use monster::{
     disassemble::disassemble,
     generate_smt, generate_smt_to_file,
@@ -40,6 +32,14 @@ use std::{
     path::{Path, PathBuf},
     str::FromStr,
 };
+use unicorn::bitblasting::BitBlasting;
+use unicorn::bitblasting_printer::write_gate_model;
+use unicorn::builder::generate_model;
+use unicorn::memory::replace_memory;
+use unicorn::optimize::optimize_model;
+use unicorn::solver::*;
+use unicorn::unroller::{prune_model, renumber_model, unroll_model};
+use unicorn::write_model;
 
 #[cfg(feature = "boolector")]
 use monster::solver::SolverType::Boolector;
@@ -184,7 +184,7 @@ fn main() -> Result<()> {
                 }
             })
         }
-        Some(("model", args)) => {
+        Some(("unicorn", args)) => {
             let input = expect_arg::<PathBuf>(args, "input-file")?;
             let output = expect_optional_arg::<PathBuf>(args, "output-file")?;
             let unroll = expect_optional_arg(args, "unroll-model")?;

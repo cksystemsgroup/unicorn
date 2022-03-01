@@ -1,8 +1,8 @@
-use crate::modeler::bitblasting::BitBlasting;
-use crate::modeler::bitblasting::HashableGateRef;
-use crate::modeler::bitblasting::{Gate, GateRef};
-use crate::modeler::get_nid;
-use crate::modeler::NodeRef;
+use crate::unicorn::bitblasting::BitBlasting;
+use crate::unicorn::bitblasting::HashableGateRef;
+use crate::unicorn::bitblasting::{Gate, GateRef};
+use crate::unicorn::get_nid;
+use crate::unicorn::NodeRef;
 use anyhow::Result;
 use std::cell::RefCell;
 use std::collections::HashMap;

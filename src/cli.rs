@@ -131,7 +131,7 @@ pub fn args() -> App<'static> {
                 ),
         )
         .subcommand(
-            App::new("model")
+            App::new("unicorn")
                 .about("Create a BTOR2 model for a RISC-U ELF binary")
                 .arg(
                     Arg::new("bitblast")

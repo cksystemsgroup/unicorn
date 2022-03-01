@@ -1,4 +1,4 @@
-use crate::modeler::{Model, Nid, Node, NodeRef, NodeType};
+use crate::unicorn::{Model, Nid, Node, NodeRef, NodeType};
 use anyhow::{Context, Result};
 use byteorder::{ByteOrder, LittleEndian};
 use log::trace;

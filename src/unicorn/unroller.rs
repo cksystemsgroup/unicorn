@@ -1,4 +1,4 @@
-use crate::modeler::{HashableNodeRef, Model, Nid, Node, NodeRef};
+use crate::unicorn::{HashableNodeRef, Model, Nid, Node, NodeRef};
 use log::debug;
 use std::cell::RefCell;
 use std::collections::HashMap;
