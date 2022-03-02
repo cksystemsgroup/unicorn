@@ -79,7 +79,11 @@ fn main() -> Result<()> {
                     }
                 }
             }
-            renumber_model(&mut model);
+
+            if !is_beator || unroll.is_some() {
+                renumber_model(&mut model);
+            }
+
             if is_beator {
                 let bitblast = args.is_present("bitblast");
 
