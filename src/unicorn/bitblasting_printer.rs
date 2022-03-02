@@ -164,7 +164,7 @@ impl<W: Write> GateModelPrinter<W> {
     }
 
     fn print_file_header(&mut self) -> Result<()> {
-        writeln!(self.out, "; cksystemsgroup.github.io/monster\n")?;
+        writeln!(self.out, "; cksystemsgroup.github.io/unicorn\n")?;
         writeln!(self.out, "1 sort bitvec 1 ; Boolean")?;
         writeln!(self.out, "\n; Model has been bitblasted.\n")?;
         Ok(())

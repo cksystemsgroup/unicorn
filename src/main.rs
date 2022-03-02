@@ -1,13 +1,23 @@
 mod cli;
 mod unicorn;
 
+use crate::unicorn::bitblasting::BitBlasting;
+use crate::unicorn::bitblasting_printer::write_gate_model;
+use crate::unicorn::builder::generate_model;
+use crate::unicorn::memory::replace_memory;
+use crate::unicorn::optimize::optimize_model;
 use crate::unicorn::qubot::{InputEvaluator, Qubot};
+use crate::unicorn::solver::*;
+use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
+use crate::unicorn::write_model;
+
+use ::unicorn::disassemble::disassemble;
+use ::unicorn::SmtType;
 use anyhow::{Context, Result};
 use bytesize::ByteSize;
 use cli::{expect_arg, expect_optional_arg, LogLevel};
 use env_logger::{Env, TimestampPrecision};
 use log::info;
-use monster::disassemble::disassemble;
 use riscu::load_object_file;
 use std::{
     env,
@@ -16,14 +26,6 @@ use std::{
     path::PathBuf,
     str::FromStr,
 };
-use unicorn::bitblasting::BitBlasting;
-use unicorn::bitblasting_printer::write_gate_model;
-use unicorn::builder::generate_model;
-use unicorn::memory::replace_memory;
-use unicorn::optimize::optimize_model;
-use unicorn::solver::*;
-use unicorn::unroller::{prune_model, renumber_model, unroll_model};
-use unicorn::write_model;
 
 fn main() -> Result<()> {
     let matches = cli::args().get_matches();
@@ -44,7 +46,7 @@ fn main() -> Result<()> {
             let input = expect_arg::<PathBuf>(args, "input-file")?;
             let output = expect_optional_arg::<PathBuf>(args, "output-file")?;
             let unroll = expect_optional_arg(args, "unroll-model")?;
-            let solver = expect_arg::<monster::SmtType>(args, "solver")?;
+            let solver = expect_arg::<SmtType>(args, "solver")?;
             let max_heap = expect_arg::<u32>(args, "max-heap")?;
             let max_stack = expect_arg::<u32>(args, "max-stack")?;
             let memory_size = ByteSize::mib(expect_arg(args, "memory")?).as_u64();
@@ -66,13 +68,13 @@ fn main() -> Result<()> {
                     prune_model(&mut model);
                 }
                 match solver {
-                    monster::SmtType::Generic => (), // nothing left to do
+                    ::unicorn::SmtType::Generic => (), // nothing left to do
                     #[cfg(feature = "boolector")]
-                    monster::SmtType::Boolector => {
+                    ::unicorn::SmtType::Boolector => {
                         optimize_model::<boolector_impl::BoolectorSolver>(&mut model)
                     }
                     #[cfg(feature = "z3")]
-                    monster::SmtType::Z3 => {
+                    ::unicorn::SmtType::Z3 => {
                         optimize_model::<z3solver_impl::Z3SolverWrapper>(&mut model)
                     }
                 }
@@ -106,7 +108,7 @@ fn main() -> Result<()> {
             let output = expect_optional_arg::<PathBuf>(args, "output-file")?;
             let inputs = expect_optional_arg::<String>(args, "input")?;
             let unroll = expect_optional_arg(args, "unroll-model")?;
-            let solver = expect_arg::<monster::SmtType>(args, "solver")?;
+            let solver = expect_arg::<SmtType>(args, "solver")?;
 
             let program = load_object_file(&input)?;
 
@@ -123,13 +125,13 @@ fn main() -> Result<()> {
                 }
                 prune_model(&mut model);
                 match solver {
-                    monster::SmtType::Generic => (), // nothing left to do
+                    ::unicorn::SmtType::Generic => (), // nothing left to do
                     #[cfg(feature = "boolector")]
-                    monster::SmtType::Boolector => {
+                    ::unicorn::SmtType::Boolector => {
                         optimize_model::<boolector_impl::BoolectorSolver>(&mut model)
                     }
                     #[cfg(feature = "z3")]
-                    monster::SmtType::Z3 => {
+                    ::unicorn::SmtType::Z3 => {
                         optimize_model::<z3solver_impl::Z3SolverWrapper>(&mut model)
                     }
                 }

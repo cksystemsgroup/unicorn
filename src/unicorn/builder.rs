@@ -2,13 +2,13 @@ use crate::unicorn::{Model, Nid, Node, NodeRef, NodeType};
 use anyhow::{Context, Result};
 use byteorder::{ByteOrder, LittleEndian};
 use log::trace;
-use monster::engine::system::SyscallId;
 use riscu::{decode, types::*, Instruction, Program, Register};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::mem::size_of;
 use std::ops::Range;
 use std::rc::Rc;
+use unicorn::engine::system::SyscallId;
 
 //
 // Public Interface

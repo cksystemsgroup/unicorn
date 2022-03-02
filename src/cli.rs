@@ -2,9 +2,9 @@ use anyhow::{anyhow, Context, Result};
 use bytesize::ByteSize;
 use clap::{crate_authors, crate_description, crate_version, App, AppSettings, Arg, ArgMatches};
 use const_format::formatcp;
-use monster::solver::SmtType;
 use std::str::FromStr;
 use strum::{EnumString, EnumVariantNames, IntoStaticStr, VariantNames};
+use unicorn::solver::SmtType;
 
 #[derive(Debug, PartialEq, EnumString, EnumVariantNames, IntoStaticStr)]
 #[strum(serialize_all = "kebab_case")]
@@ -230,7 +230,7 @@ mod tests {
 
     #[test]
     fn test_execute_defaults_are_set() {
-        with_matches(vec!["monster", "unicorn", "file.o"], |m| {
+        with_matches(vec!["unicorn", "unicorn", "file.o"], |m| {
             assert!(m.is_present("memory"), "Default memory size is set");
             assert!(m.is_present("solver"), "Default solver is set");
         });
@@ -240,21 +240,21 @@ mod tests {
     fn test_execute_memory_size_argument() {
         assert!(
             args()
-                .try_get_matches_from(vec!["monster", "unicorn", "-m", "0", "file.o"])
+                .try_get_matches_from(vec!["unicorn", "unicorn", "-m", "0", "file.o"])
                 .is_err(),
             "Memory size 0 is invalid"
         );
 
         assert!(
             args()
-                .try_get_matches_from(vec!["monster", "unicorn", "-m", "-23424", "file.o"])
+                .try_get_matches_from(vec!["unicorn", "unicorn", "-m", "-23424", "file.o"])
                 .is_err(),
             "Negative memory size is invalid"
         );
 
         assert!(
             args()
-                .try_get_matches_from(vec!["monster", "unicorn", "-m", "23424", "file.o"])
+                .try_get_matches_from(vec!["unicorn", "unicorn", "-m", "23424", "file.o"])
                 .is_err(),
             "memory size is invalid (out of range)"
         );
@@ -264,14 +264,14 @@ mod tests {
     fn test_filename_argument_postitions() {
         assert!(
             args()
-                .try_get_matches_from(vec!["monster", "unicorn", "-s", "generic", "file.o"])
+                .try_get_matches_from(vec!["unicorn", "unicorn", "-s", "generic", "file.o"])
                 .is_ok(),
             "Input file can be declared after flags"
         );
 
         assert!(
             args()
-                .try_get_matches_from(vec!["monster", "unicorn", "filename", "-s", "generic"])
+                .try_get_matches_from(vec!["unicorn", "unicorn", "filename", "-s", "generic"])
                 .is_ok(),
             "Input file can be declared before flags"
         );
