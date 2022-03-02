@@ -155,6 +155,11 @@ impl<W: Write> GateModelPrinter<W> {
                 writeln!(self.out, "{} xor 1 {} {}", gate_nid, inner_xor_nid, input3_nid)?;
                 Ok(gate_nid)
             }
+            Gate::Quotient{name, index} | Gate::Remainder {name, index} => {
+                let gate_nid = self.next_nid();
+                writeln!(self.out, "{} state 1 qr{}_{}", gate_nid, name, index)?;
+                Ok(gate_nid)
+            }
         }
     }
 

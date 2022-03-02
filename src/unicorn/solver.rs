@@ -165,7 +165,11 @@ pub mod boolector_impl {
                     let bv_right = self.visit(right);
                     bv_left.mul(&bv_right)
                 }
-                Node::Div { .. } => panic!("implement DIV"),
+                Node::Div { left, right, .. } => {
+                    let bv_left = self.visit(left);
+                    let bv_right = self.visit(right);
+                    bv_left.udiv(&bv_right)
+                },
                 Node::Rem { left, right, .. } => {
                     let bv_left = self.visit(left);
                     let bv_right = self.visit(right);

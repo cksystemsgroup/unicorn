@@ -58,6 +58,14 @@ pub enum Gate {
         input2: GateRef,
         input3: GateRef,
     },
+    Quotient {
+        name: String,
+        index: u32,
+    },
+    Remainder {
+        name: String,
+        index: u32,
+    },
 }
 
 impl From<Gate> for GateRef {
@@ -427,7 +435,7 @@ fn bitwise_equal(left_operand: &[GateRef], right_operand: &[GateRef]) -> Vec<Gat
 }
 
 pub struct BitBlasting<'a> {
-    mapping: HashMap<HashableNodeRef, Vec<GateRef>>, // maps a btor2 operator to its resulting bitvector of gates
+    pub mapping: HashMap<HashableNodeRef, Vec<GateRef>>, // maps a btor2 operator to its resulting bitvector of gates
     // constant_propagation: bool, // TODO: make this flag work. Currently we always perform constant propagation
     pub constraints: HashMap<HashableGateRef, bool>, // this is for remainder and division, these are constraint based.
     word_size: u64, // I use this attribute as a variable because maybe we will do variable-length addresses? I only use this for reads and writes.
@@ -437,7 +445,7 @@ pub struct BitBlasting<'a> {
     pub input_gates: Vec<(NodeRef, Vec<GateRef>)>,
     pub gates_to_bad_nids: HashMap<HashableGateRef, NodeRef>,
     pub nid_to_gates: HashMap<u64, Vec<GateRef>>,
-    pub constrain_based_dependencies: HashMap<GateRef, (Vec<GateRef>, Vec<GateRef>)>, // used or division and remainder, and when qubot whats to test an input (InputEvaluator).
+    pub constraint_based_dependencies: HashMap<HashableGateRef, (NodeRef, NodeRef)>, // used or division and remainder, and when qubot whats to test an input (InputEvaluator).
 }
 
 impl<'a> BitBlasting<'a> {
@@ -453,7 +461,7 @@ impl<'a> BitBlasting<'a> {
             input_gates: Vec::new(),
             gates_to_bad_nids: HashMap::new(),
             nid_to_gates: HashMap::new(),
-            constrain_based_dependencies: HashMap::new(),
+            constraint_based_dependencies: HashMap::new(),
         }
     }
 
@@ -695,9 +703,15 @@ impl<'a> BitBlasting<'a> {
 
             for i in 0..divisor.len() {
                 let name = format!("quotient[bit={}]", i);
-                quotient.push(GateRef::from(Gate::InputBit { name }));
+                quotient.push(GateRef::from(Gate::Quotient {
+                    name,
+                    index: i as u32,
+                }));
                 let name = format!("remainder[bit={}]", i);
-                remainder.push(GateRef::from(Gate::InputBit { name }));
+                remainder.push(GateRef::from(Gate::Remainder {
+                    name,
+                    index: i as u32,
+                }));
             }
 
             let temp_mul = self.bitwise_multiplication(&quotient, divisor);
@@ -738,6 +752,18 @@ impl<'a> BitBlasting<'a> {
         assert!(!self.mapping.contains_key(&key));
         self.mapping.insert(key, replacement.clone());
         replacement
+    }
+
+    fn record_constraint_dependency(
+        &mut self,
+        dependent_gates: &[GateRef],
+        dependency: (NodeRef, NodeRef),
+    ) {
+        for gate in dependent_gates {
+            let gate_key = HashableGateRef::from(gate.clone());
+            self.constraint_based_dependencies
+                .insert(gate_key, dependency.clone());
+        }
     }
 
     fn record_mapping_adders(&mut self, gate: &GateRef, value: &GateRef) {
@@ -999,16 +1025,22 @@ impl<'a> BitBlasting<'a> {
                 self.record_mapping(node, replacement)
             }
             Node::Div { nid, left, right } => {
-                let left_operand = self.visit(left);
-                let right_operand = self.visit(right);
-                let replacement = self.divide(&left_operand, &right_operand).0;
+                let left_operand = self.visit(&left.clone());
+                let right_operand = self.visit(&right.clone());
+                let result = self.divide(&left_operand, &right_operand);
+                self.record_constraint_dependency(&result.0.clone(), (left.clone(), right.clone()));
+                self.record_constraint_dependency(&result.1, (left.clone(), right.clone()));
+                let replacement = result.0;
                 self.nid_to_gates.insert(*nid, replacement.clone());
                 self.record_mapping(node, replacement)
             }
             Node::Rem { nid, left, right } => {
                 let left_operand = self.visit(left);
                 let right_operand = self.visit(right);
-                let replacement = self.divide(&left_operand, &right_operand).1;
+                let result = self.divide(&left_operand, &right_operand);
+                self.record_constraint_dependency(&result.0, (left.clone(), right.clone()));
+                self.record_constraint_dependency(&result.1.clone(), (left.clone(), right.clone()));
+                let replacement = result.1;
                 self.nid_to_gates.insert(*nid, replacement.clone());
                 self.record_mapping(node, replacement)
             }
@@ -1187,7 +1219,6 @@ impl<'a> BitBlasting<'a> {
             let key = HashableGateRef::from(bitblasted_bad_state[0].clone());
             self.gates_to_bad_nids.insert(key, node.clone());
         }
-
         bad_state_gates
     }
 }
