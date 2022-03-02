@@ -6,7 +6,7 @@ repository = "https://github.com/cksystemsgroup/unicorn"
 homepage = "https://cksystemsgroup.github.io/unicorn"
 license = "MIT"
 categories = ["command-line-utilities", "development-tools::testing", "science", "simulation"]
-keywords = ["quantum annealing", "quantum computing", "bounded model checking", "symbolic-execution", "smt"]
+keywords = ["quantum-annealing", "quantum-computing", "bounded-model-checking", "symbolic-execution", "smt", "sat"]
 edition = "2018"
 version ="0.4.1"
 
