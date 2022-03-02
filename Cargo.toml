@@ -1,13 +1,12 @@
 [package] 
 name = "unicorn-rs"
-description = "Monster is a symbolic execution engine for 64-bit RISC-U code"
-authors = ["Alexander Lackner <monster@a.lfweb.org>", "Alexander Linz <linzalexander@gmail.com>", "Christian Mösl <christian.moesl@live.at>", "Fabian Nedoluha <monster@onders.org>", "Michael Starzinger <michael.starzinger@antforge.org>"]
-documentation = "https://docs.rs/monster"
+description = "Unicorn is a compiler and runtime system for quantum computing"
+authors = ["Michael Starzinger <michael.starzinger@antforge.org>", "Stefanie Muroya"]
 repository = "https://github.com/cksystemsgroup/unicorn"
 homepage = "https://cksystemsgroup.github.io/unicorn"
 license = "MIT"
 categories = ["command-line-utilities", "development-tools::testing", "science", "simulation"]
-keywords = ["monster", "riscv", "riscu", "symbolic-execution", "smt"]
+keywords = ["quantum-annealing", "quantum-computing", "bounded-model-checking", "symbolic-execution", "smt", "sat"]
 edition = "2018"
 version ="0.4.1"
 
@@ -27,8 +26,8 @@ path = "src/main.rs"
 
 [dependencies]
 byteorder = "~1.4"
-clap = { version = "~3.0", features = ["cargo"] }
-strum = { version = "~0.23", features = ["derive"] }
+clap = { version = "~3.1", features = ["cargo"] }
+strum = { version = "~0.24", features = ["derive"] }
 riscu = "~0.5"
 petgraph = "~0.6"
 rand = "~0.8"

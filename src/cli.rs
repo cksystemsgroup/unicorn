@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use bytesize::ByteSize;
-use clap::{crate_authors, crate_description, crate_version, App, AppSettings, Arg, ArgMatches};
+use clap::{crate_authors, crate_description, crate_version, Arg, ArgMatches, Command};
 use const_format::formatcp;
 use std::str::FromStr;
 use strum::{EnumString, EnumVariantNames, IntoStaticStr, VariantNames};
@@ -18,8 +18,8 @@ pub enum LogLevel {
 
 const MEMORY_SIZE: ByteSize = ByteSize(bytesize::MIB);
 
-pub fn args() -> App<'static> {
-    App::new("Monster")
+pub fn args() -> Command<'static> {
+    Command::new("Unicorn")
         .version(crate_version!())
         .author(crate_authors!(", "))
         .about(crate_description!())
@@ -35,7 +35,7 @@ pub fn args() -> App<'static> {
                 .global(true),
         )
         .subcommand(
-            App::new("disassemble")
+            Command::new("disassemble")
                 .about("Disassemble a RISC-V ELF binary")
                 .arg(
                     Arg::new("input-file")
@@ -46,7 +46,7 @@ pub fn args() -> App<'static> {
                 ),
         )
         .subcommand(
-            App::new("unicorn")
+            Command::new("beator")
                 .about("Create a BTOR2 model for a RISC-U ELF binary")
                 .arg(
                     Arg::new("bitblast")
@@ -122,7 +122,7 @@ pub fn args() -> App<'static> {
                 )
         )
         .subcommand(
-            App::new("qubot")
+            Command::new("qubot")
                 .about("Create a QUBO model for a RISC-U ELF binary")
                 .arg(
                     Arg::new("input-file")
@@ -137,6 +137,33 @@ pub fn args() -> App<'static> {
                     .short('o')
                     .long("out")
                     .takes_value(true)
+                )
+                .arg(
+                    Arg::new("max-heap")
+                        .help("Number of machine-words usable as heap")
+                        .long("max-heap")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .default_value("8")
+                        .validator(is::<u32>),
+                )
+                .arg(
+                    Arg::new("max-stack")
+                        .help("Number of machine-words usable as stack")
+                        .long("max-stack")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .default_value("16")
+                        .validator(is::<u32>),
+                )
+                .arg(
+                    Arg::new("memory")
+                        .help("Total size of memory in MiB [possible: 1 .. 1024]")
+                        .long("memory")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .default_value(formatcp!("{}", MEMORY_SIZE.0 / bytesize::MIB))
+                        .validator(is_valid_memory_size),
                 )
                 .arg(
                     Arg::new("input")
@@ -165,8 +192,9 @@ pub fn args() -> App<'static> {
                     .validator(is::<usize>),
                 )
         )
-        .setting(AppSettings::SubcommandRequiredElseHelp)
-        .global_setting(AppSettings::PropagateVersion)
+        .subcommand_required(true)
+        .arg_required_else_help(true)
+        .propagate_version(true)
 }
 
 pub fn expect_arg<T: FromStr>(m: &ArgMatches, arg: &str) -> Result<T>
@@ -230,7 +258,7 @@ mod tests {
 
     #[test]
     fn test_execute_defaults_are_set() {
-        with_matches(vec!["unicorn", "unicorn", "file.o"], |m| {
+        with_matches(vec!["unicorn", "beator", "file.o"], |m| {
             assert!(m.is_present("memory"), "Default memory size is set");
             assert!(m.is_present("solver"), "Default solver is set");
         });
@@ -240,21 +268,21 @@ mod tests {
     fn test_execute_memory_size_argument() {
         assert!(
             args()
-                .try_get_matches_from(vec!["unicorn", "unicorn", "-m", "0", "file.o"])
+                .try_get_matches_from(vec!["unicorn", "beator", "-m", "0", "file.o"])
                 .is_err(),
             "Memory size 0 is invalid"
         );
 
         assert!(
             args()
-                .try_get_matches_from(vec!["unicorn", "unicorn", "-m", "-23424", "file.o"])
+                .try_get_matches_from(vec!["unicorn", "beator", "-m", "-23424", "file.o"])
                 .is_err(),
             "Negative memory size is invalid"
         );
 
         assert!(
             args()
-                .try_get_matches_from(vec!["unicorn", "unicorn", "-m", "23424", "file.o"])
+                .try_get_matches_from(vec!["unicorn", "beator", "-m", "23424", "file.o"])
                 .is_err(),
             "memory size is invalid (out of range)"
         );
@@ -264,14 +292,14 @@ mod tests {
     fn test_filename_argument_postitions() {
         assert!(
             args()
-                .try_get_matches_from(vec!["unicorn", "unicorn", "-s", "generic", "file.o"])
+                .try_get_matches_from(vec!["unicorn", "beator", "-s", "generic", "file.o"])
                 .is_ok(),
             "Input file can be declared after flags"
         );
 
         assert!(
             args()
-                .try_get_matches_from(vec!["unicorn", "unicorn", "filename", "-s", "generic"])
+                .try_get_matches_from(vec!["unicorn", "beator", "filename", "-s", "generic"])
                 .is_ok(),
             "Input file can be declared before flags"
         );
