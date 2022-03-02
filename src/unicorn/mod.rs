@@ -156,7 +156,7 @@ pub fn write_model<W>(model: &Model, mut out: W) -> Result<()>
 where
     W: Write,
 {
-    writeln!(out, "; cksystemsgroup.github.io/monster\n")?;
+    writeln!(out, "; cksystemsgroup.github.io/unicorn\n")?;
     writeln!(out,
         "; {} total virtual memory, {} data, {} max heap, {} max stack\n",
         bytesize::ByteSize(model.memory_size).to_string_as(true),

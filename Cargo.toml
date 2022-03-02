@@ -1,10 +1,10 @@
 [package] 
-name = "monster-rs"
+name = "unicorn-rs"
 description = "Monster is a symbolic execution engine for 64-bit RISC-U code"
 authors = ["Alexander Lackner <monster@a.lfweb.org>", "Alexander Linz <linzalexander@gmail.com>", "Christian Mösl <christian.moesl@live.at>", "Fabian Nedoluha <monster@onders.org>", "Michael Starzinger <michael.starzinger@antforge.org>"]
 documentation = "https://docs.rs/monster"
-repository = "https://github.com/cksystemsgroup/monster"
-homepage = "https://cksystemsgroup.github.io/monster"
+repository = "https://github.com/cksystemsgroup/unicorn"
+homepage = "https://cksystemsgroup.github.io/unicorn"
 license = "MIT"
 categories = ["command-line-utilities", "development-tools::testing", "science", "simulation"]
 keywords = ["monster", "riscv", "riscu", "symbolic-execution", "smt"]
@@ -18,11 +18,11 @@ boolector = ["boolector-solver", "boolector-sys"]
 true-rng = []
 
 [lib]
-name = "monster"
+name = "unicorn"
 path = "src/lib.rs"
 
 [[bin]]
-name = "monster"
+name = "unicorn"
 path = "src/main.rs"
 
 [dependencies]

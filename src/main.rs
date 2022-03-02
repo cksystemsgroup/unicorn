@@ -1,50 +1,31 @@
 mod cli;
 mod unicorn;
 
+use crate::unicorn::bitblasting::BitBlasting;
+use crate::unicorn::bitblasting_printer::write_gate_model;
+use crate::unicorn::builder::generate_model;
+use crate::unicorn::memory::replace_memory;
+use crate::unicorn::optimize::optimize_model;
 use crate::unicorn::qubot::{InputEvaluator, Qubot};
+use crate::unicorn::solver::*;
+use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
+use crate::unicorn::write_model;
+
+use ::unicorn::disassemble::disassemble;
+use ::unicorn::SmtType;
 use anyhow::{Context, Result};
 use bytesize::ByteSize;
 use cli::{expect_arg, expect_optional_arg, LogLevel};
 use env_logger::{Env, TimestampPrecision};
 use log::info;
-use monster::{
-    disassemble::disassemble,
-    generate_smt, generate_smt_to_file,
-    path_exploration::{
-        CoinFlipStrategy, ControlFlowGraph,
-        ExplorationStrategyType::{self, CoinFlip, ShortestPaths},
-        ShortestPathStrategy,
-    },
-    rarity_simulate_elf_with,
-    solver::{
-        self,
-        SolverType::{self, Monster},
-    },
-    symbolically_execute_elf_with, RaritySimulationOptions, SmtGenerationOptions,
-    SymbolicExecutionOptions,
-};
 use riscu::load_object_file;
 use std::{
     env,
-    fmt::Display,
     fs::File,
     io::{stdout, Write},
-    path::{Path, PathBuf},
+    path::PathBuf,
     str::FromStr,
 };
-use unicorn::bitblasting::BitBlasting;
-use unicorn::bitblasting_printer::write_gate_model;
-use unicorn::builder::generate_model;
-use unicorn::memory::replace_memory;
-use unicorn::optimize::optimize_model;
-use unicorn::solver::*;
-use unicorn::unroller::{prune_model, renumber_model, unroll_model};
-use unicorn::write_model;
-
-#[cfg(feature = "boolector")]
-use monster::solver::SolverType::Boolector;
-#[cfg(feature = "z3")]
-use monster::solver::SolverType::Z3;
 
 fn main() -> Result<()> {
     let matches = cli::args().get_matches();
@@ -61,134 +42,11 @@ fn main() -> Result<()> {
 
             disassemble(input)
         }
-        Some(("cfg", args)) => {
-            let input = expect_arg::<PathBuf>(args, "input-file")?;
-            let output = expect_arg::<PathBuf>(args, "output-file")?;
-            let distances = args.is_present("distances");
-
-            let program = load_object_file(input)?;
-
-            if distances {
-                let strat = ShortestPathStrategy::compute_for(&program)?;
-
-                write_to_file(output, &strat)
-            } else {
-                let cfg = ControlFlowGraph::build_for(&program)?;
-
-                write_to_file(output, &cfg)
-            }
-        }
-        Some(("smt", args)) => {
-            let input = expect_arg::<PathBuf>(args, "input-file")?;
-            let output = expect_optional_arg::<PathBuf>(args, "output-file")?;
-            let strategy = expect_arg::<ExplorationStrategyType>(args, "strategy")?;
-            let options = SmtGenerationOptions {
-                max_execution_depth: expect_arg(args, "max-execution-depth")?,
-                memory_size: ByteSize::mib(expect_arg(args, "memory")?),
-                smt_type: expect_arg(args, "smt-type")?,
-            };
-
-            let program = load_object_file(&input)?;
-
-            match strategy {
-                ShortestPaths => {
-                    let strategy = ShortestPathStrategy::compute_for(&program)?;
-
-                    if let Some(file) = output {
-                        generate_smt_to_file(&input, &file, &options, &strategy)
-                    } else {
-                        generate_smt(&input, stdout(), &options, &strategy)
-                    }
-                }
-                CoinFlip => {
-                    let strategy = CoinFlipStrategy::default();
-
-                    if let Some(file) = output {
-                        generate_smt_to_file(&input, &file, &options, &strategy)
-                    } else {
-                        generate_smt(&input, stdout(), &options, &strategy)
-                    }
-                }
-            }
-            .with_context(|| format!("Execution of {} failed", input.display()))
-            .map(|(potential_bug, profile)| {
-                info!("{}", profile);
-
-                if let Some(bug) = potential_bug {
-                    info!("bug found:\n{}", bug);
-                }
-            })
-        }
-        Some(("execute", args)) => {
-            let input = expect_arg::<PathBuf>(args, "input-file")?;
-            let solver = expect_arg::<SolverType>(args, "solver")?;
-            let strategy = expect_arg::<ExplorationStrategyType>(args, "strategy")?;
-            let options = SymbolicExecutionOptions {
-                max_exection_depth: expect_arg(args, "max-execution-depth")?,
-                memory_size: ByteSize::mib(expect_arg(args, "memory")?),
-                ..Default::default()
-            };
-
-            let program = load_object_file(&input)?;
-
-            match (strategy, solver) {
-                (ShortestPaths, Monster) => symbolically_execute_elf_with(
-                    &input,
-                    &options,
-                    &ShortestPathStrategy::compute_for(&program)?,
-                    &solver::MonsterSolver::default(),
-                ),
-                #[cfg(feature = "boolector")]
-                (ShortestPaths, Boolector) => symbolically_execute_elf_with(
-                    &input,
-                    &options,
-                    &ShortestPathStrategy::compute_for(&program)?,
-                    &solver::Boolector::default(),
-                ),
-                #[cfg(feature = "z3")]
-                (ShortestPaths, Z3) => symbolically_execute_elf_with(
-                    &input,
-                    &options,
-                    &ShortestPathStrategy::compute_for(&program)?,
-                    &solver::Z3::default(),
-                ),
-                (CoinFlip, Monster) => symbolically_execute_elf_with(
-                    &input,
-                    &options,
-                    &CoinFlipStrategy::default(),
-                    &solver::MonsterSolver::default(),
-                ),
-                #[cfg(feature = "boolector")]
-                (CoinFlip, Boolector) => symbolically_execute_elf_with(
-                    &input,
-                    &options,
-                    &CoinFlipStrategy::default(),
-                    &solver::Boolector::default(),
-                ),
-                #[cfg(feature = "z3")]
-                (CoinFlip, Z3) => symbolically_execute_elf_with(
-                    &input,
-                    &options,
-                    &CoinFlipStrategy::default(),
-                    &solver::Z3::default(),
-                ),
-            }
-            .with_context(|| format!("Execution of {} failed", input.display()))
-            .map(|(potential_bug, profile)| {
-                info!("{}", profile);
-
-                if let Some(bug) = potential_bug {
-                    info!("bug found:\n{}", bug);
-                } else {
-                    info!("no bug found in binary");
-                }
-            })
-        }
         Some(("unicorn", args)) => {
             let input = expect_arg::<PathBuf>(args, "input-file")?;
             let output = expect_optional_arg::<PathBuf>(args, "output-file")?;
             let unroll = expect_optional_arg(args, "unroll-model")?;
-            let solver = expect_arg::<monster::SmtType>(args, "solver")?;
+            let solver = expect_arg::<SmtType>(args, "solver")?;
             let max_heap = expect_arg::<u32>(args, "max-heap")?;
             let max_stack = expect_arg::<u32>(args, "max-stack")?;
             let memory_size = ByteSize::mib(expect_arg(args, "memory")?).as_u64();
@@ -210,13 +68,13 @@ fn main() -> Result<()> {
                     prune_model(&mut model);
                 }
                 match solver {
-                    monster::SmtType::Generic => (), // nothing left to do
+                    ::unicorn::SmtType::Generic => (), // nothing left to do
                     #[cfg(feature = "boolector")]
-                    monster::SmtType::Boolector => {
+                    ::unicorn::SmtType::Boolector => {
                         optimize_model::<boolector_impl::BoolectorSolver>(&mut model)
                     }
                     #[cfg(feature = "z3")]
-                    monster::SmtType::Z3 => {
+                    ::unicorn::SmtType::Z3 => {
                         optimize_model::<z3solver_impl::Z3SolverWrapper>(&mut model)
                     }
                 }
@@ -250,7 +108,7 @@ fn main() -> Result<()> {
             let output = expect_optional_arg::<PathBuf>(args, "output-file")?;
             let inputs = expect_optional_arg::<String>(args, "input")?;
             let unroll = expect_optional_arg(args, "unroll-model")?;
-            let solver = expect_arg::<monster::SmtType>(args, "solver")?;
+            let solver = expect_arg::<SmtType>(args, "solver")?;
 
             let program = load_object_file(&input)?;
 
@@ -267,13 +125,13 @@ fn main() -> Result<()> {
                 }
                 prune_model(&mut model);
                 match solver {
-                    monster::SmtType::Generic => (), // nothing left to do
+                    ::unicorn::SmtType::Generic => (), // nothing left to do
                     #[cfg(feature = "boolector")]
-                    monster::SmtType::Boolector => {
+                    ::unicorn::SmtType::Boolector => {
                         optimize_model::<boolector_impl::BoolectorSolver>(&mut model)
                     }
                     #[cfg(feature = "z3")]
-                    monster::SmtType::Z3 => {
+                    ::unicorn::SmtType::Z3 => {
                         optimize_model::<z3solver_impl::Z3SolverWrapper>(&mut model)
                     }
                 }
@@ -317,27 +175,6 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        Some(("rarity", args)) => {
-            let input = expect_arg::<PathBuf>(args, "input-file")?;
-
-            let options = RaritySimulationOptions {
-                memory_size: ByteSize::mib(expect_arg(args, "memory")?),
-                amount_of_states: expect_arg(args, "states")?,
-                step_size: expect_arg(args, "step-size")?,
-                selection: expect_arg(args, "selection")?,
-                iterations: expect_arg(args, "iterations")?,
-                copy_init_ratio: expect_arg(args, "copy-init-ratio")?,
-                mean: expect_arg(args, "mean")?,
-            };
-
-            if let Some(bug) = rarity_simulate_elf_with(input, &options)? {
-                info!("bug found:\n{}", bug);
-            } else {
-                info!("no bug found in binary");
-            }
-
-            Ok(())
-        }
         _ => unreachable!(),
     }
 }
@@ -364,16 +201,4 @@ fn init_logger(cli_log_level: LogLevel) -> Result<()> {
     }
 
     builder.try_init().context("Failed to initialize logger")
-}
-
-fn write_to_file<P, O>(path: P, object: O) -> Result<()>
-where
-    P: AsRef<Path>,
-    O: Display,
-{
-    File::create(path)
-        .and_then(|mut f| write!(f, "{}", object).and_then(|_| f.sync_all()))
-        .context("Failed to write control flow graph to file")?;
-
-    Ok(())
 }
