@@ -19,7 +19,7 @@ The number of binary variables utilized are minimized in the classical realm usi
 
 Each step of the translation can be exported in suitable formats including BTOR2, a JSON file for QUBOs (or eventually DIMACS).
 
-Inspired by symbolic execution, and bounded model checking, it can be used to debug classical programs. Moreover, writting a program for quantum annealers has never been so easy. Writting code to check an answer is equivalent to a program that computes the answer. 
+Inspired by symbolic execution, and bounded model checking, it can be used to debug classical programs. Writting a program for quantum annealers has never been so easy. Moreover, writting code to check an answer is equivalent to a program that computes the answer. 
 
 Currently, we handle a <b>Turing complete</b> subset of RISC-V (i.e RISC-U), however it is future work to be able to handle full support of RISC-V, as well as outputting models suitable for gate model quantum computers.
 
