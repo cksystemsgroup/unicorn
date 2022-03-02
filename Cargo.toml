@@ -25,15 +25,6 @@ path = "src/lib.rs"
 name = "monster"
 path = "src/main.rs"
 
-[[bench]]
-name = "engine"
-harness = false
-
-[[bench]]
-name = "path_exploration"
-harness = false
-required-features = ["z3"]
-
 [dependencies]
 byteorder = "~1.4"
 clap = { version = "~3.0", features = ["cargo"] }
