@@ -18,8 +18,8 @@ pub enum LogLevel {
 
 const MEMORY_SIZE: ByteSize = ByteSize(bytesize::MIB);
 
-pub fn args() -> App<'static> {
-    App::new("Unicorn")
+pub fn args() -> Command<'static> {
+    Command::new("Unicorn")
         .version(crate_version!())
         .author(crate_authors!(", "))
         .about(crate_description!())
@@ -46,7 +46,7 @@ pub fn args() -> App<'static> {
                 ),
         )
         .subcommand(
-            App::new("beator")
+            Command::new("beator")
                 .about("Create a BTOR2 model for a RISC-U ELF binary")
                 .arg(
                     Arg::new("bitblast")
