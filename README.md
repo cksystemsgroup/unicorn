@@ -1,4 +1,4 @@
-# Unicorn: A Compiler and Runtime System for Quantum Computers
+# Unicorn: A Compiler and Runtime System for Quantum Computing
 
 [![Build Status](https://img.shields.io/github/workflow/status/cksystemsgroup/monster/Test)](https://github.com/cksystemsgroup/monster/actions)
 [![Crate](https://img.shields.io/crates/v/monster-rs.svg)](https://crates.io/crates/monster-rs)
