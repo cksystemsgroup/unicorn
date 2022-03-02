@@ -46,22 +46,7 @@ $ cargo install mdbook --locked
 $ cargo install mdbook-linkcheck --locked
 $ cargo install mdbook-graphviz --locked
 ```
-4. Install tools to build Selfie with our favorite package manager
 
-MacOs:
-```
-$ brew install make gcc git
-```
-Linux:
-```
-$ apt install make gcc git
-```
-Windows:
-```
-$ choco install make -y
-$ choco install mingw -y
-$ choco install git -y
-```
 ### Build and Test from Source
 Tests can be executed on all platforms, alltough one
 feature is not supported on Windows: `boolector`
