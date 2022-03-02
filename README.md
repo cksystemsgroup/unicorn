@@ -11,7 +11,7 @@
 
 Unicorn is a compiler for quantum computing which translates 64-bit RISC-U binaries into precise bit-equivalent models suitable for deployment on quantum computers.
 
-Given a RISC-U binary and a number $n$ of machine instructions to execute, Unicorn builds an equivalent <b>Finite State Machine (FSM)</b> using BTOR2 formalisms, then a logic (combinatorial) circuit by replicating $n$ times the FSM, and finally a <b>Quadratic Unconstrained Binary Optimization (QUBO)</b> model suitable for quantum annealers.
+Given a RISC-U binary and a number `n` of machine instructions to execute, Unicorn builds an equivalent <b>Finite State Machine (FSM)</b> using BTOR2 formalisms, then a logic (combinatorial) circuit by replicating `n` times the FSM, and finally a <b>Quadratic Unconstrained Binary Optimization (QUBO)</b> model suitable for quantum annealers.
 
 Given that some states of the FSM are marked as <u>bad states</u>, our models are able to determine if these states are reachable, and in such case, the concrete input(s) of the program that makes them reachable.
 
