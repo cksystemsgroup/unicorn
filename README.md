@@ -13,17 +13,17 @@ Unicorn is a compiler for quantum computing which translates 64-bit RISC-U binar
 
 Given a RISC-U binary and a number $n$ of machine instructions to execute, Unicorn builds an equivalent <b>Finite State Machine (FSM)</b> using BTOR2 formalisms, then a logic (combinatorial) circuit by replicating $n$ times the FSM, and finally a <b>Quadratic Unconstrained Binary Optimization (QUBO)</b> model suitable for quantum annealers.
 
-Given that some states of the FSM are marked as `bad states`, our models are able to determine if these states are reachable, and in such case, the concrete input(s) of the program that makes them reachable.
+Given that some states of the FSM are marked as <u>bad states</u>, our models are able to determine if these states are reachable, and in such case, the concrete input(s) of the program that makes them reachable.
 
 The number of binary variables utilized are minimized in the classical realm using SMT solvers on the word-level, and further minimized on the gate-level. Popular SMT solvers like Boolector and Z3 are supported as an optional build option.
 
-Each step of the translation can be exported in suitable formats including BTOR2, [QUBO](https://en.wikipedia.org/wiki/Quadratic_unconstrained_binary_optimization) (or eventually DIMACS).
+Each step of the translation can be exported in suitable formats including BTOR2, a JSON file for QUBOs (or eventually DIMACS).
+
+Inspired by symbolic execution, and bounded model checking, it can be used to debug classical programs. Writting a program for quantum annealers has never been so easy. Writting code to check an answer is equivalent to a program that computes the answer. 
+
+Currently, we handle a <b>turing complete</b> subset of RISC-V (i.e RISC-U), however it is future work to be able to handle full support of RISC-V, as well as outputting models suitable for gate model quantum computers.
 
 For more information about our work you can check our [paper](https://arxiv.org/abs/2111.12063).
-
-Inspired in symbolic execution, and bounded model checking, it can be used to debug classical programs. Writting a program for quantum annealers has never been so easy. Moreover, writting code to check an answer of an NP problem is equivalent to a program that computes the answer. 
-
-Currently, we handle a turing complete subset of RISC-V (i.e RISC-U), however it is future work to be able to handle full support of RISC-V, as well as outputting models suitable for gate model quantum computers.
 
 ### Usage
 
