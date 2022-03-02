@@ -1,4 +1,4 @@
-# Unicorn: A Compiler for Quantum Computers
+# Unicorn: A Compiler and Runtime System for Quantum Computers
 
 [![Build Status](https://img.shields.io/github/workflow/status/cksystemsgroup/monster/Test)](https://github.com/cksystemsgroup/monster/actions)
 [![Crate](https://img.shields.io/crates/v/monster-rs.svg)](https://crates.io/crates/monster-rs)
@@ -9,7 +9,7 @@
 [![Lines of Code](https://img.shields.io/tokei/lines/github/cksystemsgroup/monster)](https://github.com/cksystemsgroup/monster)
 [![License](https://img.shields.io/crates/l/monster-rs)](https://github.com/cksystemsgroup/monster/blob/master/LICENSE)
 
-Unicorn is a compiler for quantum computing which translates 64-bit RISC-U binaries into precise bit-equivalent models suitable for deployment on quantum computers.
+Unicorn is a compiler and runtime system for quantum computing which translates 64-bit RISC-U binaries into precise bit-equivalent models suitable for deployment on quantum computers.
 
 Given a RISC-U binary and a number `n` of machine instructions to execute, Unicorn builds an equivalent <b>Finite State Machine (FSM)</b> using BTOR2 formalisms, then a logic (combinatorial) circuit by replicating `n` times the FSM, and finally a <b>Quadratic Unconstrained Binary Optimization (QUBO)</b> model suitable for quantum annealers.
 
