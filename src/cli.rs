@@ -257,7 +257,7 @@ mod tests {
 
     #[test]
     fn test_execute_defaults_are_set() {
-        with_matches(vec!["unicorn", "unicorn", "file.o"], |m| {
+        with_matches(vec!["unicorn", "beator", "file.o"], |m| {
             assert!(m.is_present("memory"), "Default memory size is set");
             assert!(m.is_present("solver"), "Default solver is set");
         });
@@ -267,21 +267,21 @@ mod tests {
     fn test_execute_memory_size_argument() {
         assert!(
             args()
-                .try_get_matches_from(vec!["unicorn", "unicorn", "-m", "0", "file.o"])
+                .try_get_matches_from(vec!["unicorn", "beator", "-m", "0", "file.o"])
                 .is_err(),
             "Memory size 0 is invalid"
         );
 
         assert!(
             args()
-                .try_get_matches_from(vec!["unicorn", "unicorn", "-m", "-23424", "file.o"])
+                .try_get_matches_from(vec!["unicorn", "beator", "-m", "-23424", "file.o"])
                 .is_err(),
             "Negative memory size is invalid"
         );
 
         assert!(
             args()
-                .try_get_matches_from(vec!["unicorn", "unicorn", "-m", "23424", "file.o"])
+                .try_get_matches_from(vec!["unicorn", "beator", "-m", "23424", "file.o"])
                 .is_err(),
             "memory size is invalid (out of range)"
         );
@@ -291,14 +291,14 @@ mod tests {
     fn test_filename_argument_postitions() {
         assert!(
             args()
-                .try_get_matches_from(vec!["unicorn", "unicorn", "-s", "generic", "file.o"])
+                .try_get_matches_from(vec!["unicorn", "beator", "-s", "generic", "file.o"])
                 .is_ok(),
             "Input file can be declared after flags"
         );
 
         assert!(
             args()
-                .try_get_matches_from(vec!["unicorn", "unicorn", "filename", "-s", "generic"])
+                .try_get_matches_from(vec!["unicorn", "beator", "filename", "-s", "generic"])
                 .is_ok(),
             "Input file can be declared before flags"
         );
