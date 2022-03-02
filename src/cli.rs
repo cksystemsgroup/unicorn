@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use bytesize::ByteSize;
-use clap::{crate_authors, crate_description, crate_version, App, AppSettings, Arg, ArgMatches};
+use clap::{crate_authors, crate_description, crate_version, Arg, ArgMatches, Command};
 use const_format::formatcp;
 use std::str::FromStr;
 use strum::{EnumString, EnumVariantNames, IntoStaticStr, VariantNames};
@@ -35,7 +35,7 @@ pub fn args() -> App<'static> {
                 .global(true),
         )
         .subcommand(
-            App::new("disassemble")
+            Command::new("disassemble")
                 .about("Disassemble a RISC-V ELF binary")
                 .arg(
                     Arg::new("input-file")
@@ -122,7 +122,7 @@ pub fn args() -> App<'static> {
                 )
         )
         .subcommand(
-            App::new("qubot")
+            Command::new("qubot")
                 .about("Create a QUBO model for a RISC-U ELF binary")
                 .arg(
                     Arg::new("input-file")
@@ -192,8 +192,9 @@ pub fn args() -> App<'static> {
                     .validator(is::<usize>),
                 )
         )
-        .setting(AppSettings::SubcommandRequiredElseHelp)
-        .global_setting(AppSettings::PropagateVersion)
+        .subcommand_required(true)
+        .arg_required_else_help(true)
+        .propagate_version(true)
 }
 
 pub fn expect_arg<T: FromStr>(m: &ArgMatches, arg: &str) -> Result<T>
