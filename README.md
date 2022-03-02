@@ -25,25 +25,6 @@ Currently, we handle a <b>Turing complete</b> subset of RISC-V (i.e RISC-U), how
 
 For more information about our work you can check our [paper](https://arxiv.org/abs/2111.12063).
 
-### Usage
-
-#### Binary
-
-Once Rust is installed (see step 1 in "Toolchain Setup"), you can easily install the latest version of Monster with:
-```
-$ cargo install monster-rs --locked
-$ monster --help
-```
-
-#### Library
-Usage
-
-Add this to your Cargo.toml:
-```
-[dependencies]
-monster-rs = "0"
-```
-
 ### Toolchain Setup
 Monster can be build and tested on all major platforms.
 Just make sure you build for one of these targets:
