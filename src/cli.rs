@@ -19,7 +19,7 @@ pub enum LogLevel {
 const MEMORY_SIZE: ByteSize = ByteSize(bytesize::MIB);
 
 pub fn args() -> App<'static> {
-    App::new("Monster")
+    App::new("Unicorn")
         .version(crate_version!())
         .author(crate_authors!(", "))
         .about(crate_description!())
@@ -46,7 +46,7 @@ pub fn args() -> App<'static> {
                 ),
         )
         .subcommand(
-            App::new("unicorn")
+            App::new("beator")
                 .about("Create a BTOR2 model for a RISC-U ELF binary")
                 .arg(
                     Arg::new("bitblast")
@@ -137,6 +137,33 @@ pub fn args() -> App<'static> {
                     .short('o')
                     .long("out")
                     .takes_value(true)
+                )
+                .arg(
+                    Arg::new("max-heap")
+                        .help("Number of machine-words usable as heap")
+                        .long("max-heap")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .default_value("8")
+                        .validator(is::<u32>),
+                )
+                .arg(
+                    Arg::new("max-stack")
+                        .help("Number of machine-words usable as stack")
+                        .long("max-stack")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .default_value("16")
+                        .validator(is::<u32>),
+                )
+                .arg(
+                    Arg::new("memory")
+                        .help("Total size of memory in MiB [possible: 1 .. 1024]")
+                        .long("memory")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .default_value(formatcp!("{}", MEMORY_SIZE.0 / bytesize::MIB))
+                        .validator(is_valid_memory_size),
                 )
                 .arg(
                     Arg::new("input")
