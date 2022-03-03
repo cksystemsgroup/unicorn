@@ -15,16 +15,18 @@ Unicorn models RISC-V code execution with a bit-precise finite state machine ove
 
 Unicorn constructs the finite state machine such that a state S is reachable from the initial state in n state transitions if and only if there is input to the RISC-V code that makes a RISC-V machine reach the machine state modeled by S after executing the RISC-V code for no more than n instructions.
 
-Unicorn outputs the finite state machine for a given state S either as objective function of a quantum annealer for a given bound on n, or as quantum circuit for a quantum computer and unbounded n. Thus the output of a quantum machine is input to the RISC-V code for reaching S, if there is such input.
+Unicorn outputs the finite state machine for a given state S either as objective function of a quantum annealer for a given bound on n, or as quantum circuit for a quantum computer and unbounded n. Thus the output of a quantum machine is an input to the RISC-V code for reaching S during execution, if there is such input, resembling what a symbolic execution engine and bounded model checker for RISC-V would do.
 
-Unicorn reports the size of objective functions and quantum circuits in number of quantum bits. Objective functions grow linearly in n (quadratically in n if the RISC-V code's memory consumption is unbounded). Quantum circuits are linear in code size (linear in memory size if the RISC-V code's memory consumption is unbounded).
+Unicorn reports the size of objective functions and quantum circuits in number of quantum bits. Objective functions grow linearly in n (quadratically in n if the RISC-V code's memory consumption is unbounded). Quantum circuits grow linearly in code size (memory usage if the RISC-V code's memory consumption is unbounded).
 
-Unicorn optimizes size by applying SMT and SAT solvers during compilation.
+Unicorn optimizes size by applying SMT and SAT solvers during compilation. Whenever a quantum bit can be shown to represent a constant value for all inputs, the bit is replaced with that value. Given a time budget T, unicorn attempts to find solutions for all quantum bits within the budget T. Only if unicorn runs out of time, involving a quantum machine makes sense yet only as long as the number u of undetermined quantum bits is less than the number a of quantum bits available on the machine. We call a-u the quantum advantage with time budget T.
 
-For more information about our work you can check our [paper](https://arxiv.org/abs/2111.12063).
+Unicorn supports a subset of 64-bit and 32-bit RISC-V called RISC-U where the U stands for unsigned integer arithmetic. We plan to support all of RISC-V eventually.
+
+For more information on how unicorn works check out our [paper](https://arxiv.org/abs/2111.12063).
 
 ### Toolchain Setup
-Monster can be build and tested on all major platforms.
+Unicorn can be build and run on all major platforms.
 Just make sure you build for one of these targets:
  - x86_64-unknown-linux-gnu
  - x86_64-apple-darwin
