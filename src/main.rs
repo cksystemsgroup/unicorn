@@ -51,7 +51,6 @@ fn main() -> Result<()> {
             let max_heap = expect_arg::<u32>(args, "max-heap")?;
             let max_stack = expect_arg::<u32>(args, "max-stack")?;
             let memory_size = ByteSize::mib(expect_arg(args, "memory")?).as_u64();
-            let prune = args.is_present("prune-model");
 
             let program = load_object_file(&input)?;
 
@@ -64,8 +63,13 @@ fn main() -> Result<()> {
                     unroll_model(&mut model, n);
                     optimize_model::<none_impl::NoneSolver>(&mut model)
                 }
-                if !is_beator || prune {
+                if !is_beator {
                     prune_model(&mut model);
+                } else {
+                    let prune = args.is_present("prune-model");
+                    if prune {
+                        prune_model(&mut model);
+                    }
                 }
                 match solver {
                     ::unicorn::SmtType::Generic => (), // nothing left to do
