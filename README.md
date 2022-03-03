@@ -59,20 +59,20 @@ $ cargo test --locked
 ```
 ## Usage
 
-First, generate a RISC-U binary (full support of RISC-V is coming soon!). Refer to the [selfie repositorie](https://github.com/cksystemsteaching/selfie). Once selfie is installed you can generate a binary for a code you have written in a file (e.g `hello.c`):
+First, generate a RISC-U binary (full support of RISC-V is coming soon!). Refer to the [selfie repository](https://github.com/cksystemsteaching/selfie). Once selfie is installed you can generate a binary for code you have written in a file (e.g `hello.c`):
 
 ```
 selfie -c hello.c -o hello.m
 ```
 
-To display the available subcommands that Unicorn has you can type `./target/debug/unicorn --help`, or to display subcommands options `./target/debug/unicorn <SUBCOMMAND> --help`.
+To display the available subcommands that Unicorn has you can type `./target/debug/unicorn --help`, or to display subcommand options `./target/debug/unicorn <SUBCOMMAND> --help`.
 
 Currently, we have 2 main options:
 ### 1. Generate the BTOR2 file from the binary
 ```
 ./target/debug/unicorn beator hello.m --unroll 100 --solver boolector --out hello.btor2
 ```
-The above command generate a BTOR2 file (i.e hello.btor2), while the unroll option especifies how many machine instruction (state transitions) Unicorn should represent in the BTOR2 file. In this example, Unicorn uses boolector to optimize at word level the number of variables the models needs. 
+The above command generates a BTOR2 file (i.e hello.btor2), while the unroll option specifies how many machine instructions (state transitions) Unicorn should represent in the BTOR2 file. In this example, Unicorn uses boolector to optimize at word level the number of variables the model needs. 
 
 There are more options. For example, you can pass the option `--bitblast`, and instead the BTOR2 file will represent a logic (combinatorial) circuit.
 
@@ -81,7 +81,7 @@ There are more options. For example, you can pass the option `--bitblast`, and i
 ```
 ./target/debug/unicorn qubot hello.m --unroll 100 --solver boolector --out hello.unicorn --inputs 42,32;34
 ```
-This command instead generate a qubo model that represent 100 executed instructions, and outputs a file describing the qubo in `hello.unicorn`. If you do not use the option `--out` no outputs files are generated. The output files can get big very quickly.
+This command instead generates a QUBO model that represents 100 executed instructions, and outputs a file describing the qubo in `hello.unicorn`. If you do not use the option `--out` no output files are generated. The output files can get big very quickly.
 
 The `--inputs` parameter is also optional. In this example, we are assuming our model consumes 2 inputs. Therefore, we are first testing our model with inputs 42 and 32, and then we perform a second test with 34 (if not enough inputs are provided, the first input is replicated to satisfy the number of inputs the model consumes). In this example, Unicorn prints one line for each test in the terminal. For our example:
 
@@ -90,11 +90,11 @@ offset:2, bad states count:0
 offset:0, bad states count:1
 ```
 
-This output per input means that for the first test our model does not reaches ground state, therefore the inputs we provided do not reach a bad state. The second line instead, tells us that the input 32 makes 1 bad state reachable and therefore, the objective function reaches ground state.
+This output per input means that for the first test our model does not reache ground state, therefore the inputs we provided do not reach a bad state. The second line instead, tells us that the input 32 makes 1 bad state reachable and therefore, the objective function reaches ground state.
 
 The qubo file is divided into 5 sections, each section is separated by an empty line, and lines in each section separate values by a single space. Section are described as follows:
 
-1. The first section consists of a single line and it contains a 2 numbers: the number of variables, and the offset of the QUBO. 
+1. The first section consists of a single line and it contains 2 numbers: the number of variables, and the offset of the QUBO. 
 2. The second section contains lines mapping input-nids of the corresponding BTOR2 file to unique identifiers of qubits. IDs of qubits are separated by commas, and the LSB comes first.
 3. The third section is similar to the previous one, but instead it maps bad-state-nids to qubits ids. Bad states are booleans, therefore only one qubit-id is needed.
 4. The fourth section describes linear coefficients and follows the format `<qubit-id> <linear-coeff>`.
