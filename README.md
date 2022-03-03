@@ -125,6 +125,6 @@ Here you can see an example of how the file might look like:
 
 ## License
 
-Copyright (c) 2020, [the Selfie authors](https://github.com/cksystemsteaching/selfie). All rights reserved.
+Copyright (c) 2022. The Unicorn Authors. All rights reserved.
 
 Licensed under the [MIT](LICENSE) license.
