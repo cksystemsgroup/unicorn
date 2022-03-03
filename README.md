@@ -9,19 +9,17 @@
 [![Lines of Code](https://img.shields.io/tokei/lines/github/cksystemsgroup/monster)](https://github.com/cksystemsgroup/monster)
 [![License](https://img.shields.io/crates/l/monster-rs)](https://github.com/cksystemsgroup/monster/blob/master/LICENSE)
 
-Unicorn is a compiler and runtime system for quantum computing which translates 64-bit RISC-U binaries into precise bit-equivalent models suitable for deployment on quantum computers.
+Unicorn compiles 64-bit RISC-V ELF binaries to quantum circuits and objective functions that run on quantum computers and quantum annealers, respectively, with a possibly exponential advantage.
 
-Given a RISC-U binary and a number `n` of machine instructions to execute, Unicorn builds an equivalent <b>Finite State Machine (FSM)</b> using BTOR2 formalisms, then a logic (combinatorial) circuit by replicating `n` times the FSM, and finally a <b>Quadratic Unconstrained Binary Optimization (QUBO)</b> model suitable for quantum annealers.
+Unicorn models RISC-V code execution with a bit-precise finite state machine over all RISC-V machine states using 64-bit bitvectors, one for each general-purpose 64-bit CPU register, 1-bit bitvectors, one for each possible program counter value, and an array of 64-bit bitvectors modeling 64-bit main memory.
 
-Given that some states of the FSM are marked as <u>bad states</u>, our models are able to determine if these states are reachable, and in such case, the concrete input(s) of the program that makes them reachable.
+Unicorn constructs the finite state machine such that a state S is reachable from the initial state in n state transitions if and only if there is input to the RISC-V code that makes a RISC-V machine reach the machine state modeled by S after executing the RISC-V code for no more than n instructions.
 
-The number of binary variables utilized are minimized in the classical realm using SMT solvers on the word-level, and further minimized on the gate-level. Popular SMT solvers like Boolector and Z3 are supported as an optional build option.
+Unicorn outputs the finite state machine for a given state S either as objective function of a quantum annealer for a given bound on n, or as quantum circuit for a quantum computer and unbounded n. Thus the output of a quantum machine is input to the RISC-V code for reaching S, if there is such input.
 
-Each step of the translation can be exported in suitable formats including BTOR2, a JSON file for QUBOs (or eventually DIMACS).
+Unicorn reports the size of objective functions and quantum circuits in number of quantum bits. Objective functions grow linearly in n (quadratically in n if the RISC-V code's memory consumption is unbounded). Quantum circuits are linear in code size (linear in memory size if the RISC-V code's memory consumption is unbounded).
 
-Inspired by symbolic execution, and bounded model checking, it can be used to debug classical programs. Writting a program for quantum annealers has never been so easy. Moreover, writting code to check an answer can be used to find the answer. 
-
-Currently, we handle a <b>Turing complete</b> subset of RISC-V (i.e RISC-U), however it is future work to be able to handle full support of RISC-V, as well as outputting models suitable for gate model quantum computers.
+Unicorn optimizes size by applying SMT and SAT solvers during compilation.
 
 For more information about our work you can check our [paper](https://arxiv.org/abs/2111.12063).
 
@@ -61,7 +59,7 @@ $ cargo test --locked
 ```
 ## Usage
 
-First, generate a RISC-U binary. Refer to the [selfie repositorie](https://github.com/cksystemsteaching/selfie). Once selfie is installed you can generate a binary for a code you have written in a file (e.g `hello.c`):
+First, generate a RISC-U binary (full support of RISC-V is coming soon!). Refer to the [selfie repositorie](https://github.com/cksystemsteaching/selfie). Once selfie is installed you can generate a binary for a code you have written in a file (e.g `hello.c`):
 
 ```
 selfie -c hello.c -o hello.m
