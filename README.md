@@ -103,7 +103,7 @@ The qubo file is divided into 5 sections, each section is separated by an empty 
 Here you can see an example of how the file might look like:
 
 ```
-10 45
+548 1023
 
 10000001 1,2,3,4,5,6,7,8
 
