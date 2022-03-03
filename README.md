@@ -74,9 +74,9 @@ Currently, we have 2 main options:
 ```
 ./target/debug/unicorn beator hello.m --unroll 100 --solver boolector --out hello.btor2
 ```
-The above command generate a BTOR2 file (i.e hello.btor2), while the unroll option especifies how many machine instruction (state transitions) Unicorn should represent in the btor2 file. In this example, Unicorn uses boolector to optimize at word level the number of variables the models needs. 
+The above command generate a BTOR2 file (i.e hello.btor2), while the unroll option especifies how many machine instruction (state transitions) Unicorn should represent in the BTOR2 file. In this example, Unicorn uses boolector to optimize at word level the number of variables the models needs. 
 
-There are more options. For example, you can pass the option `--bitblast` and instead the btor2 file will represent a logic (combinatorial) circuit.
+There are more options. For example, you can pass the option `--bitblast`, and instead the BTOR2 file will represent a logic (combinatorial) circuit.
 
 
 ### 2. Generate and/or test a QUBO of the binary
@@ -85,7 +85,7 @@ There are more options. For example, you can pass the option `--bitblast` and in
 ```
 This command instead generate a qubo model that represent 100 executed instructions, and outputs a file describing the qubo in `hello.unicorn`. If you do not use the option `--out` no outputs files are generated. The output files can get big very quickly.
 
-The option `--inputs` is also optional. In this example, we are assuming our model consumes 2 inputs. Therefore, we are first testing our model with inputs 42 and 32, and then we perform a second test with 34 (if not enough inputs are provided, the first input is replicated to satisfy the number of inputs out model consumes). In this example, 1 line for each test in the terminal. For our example:
+The `--inputs` parameter is also optional. In this example, we are assuming our model consumes 2 inputs. Therefore, we are first testing our model with inputs 42 and 32, and then we perform a second test with 34 (if not enough inputs are provided, the first input is replicated to satisfy the number of inputs the model consumes). In this example, Unicorn prints one line for each test in the terminal. For our example:
 
 ```
 offset:2, bad states count:0
@@ -96,11 +96,11 @@ This output per input means that for the first test our model does not reaches g
 
 The qubo file is divided into 5 sections, each section is separated by an empty line, and lines in each section separate values by a single space. Section are described as follows:
 
-1. The first section consists of a single line and it contains a 2 numbers: the number of variables and the offset of the QUBO. 
-2. The second section contains lines mapping input-nids of the corresponding btor2 file to unique identifiers of qubits. IDs of qubits are separated by commas, and the LSB comes first.
+1. The first section consists of a single line and it contains a 2 numbers: the number of variables, and the offset of the QUBO. 
+2. The second section contains lines mapping input-nids of the corresponding BTOR2 file to unique identifiers of qubits. IDs of qubits are separated by commas, and the LSB comes first.
 3. The third section is similar to the previous one, but instead it maps bad-state-nids to qubits ids. Bad states are booleans, therefore only one qubit-id is needed.
 4. The fourth section describes linear coefficients and follows the format `<qubit-id> <linear-coeff>`.
-5. The last section describes quadratic coefficients and follows the format `<qubit-id> <qubit-id> <quadratic-coeff>`.
+5. The last section describes quadratic (bilinear) coefficients and follows the format `<qubit-id> <qubit-id> <quadratic-coeff>`.
 
 Here you can see an example of how the file might look like:
 
