@@ -61,7 +61,7 @@ $ cargo test --locked
 ```
 ## Usage
 
-First, generate a RISC-U binary. Refer to the [selfie repositorie](https://github.com/cksystemsteaching/selfie). Once selfie is installed you can generate a binary for a code you have written in a file (e.g `test.c`):
+First, generate a RISC-U binary. Refer to the [selfie repositorie](https://github.com/cksystemsteaching/selfie). Once selfie is installed you can generate a binary for a code you have written in a file (e.g `hello.c`):
 
 ```
 selfie -c hello.c -o hello.m
