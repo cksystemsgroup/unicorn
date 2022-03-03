@@ -67,7 +67,7 @@ First, generate a RISC-U binary. Refer to the [selfie repositorie](https://githu
 selfie -c hello.c -o hello.m
 ```
 
-To display the available subcommands that Unicorn has you can type `./target/debug/unicorn --help`, or to display the options of the subcommands `./target/debug/unicorn <SUBCOMMAND> --help`.
+To display the available subcommands that Unicorn has you can type `./target/debug/unicorn --help`, or to display subcommands options `./target/debug/unicorn <SUBCOMMAND> --help`.
 
 Currently, we have 2 main options:
 ### 1. Generate the BTOR2 file from the binary
