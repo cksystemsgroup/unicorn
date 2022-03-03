@@ -275,11 +275,11 @@ impl<'a> Qubot<'a> {
                 let gate_key = HashableGateRef::from((*gate).clone());
                 let qubit = self.mapping.get(&gate_key).unwrap();
                 if !str_gates.is_empty() {
-                    str_gates += " ";
+                    str_gates += ",";
                 }
                 str_gates += &(*qubit.borrow()).name.to_string();
             }
-            writeln!(out, "{} {:?}", get_nid(nid), str_gates)?;
+            writeln!(out, "{} {}", get_nid(nid), str_gates)?;
         }
 
         writeln!(out)?;
