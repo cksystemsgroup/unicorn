@@ -63,14 +63,10 @@ fn main() -> Result<()> {
                     unroll_model(&mut model, n);
                     optimize_model::<none_impl::NoneSolver>(&mut model)
                 }
-                if !is_beator {
+                if !is_beator || args.is_present("prune-model") {
                     prune_model(&mut model);
-                } else {
-                    let prune = args.is_present("prune-model");
-                    if prune {
-                        prune_model(&mut model);
-                    }
                 }
+
                 match solver {
                     ::unicorn::SmtType::Generic => (), // nothing left to do
                     #[cfg(feature = "boolector")]
