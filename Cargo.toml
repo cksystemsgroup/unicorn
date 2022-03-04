@@ -48,3 +48,7 @@ rayon = "~1.5"
 version = "1"
 default-features = false
 features = ["user-hooks"]
+
+[dependencies.pyo3]
+version = "0.16.0"
+features = ["auto-initialize"]
