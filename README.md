@@ -131,7 +131,7 @@ To execute on real quantum hardware, first, refer to this [setup guide](https://
 
 The command below performs `<NUM_RUNS>` samples on the quantum annealer, while the physical qubits will have an absolute coupling value of `CHAIN_STRENGTH`.
 
-```
+```sh
 ./target/debug/unicorn dwave <QUBO_FILE> --num-runs <NUM_RUNS> --chain-strength <CHAIN_STRENGTH>
 ```
 
