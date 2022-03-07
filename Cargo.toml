@@ -39,6 +39,7 @@ boolector-solver = { package = "boolector", version = "~0.4", features = ["vendo
 boolector-sys = { version = "~0", features = ["vendor-lgl"], optional = true }
 z3-solver = { package = "z3", version = "~0.11", features = ["static-link-z3"], optional = true }
 z3-sys = { version = "~0", features = ["static-link-z3"], optional = true }
+pyo3 = { version = "0.16.0", features = ["auto-initialize"] }
 
 [dev-dependencies]
 utils = { path = "utils" }
@@ -48,7 +49,3 @@ rayon = "~1.5"
 version = "1"
 default-features = false
 features = ["user-hooks"]
-
-[dependencies.pyo3]
-version = "0.16.0"
-features = ["auto-initialize"]
