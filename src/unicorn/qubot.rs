@@ -16,7 +16,7 @@ pub type QubitRef = Rc<RefCell<Qubit>>;
 
 #[derive(Debug, PartialEq)]
 pub struct Qubit {
-    name: u64,
+    pub name: u64,
 }
 
 impl From<Qubit> for QubitRef {
@@ -27,7 +27,7 @@ impl From<Qubit> for QubitRef {
 
 #[derive(Debug)]
 pub struct HashableQubitRef {
-    value: QubitRef,
+    pub value: QubitRef,
 }
 
 impl Eq for HashableQubitRef {}
@@ -111,11 +111,11 @@ pub enum Rule {
 }
 
 pub struct Qubo {
-    linear_coefficients: HashMap<HashableQubitRef, i32>,
-    quadratic_coefficients: HashMap<HashableQubitRef, HashMap<HashableQubitRef, i32>>,
-    offset: i32,
+    pub linear_coefficients: HashMap<HashableQubitRef, i32>,
+    pub quadratic_coefficients: HashMap<HashableQubitRef, HashMap<HashableQubitRef, i32>>,
+    pub offset: i32,
     rules: HashMap<HashableQubitRef, Rule>, // used when we want to evaluate an input
-    fixed_variables: HashMap<HashableQubitRef, bool>, // used for when we want to evaluate an input
+    pub fixed_variables: HashMap<HashableQubitRef, bool>, // used for when we want to evaluate an input
 }
 
 impl Qubo {
@@ -260,6 +260,16 @@ impl<'a> Qubot<'a> {
         }
     }
 
+    pub fn get_qubit_value(&self, qubit: &QubitRef) -> Option<bool> {
+        let key_qubit = HashableQubitRef::from(qubit.clone());
+
+        if self.qubo.fixed_variables.contains_key(&key_qubit) {
+            Some(*self.qubo.fixed_variables.get(&key_qubit).unwrap())
+        } else {
+            None
+        }
+    }
+
     pub fn dump_model<W>(&self, mut out: W, bad_state_qubits: Vec<(QubitRef, u64)>) -> Result<()>
     where
         W: Write,
@@ -271,21 +281,43 @@ impl<'a> Qubot<'a> {
 
         for (nid, gates) in self.bitblasting.input_gates.iter() {
             let mut str_gates: String = "".to_string();
+            let mut values: String = "".to_string();
             for gate in gates {
                 let gate_key = HashableGateRef::from((*gate).clone());
                 let qubit = self.mapping.get(&gate_key).unwrap();
                 if !str_gates.is_empty() {
+                    values += ",";
                     str_gates += ",";
                 }
                 str_gates += &(*qubit.borrow()).name.to_string();
+
+                if let Some(qubit_value) = self.get_qubit_value(qubit) {
+                    if qubit_value {
+                        values += "1";
+                    } else {
+                        values += "0";
+                    }
+                } else {
+                    values += "-";
+                }
             }
-            writeln!(out, "{} {}", get_nid(nid), str_gates)?;
+            writeln!(out, "{} {} {}", get_nid(nid), str_gates, values)?;
         }
 
         writeln!(out)?;
 
         for (qubit, nid) in bad_state_qubits {
-            writeln!(out, "{} {}", nid, (*qubit.borrow()).name)?;
+            if let Some(qubit_value) = self.get_qubit_value(&qubit) {
+                writeln!(
+                    out,
+                    "{} {} {}",
+                    nid,
+                    (*qubit.borrow()).name,
+                    qubit_value as i32
+                )?;
+            } else {
+                writeln!(out, "{} {}", nid, (*qubit.borrow()).name)?;
+            }
         }
 
         writeln!(out)?;

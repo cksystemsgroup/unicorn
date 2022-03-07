@@ -1,6 +1,8 @@
 mod cli;
+mod quantum_annealing;
 mod unicorn;
 
+use crate::quantum_annealing::dwave_api::sample_quantum_annealer;
 use crate::unicorn::bitblasting::BitBlasting;
 use crate::unicorn::bitblasting_printer::write_gate_model;
 use crate::unicorn::builder::generate_model;
@@ -146,6 +148,13 @@ fn main() -> Result<()> {
             }
 
             Ok(())
+        }
+        Some(("dwave", args)) => {
+            let input = expect_arg::<String>(args, "input-file")?;
+            let runs = expect_arg::<u32>(args, "num-runs")?;
+            let chain_strength = expect_arg::<f32>(args, "chain-strength")?;
+
+            sample_quantum_annealer(&input, runs, chain_strength)
         }
         _ => unreachable!(),
     }

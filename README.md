@@ -36,12 +36,12 @@ Just make sure you build for one of these targets:
  - you install it with one of the supported host triples and 
  - add it to your path
 2. Install Rustfmt (formatter) and Clippy (linter)
-```
+```sh
 $ rustup component add rustfmt
 $ rustup component add clippy
 ```
 3. Install tool for documentation generation
-```
+```sh
 $ cargo install mdbook --locked
 $ cargo install mdbook-linkcheck --locked
 $ cargo install mdbook-graphviz --locked
@@ -52,65 +52,67 @@ Tests can be executed on all platforms, alltough one
 feature is not supported on Windows: `boolector`
 
 1. Test your toolchain setup by compiling monster:
-```
+```sh
 $ cargo build --locked
 ```
 2. Execute tests:
-```
+```sh
 $ cargo test --locked
 ```
 ## Usage
 
-First, generate a RISC-U binary (full support of RISC-V is coming soon!). Refer to the [selfie repository](https://github.com/cksystemsteaching/selfie). Once selfie is installed you can generate a binary for code you have written in a file (e.g `hello.c`):
+First, generate a RISC-U binary with [Selfie](https://github.com/cksystemsteaching/selfie) using the command below:
 
-```
-selfie -c hello.c -o hello.m
+```sh
+selfie -c <SOURCE_CODE_FILE> -o <BINARY_FILE>
 ```
 
 To display the available subcommands that Unicorn has you can type `./target/debug/unicorn --help`, or to display subcommand options `./target/debug/unicorn <SUBCOMMAND> --help`.
 
-Currently, we have 2 main options:
-### 1. Generate the BTOR2 file from the binary
+Currently, there are 3 main commands:
+### 1. Generate a BTOR2 file from a binary
+```sh
+./target/debug/unicorn beator <BINARY_FILE> --unroll <NUM_STATE_TRANSITIONS> --solver boolector --out <BTOR2_FILE>
 ```
-./target/debug/unicorn beator hello.m --unroll 100 --solver boolector --out hello.btor2
-```
-The above command generates a BTOR2 file (i.e hello.btor2), while the unroll option specifies how many machine instructions (state transitions) Unicorn should represent in the BTOR2 file. In this example, Unicorn uses boolector to optimize at word level the number of variables the model needs. 
+The above command generates a BTOR2 file, while the unroll option specifies how many state transitions Unicorn should represent in the BTOR2 file. In this example, Unicorn optimizes the number of variables using Boolector. 
 
-There are more options. For example, you can pass the option `--bitblast`, and instead the BTOR2 file will represent a logic (combinatorial) circuit.
+There are more options. For example, you can add `--bitblast` to the command, and the BTOR2 file will represent a logic (combinatorial) circuit.
 
 
 ### 2. Generate and/or test a QUBO of the binary
+```sh
+./target/debug/unicorn qubot <BINARY_FILE> --unroll <NUM_STATE_TRANSITIONS> --solver <SMT_SOLVER> --out <QUBO_FILE> --inputs 42,32;34
 ```
-./target/debug/unicorn qubot hello.m --unroll 100 --solver boolector --out hello.unicorn --inputs 42,32;34
-```
-This command instead generates a QUBO model that represents 100 executed instructions, and outputs a file describing the qubo in `hello.unicorn`. If you do not use the option `--out` no output files are generated. The output files can get big very quickly.
+This command dumps a QUBO model in `<QUBO_FILE>`, however passing `--out` is optional.
 
-The `--inputs` parameter is also optional. In this example, we are assuming our model consumes 2 inputs. Therefore, we are first testing our model with inputs 42 and 32, and then we perform a second test with 34 (if not enough inputs are provided, the first input is replicated to satisfy the number of inputs the model consumes). In this example, Unicorn prints one line for each test in the terminal. For our example:
+The `--inputs` parameter is also optional. In this example, we are assuming our model consumes two inputs. Therefore, we are first testing our model with inputs 42 and 32, and then 34 (the first value of each test is replicated to satisfy the number of inputs the model consumes if there are not enough values). 
 
-```
+In this example, Unicorn prints one line for each test in the terminal:
+
+```sh
 offset:2, bad states count:0
 offset:0, bad states count:1
 ```
 
-This output per input means that for the first test our model does not reache ground state, therefore the inputs we provided do not reach a bad state. The second line instead, tells us that the input 32 makes 1 bad state reachable and therefore, the objective function reaches ground state.
+For the first test, our model does not reach a ground state, therefore no bad state happens. However, the second line tells us that input 32 makes one bad state reachable.
 
-The qubo file is divided into 5 sections, each section is separated by an empty line, and lines in each section separate values by a single space. Section are described as follows:
+The QUBO file has five sections, each section is separated by an empty line, and each line separates values by a space. The file is described as follows:
 
-1. The first section consists of a single line and it contains 2 numbers: the number of variables, and the offset of the QUBO. 
-2. The second section contains lines mapping input-nids of the corresponding BTOR2 file to unique identifiers of qubits. IDs of qubits are separated by commas, and the LSB comes first.
-3. The third section is similar to the previous one, but instead it maps bad-state-nids to qubits ids. Bad states are booleans, therefore only one qubit-id is needed.
+1. The first section consists of a single line, and it contains two numbers: the number of variables and the offset of the QUBO. 
+2. The second section contains lines mapping input-nids of the corresponding BTOR2 file to unique identifiers of qubits, and whether or not our optimization techniques found some value for each of the qubits. IDs of qubits are separated by commas (LSB comes first), and `-` means that the SMT/SAT solvers have not determined a value for these qubits.
+3. The third section is similar to the previous one, but instead, it maps bad-state-nids to qubits ids. Bad states are booleans, therefore only one qubit-id is needed.
 4. The fourth section describes linear coefficients and follows the format `<qubit-id> <linear-coeff>`.
 5. The last section describes quadratic (bilinear) coefficients and follows the format `<qubit-id> <qubit-id> <quadratic-coeff>`.
 
-Here you can see an example of how the file might look like:
+Here you can see an example of what the file might look like:
 
 ```
 548 1023
 
-10000001 1,2,3,4,5,6,7,8
+10000001 1,2,3,4,5,6,7,8 -,-,-,-,-,-,-,-
 
-10000148 13
-10000148 14
+10000148 13 0
+10000148 14 -
 
 9 2
 10 0
@@ -121,6 +123,49 @@ Here you can see an example of how the file might look like:
 1 9 4
 3 9 6
 ...
+```
+### 3. Execute a QUBO file on real quantum hardware
+Right now, we are wrapping Python functions to access real hardware, and the implementation of embedding algorithm and a REST framework is still on its way.
+
+To execute on real quantum hardware, first, refer to this [setup guide](https://docs.ocean.dwavesys.com/en/latest/overview/install.html#set-up-your-environment).
+
+The command below performs `<NUM_RUNS>` samples on the quantum annealer, while the physical qubits will have an absolute coupling value of `CHAIN_STRENGTH`.
+
+```sh
+./target/debug/unicorn dwave <QUBO_FILE> --num-runs <NUM_RUNS> --chain-strength <CHAIN_STRENGTH>
+```
+
+Running this command will output on the terminal: 
+
+1. The minimum energy (final offset of the QUBO) that the annealer found among all runs.
+2. One line for each input nid that the model has. Unicorn displays for each input a nid, a value in decimal, and a value in binary (MSB).
+3. The nids of the bad states that occur (qubits whose value are 1).
+
+Below is an example of a small QUBO file representing an AND gate, and the output for such file:
+
+```
+3 0
+
+1 1,2 -,-
+
+bad 3 -
+
+3 6
+
+1 2 2
+1 3 -4
+2 3 -4
+```
+
+``` sh
+Py(0x10cdd90d0)
+{'path': 'and.unicorn', 'num_reads': '10', 'chain_strength': '1'}
+final offset:  0.0
+
+input:  1 2.0 10
+
+True bad states nids
+no bad states occur
 ```
 
 ## License
