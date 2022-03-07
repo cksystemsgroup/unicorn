@@ -72,7 +72,7 @@ To display the available subcommands that Unicorn has you can type `./target/deb
 Currently, there are 3 main commands:
 ### 1. Generate a BTOR2 file from a binary
 ```sh
-./target/debug/unicorn beator <BINARY_FILE> --unroll 100 --solver boolector --out <BTOR2_FILE>
+./target/debug/unicorn beator <BINARY_FILE> --unroll <NUM_STATE_TRANSITIONS> --solver boolector --out <BTOR2_FILE>
 ```
 The above command generates a BTOR2 file, while the unroll option specifies how many state transitions Unicorn should represent in the BTOR2 file. In this example, Unicorn optimizes the number of variables using Boolector. 
 
@@ -81,9 +81,9 @@ There are more options. For example, you can add `--bitblast` to the command, an
 
 ### 2. Generate and/or test a QUBO of the binary
 ```sh
-./target/debug/unicorn qubot <BINARY_FILE> --unroll 100 --solver boolector --out <QUBO_FILE> --inputs 42,32;34
+./target/debug/unicorn qubot <BINARY_FILE> --unroll <NUM_STATE_TRANSITIONS> --solver <SMT_SOLVER> --out <QUBO_FILE> --inputs 42,32;34
 ```
-This command generates a QUBO model of 100 state transitions and dumps the model in `<QUBO_FILE>`, however passing `--out` is optional.
+This command dumps a QUBO model in `<QUBO_FILE>`, however passing `--out` is optional.
 
 The `--inputs` parameter is also optional. In this example, we are assuming our model consumes two inputs. Therefore, we are first testing our model with inputs 42 and 32, and then 34 (the first value of each test is replicated to satisfy the number of inputs the model consumes if there are not enough values). 
 
@@ -94,7 +94,7 @@ offset:2, bad states count:0
 offset:0, bad states count:1
 ```
 
-This output per input means that for the first test, our model does not reach a ground state, therefore no bad state happens. However, the second line tells us that input 32 makes one bad state reachable.
+For the first test, our model does not reach a ground state, therefore no bad state happens. However, the second line tells us that input 32 makes one bad state reachable.
 
 The QUBO file has five sections, each section is separated by an empty line, and each line separates values by a space. The file is described as follows:
 
@@ -131,7 +131,7 @@ To execute on real quantum hardware, first, refer to this [setup guide](https://
 
 The command below performs `<NUM_RUNS>` samples on the quantum annealer, while the physical qubits will have an absolute coupling value of `CHAIN_STRENGTH`.
 
-```
+```sh
 ./target/debug/unicorn dwave <QUBO_FILE> --num-runs <NUM_RUNS> --chain-strength <CHAIN_STRENGTH>
 ```
 
