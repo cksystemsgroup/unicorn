@@ -3,7 +3,7 @@ mod quantum_annealing;
 mod unicorn;
 
 use crate::quantum_annealing::dwave_api::sample_quantum_annealer;
-use crate::unicorn::bitblasting::BitBlasting;
+use crate::unicorn::bitblasting::bitblast_model;
 use crate::unicorn::bitblasting_dimacs::write_dimacs_model;
 use crate::unicorn::bitblasting_printer::write_btor2_model;
 use crate::unicorn::builder::generate_model;
@@ -92,19 +92,18 @@ fn main() -> Result<()> {
                 let dimacs = args.is_present("dimacs");
 
                 if bitblast {
-                    let mut bitblasting = BitBlasting::new(&model, true, 64);
-                    let bad_states = bitblasting.process_model(&model);
+                    let gate_model = bitblast_model(&model, true, 64);
                     if let Some(ref output_path) = output {
                         let file = File::create(output_path)?;
                         if dimacs {
-                            write_dimacs_model(&model, &bad_states, file)?;
+                            write_dimacs_model(&model, &gate_model, file)?;
                         } else {
-                            write_btor2_model(&model, &bad_states, file)?;
+                            write_btor2_model(&model, &gate_model, file)?;
                         }
                     } else if dimacs {
-                        write_dimacs_model(&model, &bad_states, stdout())?;
+                        write_dimacs_model(&model, &gate_model, stdout())?;
                     } else {
-                        write_btor2_model(&model, &bad_states, stdout())?;
+                        write_btor2_model(&model, &gate_model, stdout())?;
                     }
                 } else if let Some(ref output_path) = output {
                     let file = File::create(output_path)?;
@@ -114,18 +113,17 @@ fn main() -> Result<()> {
                 }
             } else {
                 let inputs = expect_optional_arg::<String>(args, "input")?;
-                let mut bitblasting = BitBlasting::new(&model, true, 64);
-                let bad_states = bitblasting.process_model(&model);
+                let gate_model = bitblast_model(&model, true, 64);
 
-                let mut qubot = Qubot::new(&bitblasting);
-                let bad_state_qubits = qubot.build_qubo(&bad_states);
+                let mut qubot = Qubot::new(&gate_model);
+                let bad_state_qubits = qubot.build_qubo(&gate_model.bad_state_gates);
                 if let Some(ref output_path) = output {
                     let file = File::create(output_path)?;
                     qubot.dump_model(file, bad_state_qubits.clone())?;
                 }
 
                 if let Some(all_inputs) = inputs {
-                    let total_variables = bitblasting.input_gates.len();
+                    let total_variables = gate_model.input_gates.len();
                     let instances: Vec<&str> = all_inputs.split('-').collect();
 
                     for instance in instances {
@@ -142,7 +140,7 @@ fn main() -> Result<()> {
                         let (final_offset, true_bad_states) = input_evaluator.evaluate_inputs(
                             &qubot.qubo,
                             &qubot.mapping,
-                            &bitblasting.input_gates,
+                            &gate_model.input_gates,
                             &values,
                             bad_state_qubits.clone(),
                         );

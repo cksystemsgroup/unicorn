@@ -5,12 +5,24 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-// public interface
+//
+// Public Interface
+//
 
-// pub fn bitblast_model(model: Model, constant_propagation: bool, word_size: u64) -> Vec<GateRef> {
-//     let mut bitblasting = BitBlasting::new(&model, constant_propagation, word_size);
-//     bitblasting.process_model(&model)
-// }
+pub fn bitblast_model(model: &Model, constant_propagation: bool, word_size: u64) -> GateModel {
+    let bitblasting = BitBlasting::new(model, constant_propagation, word_size);
+    bitblasting.process_model()
+}
+
+pub struct GateModel {
+    pub bad_state_gates: Vec<GateRef>,
+    pub constraints: HashMap<HashableGateRef, bool>, // this is for remainder and division, these are constraint based.
+    pub input_gates: Vec<(NodeRef, Vec<GateRef>)>,
+    pub mapping: HashMap<HashableNodeRef, Vec<GateRef>>, // maps a btor2 operator to its resulting bitvector of gates
+    pub mapping_adders: HashMap<HashableGateRef, GateRef>,
+    pub gates_to_bad_nids: HashMap<HashableGateRef, NodeRef>,
+    pub constraint_based_dependencies: HashMap<HashableGateRef, (NodeRef, NodeRef)>, // used or division and remainder, and when qubot whats to test an input (InputEvaluator).
+}
 
 pub type GateRef = Rc<RefCell<Gate>>;
 
@@ -68,42 +80,26 @@ pub enum Gate {
     },
 }
 
+#[derive(Debug)]
+pub struct HashableGateRef {
+    value: GateRef,
+}
+
+//
+// Private Implementation
+//
+
 impl From<Gate> for GateRef {
     fn from(gate: Gate) -> Self {
         Rc::new(RefCell::new(gate))
     }
 }
 
-#[derive(Debug)]
-pub struct HashableGateRef {
-    value: GateRef,
-    //name: String
-}
-
 impl Eq for HashableGateRef {}
-
-// pub fn get_gate_name(gate: &GateRef ) -> String{
-//     match &*gate.borrow() {
-//         Gate::And {..} => {"AND".to_string()},
-//         Gate::CarryFullAdder {..} => {"CarryFA".to_string()}
-//         Gate::CarryHalfAdder  {..} => {"CarryHA".to_string()}
-//         Gate::ConstFalse  {..} =>{"false".to_string()}
-//         Gate::ConstTrue {..} => {"true".to_string()}
-//         Gate::InputBit  {..} =>{"input".to_string()}
-//         Gate::Matriarch1  {..} =>{"matriarch1".to_string()}
-//         Gate::Nand  {..} => { "NAND".to_string()}
-//         Gate::Not  {..} => { "Not".to_string()}
-//         Gate::Or  {..} => {"Or".to_string()}
-//         Gate::ResultFullAdder  {..} => { "ResFA".to_string()}
-//         Gate::ResultHalfAdder  {..} =>{ "ResHA".to_string()}
-//     }
-// }
 
 impl From<GateRef> for HashableGateRef {
     fn from(node: GateRef) -> Self {
-        Self {
-            value: node, /*name: get_gate_name(&node)*/
-        }
+        Self { value: node }
     }
 }
 
@@ -113,7 +109,13 @@ impl Hash for HashableGateRef {
     }
 }
 
-pub fn get_addresses_gates(model: &Model, word_size: &u64) -> Vec<Vec<GateRef>> {
+impl PartialEq for HashableGateRef {
+    fn eq(&self, other: &Self) -> bool {
+        RefCell::as_ptr(&self.value) == RefCell::as_ptr(&other.value)
+    }
+}
+
+fn get_addresses_gates(model: &Model, word_size: &u64) -> Vec<Vec<GateRef>> {
     // TODO: test
     let mut result = Vec::new();
 
@@ -130,12 +132,6 @@ pub fn get_addresses_gates(model: &Model, word_size: &u64) -> Vec<Vec<GateRef>> 
     }
 
     result
-}
-
-impl PartialEq for HashableGateRef {
-    fn eq(&self, other: &Self) -> bool {
-        RefCell::as_ptr(&self.value) == RefCell::as_ptr(&other.value)
-    }
 }
 
 fn get_gate_from_constant_bit(bit: u64) -> GateRef {
@@ -167,7 +163,7 @@ fn get_numeric_from_gate(gate_type: &GateRef) -> Option<u8> {
     }
 }
 
-pub fn get_numeric_from_gates(gates: &[GateRef]) -> u64 {
+fn get_numeric_from_gates(gates: &[GateRef]) -> u64 {
     let mut result: u64 = 0;
 
     for (exponent, gate) in gates.iter().enumerate() {
@@ -434,22 +430,22 @@ fn bitwise_equal(left_operand: &[GateRef], right_operand: &[GateRef]) -> Vec<Gat
     fold_word_gate(&temp_word, and_gate, "WORD-AND")
 }
 
-pub struct BitBlasting<'a> {
-    pub mapping: HashMap<HashableNodeRef, Vec<GateRef>>, // maps a btor2 operator to its resulting bitvector of gates
+struct BitBlasting<'a> {
+    mapping: HashMap<HashableNodeRef, Vec<GateRef>>, // maps a btor2 operator to its resulting bitvector of gates
     // constant_propagation: bool, // TODO: make this flag work. Currently we always perform constant propagation
-    pub constraints: HashMap<HashableGateRef, bool>, // this is for remainder and division, these are constraint based.
+    constraints: HashMap<HashableGateRef, bool>, // this is for remainder and division, these are constraint based.
     word_size: u64, // I use this attribute as a variable because maybe we will do variable-length addresses? I only use this for reads and writes.
     model: &'a Model, // BTOR2 model
     addresses_gates: Vec<Vec<GateRef>>, // memory addresses represented as vectors of (constant-)gates
-    pub mapping_adders: HashMap<HashableGateRef, GateRef>,
-    pub input_gates: Vec<(NodeRef, Vec<GateRef>)>,
-    pub gates_to_bad_nids: HashMap<HashableGateRef, NodeRef>,
-    pub nid_to_gates: HashMap<u64, Vec<GateRef>>,
-    pub constraint_based_dependencies: HashMap<HashableGateRef, (NodeRef, NodeRef)>, // used or division and remainder, and when qubot whats to test an input (InputEvaluator).
+    mapping_adders: HashMap<HashableGateRef, GateRef>,
+    input_gates: Vec<(NodeRef, Vec<GateRef>)>,
+    gates_to_bad_nids: HashMap<HashableGateRef, NodeRef>,
+    nid_to_gates: HashMap<u64, Vec<GateRef>>,
+    constraint_based_dependencies: HashMap<HashableGateRef, (NodeRef, NodeRef)>, // used or division and remainder, and when qubot whats to test an input (InputEvaluator).
 }
 
 impl<'a> BitBlasting<'a> {
-    pub fn new(model_: &'a Model, _constant_propagation_: bool, word_size_: u64) -> Self {
+    fn new(model_: &'a Model, _constant_propagation_: bool, word_size_: u64) -> Self {
         Self {
             mapping: HashMap::new(),
             //constant_propagation: constant_propagation_,
@@ -1209,17 +1205,25 @@ impl<'a> BitBlasting<'a> {
         }
     }
 
-    pub fn process_model(&mut self, model: &Model) -> Vec<GateRef> {
+    fn process_model(mut self) -> GateModel {
         // returns bad state bits
         let mut bad_state_gates: Vec<GateRef> = Vec::new();
-        for node in &model.bad_states_initial {
+        for node in &self.model.bad_states_initial {
             let bitblasted_bad_state = self.process(node);
             assert!(bitblasted_bad_state.len() == 1);
             bad_state_gates.push(bitblasted_bad_state[0].clone());
             let key = HashableGateRef::from(bitblasted_bad_state[0].clone());
             self.gates_to_bad_nids.insert(key, node.clone());
         }
-        bad_state_gates
+        GateModel {
+            bad_state_gates,
+            constraints: self.constraints,
+            input_gates: self.input_gates,
+            mapping: self.mapping,
+            mapping_adders: self.mapping_adders,
+            gates_to_bad_nids: self.gates_to_bad_nids,
+            constraint_based_dependencies: self.constraint_based_dependencies,
+        }
     }
 }
 

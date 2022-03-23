@@ -1,6 +1,4 @@
-use crate::unicorn::bitblasting::BitBlasting;
-use crate::unicorn::bitblasting::HashableGateRef;
-use crate::unicorn::bitblasting::{Gate, GateRef};
+use crate::unicorn::bitblasting::{Gate, GateModel, GateRef, HashableGateRef};
 use crate::unicorn::get_nid;
 use crate::unicorn::HashableNodeRef;
 use crate::unicorn::NodeRef;
@@ -243,19 +241,19 @@ pub struct Qubot<'a> {
     mapping_carries: HashMap<HashableGateRef, QubitRef>, // ResultHalfAdder or ResultFullAdder -> to Qubit that represent carries
     const_true_qubit: QubitRef,
     const_false_qubit: QubitRef,
-    bitblasting: &'a BitBlasting<'a>,
+    gate_model: &'a GateModel,
     current_index: u64,
 }
 
 impl<'a> Qubot<'a> {
-    pub fn new(model: &'a BitBlasting<'a>) -> Self {
+    pub fn new(model: &'a GateModel) -> Self {
         Self {
             qubo: Qubo::new(),
             mapping: HashMap::new(),
             mapping_carries: HashMap::new(),
             const_false_qubit: QubitRef::new(RefCell::new(Qubit { name: 0 })),
             const_true_qubit: QubitRef::new(RefCell::new(Qubit { name: 1 })),
-            bitblasting: model,
+            gate_model: model,
             current_index: 1,
         }
     }
@@ -279,7 +277,7 @@ impl<'a> Qubot<'a> {
 
         writeln!(out)?;
 
-        for (nid, gates) in self.bitblasting.input_gates.iter() {
+        for (nid, gates) in self.gate_model.input_gates.iter() {
             let mut str_gates: String = "".to_string();
             let mut values: String = "".to_string();
             for gate in gates {
@@ -392,17 +390,17 @@ impl<'a> Qubot<'a> {
 
                 let gate_key = HashableGateRef::from(gate.clone());
                 let nodes = self
-                    .bitblasting
+                    .gate_model
                     .constraint_based_dependencies
                     .get(&gate_key)
                     .unwrap();
 
                 let mut node_key = HashableNodeRef::from(nodes.0.clone());
-                let mut temp_gates = self.bitblasting.mapping.get(&node_key).unwrap();
+                let mut temp_gates = self.gate_model.mapping.get(&node_key).unwrap();
                 let dividend = temp_gates.iter().map(|g| self.visit(g)).collect();
 
                 node_key = HashableNodeRef::from(nodes.1.clone());
-                temp_gates = self.bitblasting.mapping.get(&node_key).unwrap();
+                temp_gates = self.gate_model.mapping.get(&node_key).unwrap();
                 let divisor = temp_gates.iter().map(|g| self.visit(g)).collect();
 
                 self.qubo.add_rule(
@@ -422,21 +420,21 @@ impl<'a> Qubot<'a> {
 
                 let gate_key = HashableGateRef::from(gate.clone());
                 let nodes = self
-                    .bitblasting
+                    .gate_model
                     .constraint_based_dependencies
                     .get(&gate_key)
                     .unwrap();
                 let mut dividend: Vec<QubitRef> = Vec::new();
 
                 let mut node_key = HashableNodeRef::from(nodes.0.clone());
-                let mut temp_gates = self.bitblasting.mapping.get(&node_key).unwrap();
+                let mut temp_gates = self.gate_model.mapping.get(&node_key).unwrap();
                 for t_gate in temp_gates {
                     dividend.push(self.visit(t_gate));
                 }
 
                 let mut divisor: Vec<QubitRef> = Vec::new();
                 node_key = HashableNodeRef::from(nodes.1.clone());
-                temp_gates = self.bitblasting.mapping.get(&node_key).unwrap();
+                temp_gates = self.gate_model.mapping.get(&node_key).unwrap();
                 for t_gate in temp_gates {
                     divisor.push(self.visit(t_gate));
                 }
@@ -656,7 +654,7 @@ impl<'a> Qubot<'a> {
             }
             Gate::CarryHalfAdder { .. } => {
                 let key = HashableGateRef::from(gate.clone());
-                let gate_half_adder = self.bitblasting.mapping_adders.get(&key).unwrap();
+                let gate_half_adder = self.gate_model.mapping_adders.get(&key).unwrap();
                 self.visit(gate_half_adder);
 
                 let half_adder_key = HashableGateRef::from(gate_half_adder.clone());
@@ -665,7 +663,7 @@ impl<'a> Qubot<'a> {
             }
             Gate::CarryFullAdder { .. } => {
                 let key = HashableGateRef::from(gate.clone());
-                let gate_full_adder = self.bitblasting.mapping_adders.get(&key).unwrap();
+                let gate_full_adder = self.gate_model.mapping_adders.get(&key).unwrap();
                 self.visit(gate_full_adder);
 
                 let full_adder_key = HashableGateRef::from(gate_full_adder.clone());
@@ -679,7 +677,7 @@ impl<'a> Qubot<'a> {
         let mut bad_state_qubits: Vec<(QubitRef, u64)> = Vec::new();
         for gate in bad_state_gates {
             let gate_key = HashableGateRef::from(gate.clone());
-            let node = self.bitblasting.gates_to_bad_nids.get(&gate_key).unwrap();
+            let node = self.gate_model.gates_to_bad_nids.get(&gate_key).unwrap();
             let qubit = self.process_gate(gate);
             let key_qubit = HashableQubitRef::from(qubit.clone());
             if !self.qubo.fixed_variables.contains_key(&key_qubit) {
@@ -722,7 +720,7 @@ impl<'a> Qubot<'a> {
         }
 
         // apply constraints
-        for (gate, value) in self.bitblasting.constraints.iter() {
+        for (gate, value) in self.gate_model.constraints.iter() {
             let qubit = self.mapping.get(gate).unwrap();
             self.qubo.fix_variable(qubit, *value);
         }
