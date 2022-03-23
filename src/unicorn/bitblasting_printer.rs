@@ -8,7 +8,7 @@ use std::io::Write;
 // Public Interface
 //
 
-pub fn write_gate_model<W>(model: &Model, bad_state_gates: &[GateRef], out: W) -> Result<()>
+pub fn write_btor2_model<W>(model: &Model, bad_state_gates: &[GateRef], out: W) -> Result<()>
 where
     W: Write,
 {
@@ -88,29 +88,28 @@ impl<W: Write> GateModelPrinter<W> {
                 writeln!(self.out, "{} and 1 {} {}", gate_nid, left_nid, right_nid)?;
                 Ok(gate_nid)
             }
-            Gate::Nand { left, right} => {
+            Gate::Nand { left, right } => {
                 let left_nid = self.visit(left);
                 let right_nid = self.visit(right);
                 let gate_nid = self.next_nid();
                 writeln!(self.out, "{} nand 1 {} {}", gate_nid, left_nid, right_nid)?;
                 Ok(gate_nid)
             }
-            Gate::Or { left, right} => {
+            Gate::Or { left, right } => {
                 let left_nid = self.visit(left);
                 let right_nid = self.visit(right);
                 let gate_nid = self.next_nid();
                 writeln!(self.out, "{} or 1 {} {}", gate_nid, left_nid, right_nid)?;
                 Ok(gate_nid)
             }
-            Gate::Matriarch1 { cond, right} => {
-                let left_nid = self.visit(cond);
+            Gate::Matriarch1 { cond, right } => {
+                let cond_nid = self.visit(cond);
                 let right_nid = self.visit(right);
-
-                let not_gate_nid = self.next_nid();
-                writeln!(self.out, "{} not 1 {}", not_gate_nid, left_nid)?;
-
+                let inner_not_nid = self.next_nid();
                 let gate_nid = self.next_nid();
-                writeln!(self.out, "{} and 1 {} {}", gate_nid, not_gate_nid, right_nid)?;
+                // Modeling as `M := and(not(A), B)` here:
+                writeln!(self.out, "{} not 1 {}", inner_not_nid, cond_nid)?;
+                writeln!(self.out, "{} and 1 {} {}", gate_nid, inner_not_nid, right_nid)?;
                 Ok(gate_nid)
             }
             Gate::CarryHalfAdder { left, right } => {
@@ -155,9 +154,9 @@ impl<W: Write> GateModelPrinter<W> {
                 writeln!(self.out, "{} xor 1 {} {}", gate_nid, inner_xor_nid, input3_nid)?;
                 Ok(gate_nid)
             }
-            Gate::Quotient{name, index} | Gate::Remainder {name, index} => {
+            Gate::Quotient { name, .. } | Gate::Remainder { name, .. } => {
                 let gate_nid = self.next_nid();
-                writeln!(self.out, "{} state 1 qr{}_{}", gate_nid, name, index)?;
+                writeln!(self.out, "{} state 1 {}", gate_nid, name)?;
                 Ok(gate_nid)
             }
         }

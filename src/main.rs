@@ -4,7 +4,8 @@ mod unicorn;
 
 use crate::quantum_annealing::dwave_api::sample_quantum_annealer;
 use crate::unicorn::bitblasting::BitBlasting;
-use crate::unicorn::bitblasting_printer::write_gate_model;
+use crate::unicorn::bitblasting_dimacs::write_dimacs_model;
+use crate::unicorn::bitblasting_printer::write_btor2_model;
 use crate::unicorn::builder::generate_model;
 use crate::unicorn::memory::replace_memory;
 use crate::unicorn::optimize::optimize_model;
@@ -88,15 +89,22 @@ fn main() -> Result<()> {
 
             if is_beator {
                 let bitblast = args.is_present("bitblast");
+                let dimacs = args.is_present("dimacs");
 
                 if bitblast {
                     let mut bitblasting = BitBlasting::new(&model, true, 64);
                     let bad_states = bitblasting.process_model(&model);
                     if let Some(ref output_path) = output {
                         let file = File::create(output_path)?;
-                        write_gate_model(&model, &bad_states, file)?;
+                        if dimacs {
+                            write_dimacs_model(&model, &bad_states, file)?;
+                        } else {
+                            write_btor2_model(&model, &bad_states, file)?;
+                        }
+                    } else if dimacs {
+                        write_dimacs_model(&model, &bad_states, stdout())?;
                     } else {
-                        write_gate_model(&model, &bad_states, stdout())?;
+                        write_btor2_model(&model, &bad_states, stdout())?;
                     }
                 } else if let Some(ref output_path) = output {
                     let file = File::create(output_path)?;

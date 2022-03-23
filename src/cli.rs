@@ -55,6 +55,12 @@ pub fn args() -> Command<'static> {
                     .long("bitblast")
                 )
                 .arg(
+                    Arg::new("dimacs")
+                    .help("Output DIMACS CNF instead of BTOR2")
+                    .short('d')
+                    .long("dimacs")
+                )
+                .arg(
                     Arg::new("input-file")
                         .help("RISC-U ELF binary to be converted")
                         .takes_value(true)
