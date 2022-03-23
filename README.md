@@ -1,13 +1,11 @@
 # Unicorn: A Compiler and Runtime System for Quantum Computing
 
-[![Build Status](https://img.shields.io/github/workflow/status/cksystemsgroup/monster/Test)](https://github.com/cksystemsgroup/monster/actions)
-[![Crate](https://img.shields.io/crates/v/monster-rs.svg)](https://crates.io/crates/monster-rs)
-[![API](https://docs.rs/monster-rs/badge.svg)](https://docs.rs/monster-rs)
+[![Build Status](https://img.shields.io/github/workflow/status/cksystemsgroup/unicorn/Test)](https://github.com/cksystemsgroup/unicorn/actions)
 ![Experimental Status](https://img.shields.io/badge/status-experimental-yellow.svg)
 ![Rust Version](https://img.shields.io/badge/Rust-v1.57.0-yellow)
 ![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-brightgreen)
-[![Lines of Code](https://img.shields.io/tokei/lines/github/cksystemsgroup/monster)](https://github.com/cksystemsgroup/monster)
-[![License](https://img.shields.io/crates/l/monster-rs)](https://github.com/cksystemsgroup/monster/blob/master/LICENSE)
+[![Lines of Code](https://img.shields.io/tokei/lines/github/cksystemsgroup/unicorn)](https://github.com/cksystemsgroup/unicorn)
+[![License](https://img.shields.io/github/license/cksystemsgroup/unicorn)](https://github.com/cksystemsgroup/unicorn/blob/master/LICENSE)
 
 Unicorn compiles 64-bit RISC-V ELF binaries to quantum circuits and objective functions that run on quantum computers and quantum annealers, respectively, with a possibly exponential advantage.
 
