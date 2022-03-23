@@ -96,14 +96,14 @@ fn main() -> Result<()> {
                     if let Some(ref output_path) = output {
                         let file = File::create(output_path)?;
                         if dimacs {
-                            write_dimacs_model(&model, &gate_model, file)?;
+                            write_dimacs_model(&gate_model, file)?;
                         } else {
-                            write_btor2_model(&model, &gate_model, file)?;
+                            write_btor2_model(&gate_model, file)?;
                         }
                     } else if dimacs {
-                        write_dimacs_model(&model, &gate_model, stdout())?;
+                        write_dimacs_model(&gate_model, stdout())?;
                     } else {
-                        write_btor2_model(&model, &gate_model, stdout())?;
+                        write_btor2_model(&gate_model, stdout())?;
                     }
                 } else if let Some(ref output_path) = output {
                     let file = File::create(output_path)?;
@@ -116,7 +116,7 @@ fn main() -> Result<()> {
                 let gate_model = bitblast_model(&model, true, 64);
 
                 let mut qubot = Qubot::new(&gate_model);
-                let bad_state_qubits = qubot.build_qubo(&gate_model.bad_state_gates);
+                let bad_state_qubits = qubot.build_qubo();
                 if let Some(ref output_path) = output {
                     let file = File::create(output_path)?;
                     qubot.dump_model(file, bad_state_qubits.clone())?;

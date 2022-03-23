@@ -673,11 +673,14 @@ impl<'a> Qubot<'a> {
         }
     }
 
-    pub fn build_qubo(&mut self, bad_state_gates: &[GateRef]) -> Vec<(QubitRef, u64)> {
+    pub fn build_qubo(&mut self) -> Vec<(QubitRef, u64)> {
         let mut bad_state_qubits: Vec<(QubitRef, u64)> = Vec::new();
-        for gate in bad_state_gates {
-            let gate_key = HashableGateRef::from(gate.clone());
-            let node = self.gate_model.gates_to_bad_nids.get(&gate_key).unwrap();
+        let bad_states_zipped = self
+            .gate_model
+            .bad_state_nodes
+            .iter()
+            .zip(self.gate_model.bad_state_gates.iter());
+        for (node, gate) in bad_states_zipped {
             let qubit = self.process_gate(gate);
             let key_qubit = HashableQubitRef::from(qubit.clone());
             if !self.qubo.fixed_variables.contains_key(&key_qubit) {

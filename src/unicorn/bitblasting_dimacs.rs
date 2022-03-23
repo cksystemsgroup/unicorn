@@ -1,5 +1,5 @@
 use crate::unicorn::bitblasting::{Gate, GateModel, GateRef, HashableGateRef};
-use crate::unicorn::{Model, Node, NodeRef};
+use crate::unicorn::{Node, NodeRef};
 use anyhow::Result;
 use std::collections::HashMap;
 use std::io::Write;
@@ -8,12 +8,12 @@ use std::io::Write;
 // Public Interface
 //
 
-pub fn write_dimacs_model<W>(model: &Model, gate_model: &GateModel, out: W) -> Result<()>
+pub fn write_dimacs_model<W>(gate_model: &GateModel, out: W) -> Result<()>
 where
     W: Write,
 {
-    let zip = model
-        .bad_states_initial
+    let zip = gate_model
+        .bad_state_nodes
         .iter()
         .zip(gate_model.bad_state_gates.iter());
     let mut builder = CNFBuilder::new();

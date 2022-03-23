@@ -16,11 +16,11 @@ pub fn bitblast_model(model: &Model, constant_propagation: bool, word_size: u64)
 
 pub struct GateModel {
     pub bad_state_gates: Vec<GateRef>,
+    pub bad_state_nodes: Vec<NodeRef>,
     pub constraints: HashMap<HashableGateRef, bool>, // this is for remainder and division, these are constraint based.
     pub input_gates: Vec<(NodeRef, Vec<GateRef>)>,
     pub mapping: HashMap<HashableNodeRef, Vec<GateRef>>, // maps a btor2 operator to its resulting bitvector of gates
     pub mapping_adders: HashMap<HashableGateRef, GateRef>,
-    pub gates_to_bad_nids: HashMap<HashableGateRef, NodeRef>,
     pub constraint_based_dependencies: HashMap<HashableGateRef, (NodeRef, NodeRef)>, // used or division and remainder, and when qubot whats to test an input (InputEvaluator).
 }
 
@@ -439,7 +439,6 @@ struct BitBlasting<'a> {
     addresses_gates: Vec<Vec<GateRef>>, // memory addresses represented as vectors of (constant-)gates
     mapping_adders: HashMap<HashableGateRef, GateRef>,
     input_gates: Vec<(NodeRef, Vec<GateRef>)>,
-    gates_to_bad_nids: HashMap<HashableGateRef, NodeRef>,
     constraint_based_dependencies: HashMap<HashableGateRef, (NodeRef, NodeRef)>, // used or division and remainder, and when qubot whats to test an input (InputEvaluator).
 }
 
@@ -454,7 +453,6 @@ impl<'a> BitBlasting<'a> {
             addresses_gates: get_addresses_gates(model_, &word_size_),
             mapping_adders: HashMap::new(),
             input_gates: Vec::new(),
-            gates_to_bad_nids: HashMap::new(),
             constraint_based_dependencies: HashMap::new(),
         }
     }
@@ -1173,23 +1171,22 @@ impl<'a> BitBlasting<'a> {
         }
     }
 
+    // Returns a bit-blasted version of the model with a one-to-one mapping
+    // between `GateModel::bad_state_gates` and `GateModel::bad_state_nodes`.
     fn process_model(mut self) -> GateModel {
-        // returns bad state bits
         let mut bad_state_gates: Vec<GateRef> = Vec::new();
         for node in &self.model.bad_states_initial {
             let bitblasted_bad_state = self.process(node);
             assert!(bitblasted_bad_state.len() == 1);
             bad_state_gates.push(bitblasted_bad_state[0].clone());
-            let key = HashableGateRef::from(bitblasted_bad_state[0].clone());
-            self.gates_to_bad_nids.insert(key, node.clone());
         }
         GateModel {
             bad_state_gates,
+            bad_state_nodes: self.model.bad_states_initial.clone(),
             constraints: self.constraints,
             input_gates: self.input_gates,
             mapping: self.mapping,
             mapping_adders: self.mapping_adders,
-            gates_to_bad_nids: self.gates_to_bad_nids,
             constraint_based_dependencies: self.constraint_based_dependencies,
         }
     }
