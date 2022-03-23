@@ -440,7 +440,6 @@ struct BitBlasting<'a> {
     mapping_adders: HashMap<HashableGateRef, GateRef>,
     input_gates: Vec<(NodeRef, Vec<GateRef>)>,
     gates_to_bad_nids: HashMap<HashableGateRef, NodeRef>,
-    nid_to_gates: HashMap<u64, Vec<GateRef>>,
     constraint_based_dependencies: HashMap<HashableGateRef, (NodeRef, NodeRef)>, // used or division and remainder, and when qubot whats to test an input (InputEvaluator).
 }
 
@@ -456,7 +455,6 @@ impl<'a> BitBlasting<'a> {
             mapping_adders: HashMap::new(),
             input_gates: Vec::new(),
             gates_to_bad_nids: HashMap::new(),
-            nid_to_gates: HashMap::new(),
             constraint_based_dependencies: HashMap::new(),
         }
     }
@@ -796,17 +794,16 @@ impl<'a> BitBlasting<'a> {
 
     fn process(&mut self, node: &NodeRef) -> Vec<GateRef> {
         match &*node.borrow() {
-            Node::Const { nid, sort, imm } => {
+            Node::Const { sort, imm, .. } => {
                 let replacement = get_replacement_from_constant(sort, *imm);
                 assert!(replacement.len() == sort.bitsize());
-                self.nid_to_gates.insert(*nid, replacement.clone());
                 self.record_mapping(node, replacement)
             }
             Node::State {
                 init: None,
                 sort,
                 name,
-                nid,
+                ..
             } => {
                 // this is an "input", handle accordingly
                 let mut replacement: Vec<GateRef> = Vec::new();
@@ -817,10 +814,9 @@ impl<'a> BitBlasting<'a> {
                 }
                 self.input_gates.push((node.clone(), replacement.clone()));
                 assert!(replacement.len() == sort.bitsize());
-                self.nid_to_gates.insert(*nid, replacement.clone());
                 self.record_mapping(node, replacement)
             }
-            Node::Input { nid, sort, name } => {
+            Node::Input { sort, name, .. } => {
                 let mut replacement: Vec<GateRef> = Vec::new();
                 for i in 0..sort.bitsize() {
                     let name = format!("{}[bit={}]", name, i);
@@ -828,15 +824,9 @@ impl<'a> BitBlasting<'a> {
                 }
                 self.input_gates.push((node.clone(), replacement.clone()));
                 assert!(replacement.len() == sort.bitsize());
-                self.nid_to_gates.insert(*nid, replacement.clone());
                 self.record_mapping(node, replacement)
             }
-            Node::State {
-                nid: _,
-                sort,
-                init,
-                name: _,
-            } => {
+            Node::State { sort, init, .. } => {
                 info!("normal state");
                 let mut replacement = Vec::new();
                 if let Some(value) = init {
@@ -849,74 +839,62 @@ impl<'a> BitBlasting<'a> {
                 assert!(replacement.len() == sort.bitsize());
                 self.record_mapping(node, replacement)
             }
-            Node::Not { nid, value } => {
+            Node::Not { value, .. } => {
                 let bitvector = self.visit(value);
                 let mut replacement: Vec<GateRef> = Vec::new();
                 for bit in bitvector.clone() {
                     replacement.push(not_gate(bit));
                 }
                 assert!(replacement.len() == bitvector.len());
-                self.nid_to_gates.insert(*nid, replacement.clone());
                 self.record_mapping(node, replacement)
             }
-            Node::Bad { nid, cond, name: _ } => {
+            Node::Bad { cond, .. } => {
                 let replacement = self.visit(cond);
                 assert!(replacement.len() == 1);
-                self.nid_to_gates.insert(*nid, replacement.clone());
                 self.record_mapping(node, replacement)
             }
-            Node::And { nid, left, right } => {
+            Node::And { left, right, .. } => {
                 let left_operand = self.visit(left);
                 let right_operand = self.visit(right);
                 let replacement = fold_bitwise_gate(&left_operand, &right_operand, and_gate, "AND");
                 assert!(left_operand.len() == replacement.len());
-                self.nid_to_gates.insert(*nid, replacement.clone());
                 self.record_mapping(node, replacement)
             }
-            Node::Ext { nid, from, value } => {
+            Node::Ext { from, value, .. } => {
                 let mut replacement: Vec<GateRef> = self.visit(value);
                 assert!(replacement.len() == from.bitsize());
                 for _ in 0..(64 - from.bitsize()) {
                     replacement.push(GateRef::from(Gate::ConstFalse));
                 }
-                self.nid_to_gates.insert(*nid, replacement.clone());
                 self.record_mapping(node, replacement)
             }
-            Node::Eq { nid, left, right } => {
+            Node::Eq { left, right, .. } => {
                 let left_operand = self.visit(left);
                 let right_operand = self.visit(right);
                 let temp_word = fold_bitwise_gate(&left_operand, &right_operand, xnor_gate, "XNOR");
                 assert!(temp_word.len() == left_operand.len());
                 let replacement = fold_word_gate(&temp_word, and_gate, "WORD-AND");
                 assert!(replacement.len() == 1);
-                self.nid_to_gates.insert(*nid, replacement.clone());
                 self.record_mapping(node, replacement)
             }
-            Node::Add { nid, left, right } => {
+            Node::Add { left, right, .. } => {
                 let left_operand = self.visit(left);
                 let right_operand = self.visit(right);
                 let replacement = self.bitwise_add(&left_operand, &right_operand, false);
                 assert!(left_operand.len() == replacement.len());
-                self.nid_to_gates.insert(*nid, replacement.clone());
                 self.record_mapping(node, replacement)
             }
             Node::Ite {
-                nid,
-                sort: _,
-                cond,
-                left,
-                right,
+                cond, left, right, ..
             } => {
                 let cond_operand = self.visit(cond);
                 assert!(cond_operand.len() == 1);
                 if let Some(cond_const) = get_constant(&cond_operand[0]) {
                     if cond_const {
                         let left_operand = self.visit(left);
-                        self.nid_to_gates.insert(*nid, left_operand.clone());
                         self.record_mapping(node, left_operand)
                     } else {
                         let right_operand = self.visit(right);
-                        self.nid_to_gates.insert(*nid, right_operand.clone());
                         self.record_mapping(node, right_operand)
                     }
                 } else {
@@ -984,20 +962,18 @@ impl<'a> BitBlasting<'a> {
                             ));
                         }
                     }
-                    self.nid_to_gates.insert(*nid, replacement.clone());
                     self.record_mapping(node, replacement)
                 }
             }
-            Node::Sub { nid, left, right } => {
+            Node::Sub { left, right, .. } => {
                 let left_operand = self.visit(left);
                 let right_operand = self.visit(right);
 
                 let replacement: Vec<GateRef> =
                     self.bitwise_substraction(left_operand, right_operand);
-                self.nid_to_gates.insert(*nid, replacement.clone());
                 self.record_mapping(node, replacement)
             }
-            Node::Ult { nid, left, right } => {
+            Node::Ult { left, right, .. } => {
                 let mut left_operand = self.visit(left);
                 let mut right_operand = self.visit(right);
                 left_operand.push(GateRef::from(Gate::ConstFalse));
@@ -1007,43 +983,37 @@ impl<'a> BitBlasting<'a> {
 
                 if let Some(last_element) = substracted_bitvectors.last() {
                     let replacement: Vec<GateRef> = vec![(*last_element).clone()];
-                    self.nid_to_gates.insert(*nid, replacement.clone());
                     self.record_mapping(node, replacement)
                 } else {
                     panic!("Error in ULT, cant get MSB!")
                 }
             }
-            Node::Mul { nid, left, right } => {
+            Node::Mul { left, right, .. } => {
                 let left_operand = self.visit(left);
                 let right_operand = self.visit(right);
                 let replacement = self.bitwise_multiplication(&left_operand, &right_operand);
-                self.nid_to_gates.insert(*nid, replacement.clone());
                 self.record_mapping(node, replacement)
             }
-            Node::Div { nid, left, right } => {
+            Node::Div { left, right, .. } => {
                 let left_operand = self.visit(&left.clone());
                 let right_operand = self.visit(&right.clone());
                 let result = self.divide(&left_operand, &right_operand);
                 self.record_constraint_dependency(&result.0.clone(), (left.clone(), right.clone()));
                 self.record_constraint_dependency(&result.1, (left.clone(), right.clone()));
                 let replacement = result.0;
-                self.nid_to_gates.insert(*nid, replacement.clone());
                 self.record_mapping(node, replacement)
             }
-            Node::Rem { nid, left, right } => {
+            Node::Rem { left, right, .. } => {
                 let left_operand = self.visit(left);
                 let right_operand = self.visit(right);
                 let result = self.divide(&left_operand, &right_operand);
                 self.record_constraint_dependency(&result.0, (left.clone(), right.clone()));
                 self.record_constraint_dependency(&result.1.clone(), (left.clone(), right.clone()));
                 let replacement = result.1;
-                self.nid_to_gates.insert(*nid, replacement.clone());
                 self.record_mapping(node, replacement)
             }
             Node::Read {
-                nid,
-                memory,
-                address,
+                memory, address, ..
             } => {
                 let mut replacement: Vec<GateRef> = Vec::new();
                 let memory_unfolded = self.visit(memory);
@@ -1092,14 +1062,13 @@ impl<'a> BitBlasting<'a> {
                         replacement = fold_bitwise_gate(&replacement, &temp_word, or_gate, "OR");
                     }
                 }
-                self.nid_to_gates.insert(*nid, replacement.clone());
                 self.record_mapping(node, replacement)
             }
             Node::Write {
-                nid,
                 memory,
                 address,
                 value,
+                ..
             } => {
                 let mut replacement: Vec<GateRef> = Vec::new();
                 let memory_unfolded = self.visit(memory);
@@ -1196,7 +1165,6 @@ impl<'a> BitBlasting<'a> {
                         }
                     }
                 }
-                self.nid_to_gates.insert(*nid, replacement.clone());
                 self.record_mapping(node, replacement)
             }
             _ => {
