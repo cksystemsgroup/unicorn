@@ -152,11 +152,33 @@ impl CNFBuilder {
                 self.add_clause(vec![var(right_var), neg(gate_var)]);
                 gate_var
             }
-            Gate::CarryHalfAdder { left: _, right: _ } => {
-                unimplemented!("Gate::CarryHalfAdder")
+            Gate::CarryHalfAdder { left, right } => {
+                let left_var = self.visit(left);
+                let right_var = self.visit(right);
+                let gate_var = self.next_var();
+                // Original: X := and(A, B)
+                // Tseytin: (-A | -B | +X) &
+                //          (+A | -X) &
+                //          (+B | -X)
+                self.add_clause(vec![neg(left_var), neg(right_var), var(gate_var)]);
+                self.add_clause(vec![var(left_var), neg(gate_var)]);
+                self.add_clause(vec![var(right_var), neg(gate_var)]);
+                gate_var
             }
-            Gate::ResultHalfAdder { input1: _, input2: _ } => {
-                unimplemented!("Gate::ResultHalfAdder")
+            Gate::ResultHalfAdder { input1, input2 } => {
+                let input1_var = self.visit(input1);
+                let input2_var = self.visit(input2);
+                let gate_var = self.next_var();
+                // Original: X := xor(A, B)
+                // Tseytin: (+A | +B | -X) &
+                //          (+A | -B | +X) &
+                //          (-A | +B | +X) &
+                //          (-A | -B | -X) &
+                self.add_clause(vec![var(input1_var), var(input2_var), neg(gate_var)]);
+                self.add_clause(vec![var(input1_var), neg(input2_var), var(gate_var)]);
+                self.add_clause(vec![neg(input1_var), var(input2_var), var(gate_var)]);
+                self.add_clause(vec![neg(input1_var), neg(input2_var), neg(gate_var)]);
+                gate_var
             }
             Gate::CarryFullAdder { input1, input2, input3 } => {
                 let input1_var = self.visit(input1);
@@ -202,8 +224,10 @@ impl CNFBuilder {
                 self.add_clause(vec![neg(input1_var), neg(input2_var), neg(input3_var), var(gate_var)]);
                 gate_var
             }
-            Gate::Quotient { name: _, index: _ } | Gate::Remainder { name: _, index: _ } => {
-                unimplemented!("Gate::Quotient or Gate::Remainder")
+            Gate::Quotient { name, .. } | Gate::Remainder { name, .. } => {
+                let gate_var = self.next_var();
+                self.variable_names.push((gate_var, name.clone()));
+                gate_var
             }
         }
     }
