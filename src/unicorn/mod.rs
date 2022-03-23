@@ -10,6 +10,7 @@ use std::rc::Rc;
 //
 
 pub mod bitblasting;
+pub mod bitblasting_dimacs;
 pub mod bitblasting_printer;
 pub mod builder;
 pub mod memory;
