@@ -624,24 +624,22 @@ impl<'a> BitBlasting<'a> {
             digit: &GateRef,
             shift: usize,
         ) -> Vec<GateRef> {
-            let mut result: Vec<GateRef> = Vec::new();
-
-            for _ in 0..shift {
-                result.push(GateRef::from(Gate::ConstFalse));
-            }
+            assert!(shift <= left_operand.len());
+            let mut result = vec![GateRef::from(Gate::ConstFalse); shift];
+            let left_op_trimmed = &left_operand[..(left_operand.len() - shift)];
 
             if let Some(const_digit) = get_constant(digit) {
                 if const_digit {
-                    for g in left_operand {
+                    for g in left_op_trimmed {
                         result.push(g.clone());
                     }
                 } else {
-                    for _ in left_operand {
+                    for _ in left_op_trimmed {
                         result.push(GateRef::from(Gate::ConstFalse));
                     }
                 }
             } else {
-                for g in left_operand {
+                for g in left_op_trimmed {
                     if let Some(const_g) = get_constant(g) {
                         if const_g {
                             result.push(digit.clone());
@@ -657,38 +655,19 @@ impl<'a> BitBlasting<'a> {
                 }
             }
 
+            assert!(result.len() == left_operand.len());
             result
         }
 
-        fn add_front_zeros_padding(bits: &mut Vec<GateRef>, expected_max_size: usize) {
-            while bits.len() < expected_max_size {
-                bits.push(GateRef::from(Gate::ConstFalse));
-            }
-        }
-
         // main algorithm for multiplication
-        let expected_max_size = 2 * left.len() - 1;
-        let mut replacement: Vec<GateRef> = Vec::new();
-
-        for _ in 0..expected_max_size {
-            replacement.push(GateRef::from(Gate::ConstFalse));
-        }
+        let mut replacement = vec![GateRef::from(Gate::ConstFalse); left.len()];
         for (i, digit) in right.iter().enumerate() {
-            let mut temp_result = mutiply_by_digit(left, digit, i);
-
-            add_front_zeros_padding(&mut temp_result, expected_max_size);
+            let temp_result = mutiply_by_digit(left, digit, i);
             replacement = self.bitwise_add(&replacement, &temp_result, disallow_overflow);
         }
 
-        // When performing division or remainder we need to constrain
-        // the semantics of this multiplication to disallow overflow.
-        if disallow_overflow {
-            for bit in &replacement[right.len()..] {
-                self.record_constraint(bit, false);
-            }
-        }
-
-        replacement[..right.len()].to_vec()
+        assert!(replacement.len() == left.len());
+        replacement
     }
 
     fn divide(
