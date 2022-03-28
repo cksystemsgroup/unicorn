@@ -487,7 +487,7 @@ impl<'a> BitBlasting<'a> {
         &mut self,
         left: &[GateRef],
         right: &[GateRef],
-        fix_last_carry: bool,
+        disallow_overflow: bool,
     ) -> Vec<GateRef> {
         fn get_2_constants(
             bit1: Option<bool>,
@@ -603,15 +603,22 @@ impl<'a> BitBlasting<'a> {
             }
         }
 
-        if fix_last_carry {
-            // when performing division (remainder) we need to set this constraint so the combinatorics of overflow is not doable.
+        // When performing division or remainder we need to constrain
+        // the semantics of this addition to disallow overflow.
+        if disallow_overflow {
             self.record_constraint(&carry, false);
         }
+
         assert!(replacement.len() == left.len());
         replacement
     }
 
-    fn bitwise_multiplication(&mut self, left: &[GateRef], right: &[GateRef]) -> Vec<GateRef> {
+    fn bitwise_multiplication(
+        &mut self,
+        left: &[GateRef],
+        right: &[GateRef],
+        disallow_overflow: bool,
+    ) -> Vec<GateRef> {
         fn mutiply_by_digit(
             left_operand: &[GateRef],
             digit: &GateRef,
@@ -670,7 +677,15 @@ impl<'a> BitBlasting<'a> {
             let mut temp_result = mutiply_by_digit(left, digit, i);
 
             add_front_zeros_padding(&mut temp_result, expected_max_size);
-            replacement = self.bitwise_add(&replacement, &temp_result, false);
+            replacement = self.bitwise_add(&replacement, &temp_result, disallow_overflow);
+        }
+
+        // When performing division or remainder we need to constrain
+        // the semantics of this multiplication to disallow overflow.
+        if disallow_overflow {
+            for bit in &replacement[right.len()..] {
+                self.record_constraint(bit, false);
+            }
         }
 
         replacement[..right.len()].to_vec()
@@ -706,7 +721,7 @@ impl<'a> BitBlasting<'a> {
                 }));
             }
 
-            let temp_mul = self.bitwise_multiplication(&quotient, divisor);
+            let temp_mul = self.bitwise_multiplication(&quotient, divisor, true);
             let temp_sum = self.bitwise_add(&temp_mul, &remainder, true);
 
             assert!(dividend.len() == temp_sum.len());
@@ -989,12 +1004,12 @@ impl<'a> BitBlasting<'a> {
             Node::Mul { left, right, .. } => {
                 let left_operand = self.visit(left);
                 let right_operand = self.visit(right);
-                let replacement = self.bitwise_multiplication(&left_operand, &right_operand);
+                let replacement = self.bitwise_multiplication(&left_operand, &right_operand, false);
                 self.record_mapping(node, replacement)
             }
             Node::Div { left, right, .. } => {
-                let left_operand = self.visit(&left.clone());
-                let right_operand = self.visit(&right.clone());
+                let left_operand = self.visit(left);
+                let right_operand = self.visit(right);
                 let result = self.divide(&left_operand, &right_operand);
                 self.record_constraint_dependency(&result.0.clone(), (left.clone(), right.clone()));
                 self.record_constraint_dependency(&result.1, (left.clone(), right.clone()));
