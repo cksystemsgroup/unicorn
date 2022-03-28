@@ -82,7 +82,7 @@ pub enum Gate {
 
 #[derive(Debug)]
 pub struct HashableGateRef {
-    value: GateRef,
+    pub value: GateRef,
 }
 
 //

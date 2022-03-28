@@ -21,6 +21,9 @@ where
     for (bad_state, gate) in zip {
         printer.print_bad_state(bad_state, gate)?;
     }
+    for (gate, val) in &gate_model.constraints {
+        printer.print_constraint(&gate.value, *val)?;
+    }
     printer.print_file_footer()?;
     Ok(())
 }
@@ -187,6 +190,20 @@ impl<W: Write> GateModelPrinter<W> {
         } else {
             panic!("expecting 'Bad' node here");
         }
+    }
+
+    fn print_constraint(&mut self, gate: &GateRef, val: bool) -> Result<()> {
+        let gate_nid = self.visit(gate);
+        if val {
+            let constraint_nid = self.next_nid();
+            writeln!(self.out, "{} constraint {}", constraint_nid, gate_nid)?;
+        } else {
+            let inverter_nid = self.next_nid();
+            let constraint_nid = self.next_nid();
+            writeln!(self.out, "{} not 1 {}", inverter_nid, gate_nid)?;
+            writeln!(self.out, "{} constraint {}", constraint_nid, inverter_nid)?;
+        }
+        Ok(())
     }
 
     fn print_file_footer(&mut self) -> Result<()> {

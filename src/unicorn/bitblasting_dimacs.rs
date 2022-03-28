@@ -20,6 +20,9 @@ where
     for (bad_state, gate) in zip {
         builder.convert_bad_state(bad_state, gate);
     }
+    for (gate, val) in &gate_model.constraints {
+        builder.convert_constraint(&gate.value, *val);
+    }
     builder.write_dimacs(out)?;
     Ok(())
 }
@@ -126,8 +129,18 @@ impl CNFBuilder {
                 self.add_clause(vec![var(right_var), neg(gate_var)]);
                 gate_var
             }
-            Gate::Nand { left: _, right: _ } => {
-                unimplemented!("Gate::Nand")
+            Gate::Nand { left, right } => {
+                let left_var = self.visit(left);
+                let right_var = self.visit(right);
+                let gate_var = self.next_var();
+                // Original: X := nand(A, B)
+                // Tseytin: (-A | -B | -X) &
+                //          (+A | +X) &
+                //          (+B | +X)
+                self.add_clause(vec![neg(left_var), neg(right_var), neg(gate_var)]);
+                self.add_clause(vec![var(left_var), var(gate_var)]);
+                self.add_clause(vec![var(right_var), var(gate_var)]);
+                gate_var
             }
             Gate::Or { left, right } => {
                 let left_var = self.visit(left);
@@ -244,6 +257,16 @@ impl CNFBuilder {
         } else {
             panic!("expecting 'Bad' node here");
         }
+    }
+
+    fn convert_constraint(&mut self, gate: &GateRef, val: bool) {
+        let constraint_variable = self.visit(gate);
+        let constraint_literal = if val {
+            var(constraint_variable)
+        } else {
+            neg(constraint_variable)
+        };
+        self.add_clause(vec![constraint_literal]);
     }
 
     fn write_clause<W: Write>(&self, clause: &[Literal], mut out: W) -> Result<()> {
