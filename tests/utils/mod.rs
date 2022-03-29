@@ -211,12 +211,14 @@ pub fn compile_riscu(
         })
 }
 
+#[allow(dead_code)]
 pub struct TestFileCompiler {
     source_files: Vec<PathBuf>,
     object_files: Vec<PathBuf>,
     _temp_dir: Arc<TempDir>,
 }
 
+#[allow(dead_code)]
 impl TestFileCompiler {
     pub fn new(source_files: &'static [&'static str]) -> Self {
         let temp_dir = Arc::new(tempdir().unwrap());

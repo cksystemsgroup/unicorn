@@ -1,5 +1,7 @@
 use rayon::prelude::*;
 use unicorn::disassemble::*;
+
+mod utils;
 use utils::{compile_riscu, init, with_temp_dir};
 
 #[test]

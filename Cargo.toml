@@ -42,8 +42,11 @@ z3-sys = { version = "~0", features = ["static-link-z3"], optional = true }
 pyo3 = { version = "~0.16", features = ["auto-initialize"] }
 
 [dev-dependencies]
-utils = { path = "utils" }
 rayon = "~1.5"
+tempfile = "~3.3"
+which = "~4.2"
+log = "~0.4"
+env_logger = "~0.9"
 
 [dev-dependencies.cargo-husky]
 version = "1"

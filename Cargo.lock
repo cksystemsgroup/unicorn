@@ -844,8 +844,9 @@ dependencies = [
  "rayon",
  "riscu",
  "strum",
+ "tempfile",
  "thiserror",
- "utils",
+ "which 4.2.4",
  "z3",
  "z3-sys",
 ]
@@ -855,17 +856,6 @@ name = "unindent"
 version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "514672a55d7380da379785a4d70ca8386c8883ff7eaae877be4d2081cebe73d8"
-
-[[package]]
-name = "utils"
-version = "0.1.0"
-dependencies = [
- "env_logger 0.9.0",
- "log",
- "rayon",
- "tempfile",
- "which 4.2.4",
-]
 
 [[package]]
 name = "vec_map"
