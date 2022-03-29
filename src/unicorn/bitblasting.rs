@@ -328,8 +328,8 @@ fn or_gate(a: Option<bool>, b: Option<bool>, a_gate: &GateRef, b_gate: &GateRef)
     }
 }
 
-fn not_gate(a_gate: GateRef) -> GateRef {
-    let a = get_constant(&a_gate);
+fn not_gate(a_gate: &GateRef) -> GateRef {
+    let a = get_constant(a_gate);
 
     if let Some(a_const) = a {
         if a_const {
@@ -338,7 +338,9 @@ fn not_gate(a_gate: GateRef) -> GateRef {
             GateRef::from(Gate::ConstTrue)
         }
     } else {
-        GateRef::from(Gate::Not { value: a_gate })
+        GateRef::from(Gate::Not {
+            value: a_gate.clone(),
+        })
     }
 }
 
@@ -457,7 +459,7 @@ impl<'a> BitBlasting<'a> {
         }
     }
 
-    fn get_2s_complement(&mut self, bitvector: Vec<GateRef>) -> Vec<GateRef> {
+    fn get_2s_complement(&mut self, bitvector: &[GateRef]) -> Vec<GateRef> {
         // invert bits
 
         let mut inverted_bits: Vec<GateRef> = Vec::new();
@@ -478,9 +480,16 @@ impl<'a> BitBlasting<'a> {
         self.bitwise_add(&inverted_bits, &bitvector_1, false)
     }
 
-    fn bitwise_substraction(&mut self, left: Vec<GateRef>, right: Vec<GateRef>) -> Vec<GateRef> {
+    fn bitwise_subtraction(&mut self, left: &[GateRef], right: &[GateRef]) -> Vec<GateRef> {
         let right_2s_complement = self.get_2s_complement(right);
-        self.bitwise_add(&left, &right_2s_complement, false)
+        self.bitwise_add(left, &right_2s_complement, false)
+    }
+
+    fn bitwise_less_than(&mut self, mut left: Vec<GateRef>, mut right: Vec<GateRef>) -> GateRef {
+        left.push(GateRef::from(Gate::ConstFalse));
+        right.push(GateRef::from(Gate::ConstFalse));
+        let mut subtracted = self.bitwise_subtraction(&left, &right);
+        subtracted.pop().expect("MSB must exist")
     }
 
     fn bitwise_add(
@@ -700,15 +709,18 @@ impl<'a> BitBlasting<'a> {
                 }));
             }
 
+            // Add constraint enforcing `dividend == divisor * quotient + remainder`
             let temp_mul = self.bitwise_multiplication(&quotient, divisor, true);
             let temp_sum = self.bitwise_add(&temp_mul, &remainder, true);
-
             assert!(dividend.len() == temp_sum.len());
-
             for (left, right) in dividend.iter().zip(temp_sum.iter()) {
                 let gate = xnor_gate(None, None, &*left, &*right);
                 self.record_constraint(&gate, true);
             }
+
+            // Add constraint enforcing `remainder < divisor`
+            let is_less_than = self.bitwise_less_than(remainder.to_vec(), divisor.to_vec());
+            self.record_constraint(&is_less_than, true);
 
             (quotient, remainder)
         }
@@ -834,7 +846,7 @@ impl<'a> BitBlasting<'a> {
             Node::Not { value, .. } => {
                 let bitvector = self.visit(value);
                 let mut replacement: Vec<GateRef> = Vec::new();
-                for bit in bitvector.clone() {
+                for bit in &bitvector {
                     replacement.push(not_gate(bit));
                 }
                 assert!(replacement.len() == bitvector.len());
@@ -960,25 +972,15 @@ impl<'a> BitBlasting<'a> {
             Node::Sub { left, right, .. } => {
                 let left_operand = self.visit(left);
                 let right_operand = self.visit(right);
-
-                let replacement: Vec<GateRef> =
-                    self.bitwise_substraction(left_operand, right_operand);
+                let replacement = self.bitwise_subtraction(&left_operand, &right_operand);
                 self.record_mapping(node, replacement)
             }
             Node::Ult { left, right, .. } => {
-                let mut left_operand = self.visit(left);
-                let mut right_operand = self.visit(right);
-                left_operand.push(GateRef::from(Gate::ConstFalse));
-                right_operand.push(GateRef::from(Gate::ConstFalse));
-
-                let substracted_bitvectors = self.bitwise_substraction(left_operand, right_operand);
-
-                if let Some(last_element) = substracted_bitvectors.last() {
-                    let replacement: Vec<GateRef> = vec![(*last_element).clone()];
-                    self.record_mapping(node, replacement)
-                } else {
-                    panic!("Error in ULT, cant get MSB!")
-                }
+                let left_operand = self.visit(left);
+                let right_operand = self.visit(right);
+                let comparison_gate = self.bitwise_less_than(left_operand, right_operand);
+                let replacement = vec![comparison_gate];
+                self.record_mapping(node, replacement)
             }
             Node::Mul { left, right, .. } => {
                 let left_operand = self.visit(left);
@@ -1477,11 +1479,11 @@ mod tests {
         let const_true = GateRef::from(Gate::ConstTrue);
         let var = GateRef::from(Gate::InputBit { name: v });
 
-        assert!(matches!(&*not_gate(const_false).borrow(), Gate::ConstTrue));
-        assert!(matches!(&*not_gate(const_true).borrow(), Gate::ConstFalse));
+        assert!(matches!(&*not_gate(&const_false).borrow(), Gate::ConstTrue));
+        assert!(matches!(&*not_gate(&const_true).borrow(), Gate::ConstFalse));
 
         assert!(matches!(
-            &*not_gate(var).borrow(),
+            &*not_gate(&var).borrow(),
             Gate::Not { value } if
                 matches!(&*value.borrow(), Gate::InputBit { name } if name == "v")
         ));
