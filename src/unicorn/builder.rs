@@ -1,7 +1,7 @@
 use crate::unicorn::{Model, Nid, Node, NodeRef, NodeType};
 use anyhow::{Context, Result};
 use byteorder::{ByteOrder, LittleEndian};
-use log::trace;
+use log::{debug, trace};
 use riscu::{decode, types::*, Instruction, Program, Register};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -635,6 +635,11 @@ impl ModelBuilder {
             self.reg_node(Register::Ra),
             edge.condition.as_ref().expect("must exist").clone(),
         );
+        if !self.call_return.contains_key(&edge.from_address) {
+            // This happens for non-returning procedures, like `exit`.
+            debug!("No JALR returning to JAL at {:#x}, skipping", self.pc);
+            return flow;
+        }
         let and_node = self.new_and(
             self.pc_flags[&self.call_return[&edge.from_address]].clone(),
             eq_node,
