@@ -487,7 +487,7 @@ impl<'a> BitBlasting<'a> {
         &mut self,
         left: &[GateRef],
         right: &[GateRef],
-        fix_last_carry: bool,
+        disallow_overflow: bool,
     ) -> Vec<GateRef> {
         fn get_2_constants(
             bit1: Option<bool>,
@@ -603,38 +603,43 @@ impl<'a> BitBlasting<'a> {
             }
         }
 
-        if fix_last_carry {
-            // when performing division (remainder) we need to set this constraint so the combinatorics of overflow is not doable.
+        // When performing division or remainder we need to constrain
+        // the semantics of this addition to disallow overflow.
+        if disallow_overflow {
             self.record_constraint(&carry, false);
         }
+
         assert!(replacement.len() == left.len());
         replacement
     }
 
-    fn bitwise_multiplication(&mut self, left: &[GateRef], right: &[GateRef]) -> Vec<GateRef> {
+    fn bitwise_multiplication(
+        &mut self,
+        left: &[GateRef],
+        right: &[GateRef],
+        disallow_overflow: bool,
+    ) -> Vec<GateRef> {
         fn mutiply_by_digit(
             left_operand: &[GateRef],
             digit: &GateRef,
             shift: usize,
         ) -> Vec<GateRef> {
-            let mut result: Vec<GateRef> = Vec::new();
-
-            for _ in 0..shift {
-                result.push(GateRef::from(Gate::ConstFalse));
-            }
+            assert!(shift <= left_operand.len());
+            let mut result = vec![GateRef::from(Gate::ConstFalse); shift];
+            let left_op_trimmed = &left_operand[..(left_operand.len() - shift)];
 
             if let Some(const_digit) = get_constant(digit) {
                 if const_digit {
-                    for g in left_operand {
+                    for g in left_op_trimmed {
                         result.push(g.clone());
                     }
                 } else {
-                    for _ in left_operand {
+                    for _ in left_op_trimmed {
                         result.push(GateRef::from(Gate::ConstFalse));
                     }
                 }
             } else {
-                for g in left_operand {
+                for g in left_op_trimmed {
                     if let Some(const_g) = get_constant(g) {
                         if const_g {
                             result.push(digit.clone());
@@ -650,30 +655,19 @@ impl<'a> BitBlasting<'a> {
                 }
             }
 
+            assert!(result.len() == left_operand.len());
             result
         }
 
-        fn add_front_zeros_padding(bits: &mut Vec<GateRef>, expected_max_size: usize) {
-            while bits.len() < expected_max_size {
-                bits.push(GateRef::from(Gate::ConstFalse));
-            }
-        }
-
         // main algorithm for multiplication
-        let expected_max_size = 2 * left.len() - 1;
-        let mut replacement: Vec<GateRef> = Vec::new();
-
-        for _ in 0..expected_max_size {
-            replacement.push(GateRef::from(Gate::ConstFalse));
-        }
+        let mut replacement = vec![GateRef::from(Gate::ConstFalse); left.len()];
         for (i, digit) in right.iter().enumerate() {
-            let mut temp_result = mutiply_by_digit(left, digit, i);
-
-            add_front_zeros_padding(&mut temp_result, expected_max_size);
-            replacement = self.bitwise_add(&replacement, &temp_result, false);
+            let temp_result = mutiply_by_digit(left, digit, i);
+            replacement = self.bitwise_add(&replacement, &temp_result, disallow_overflow);
         }
 
-        replacement[..right.len()].to_vec()
+        assert!(replacement.len() == left.len());
+        replacement
     }
 
     fn divide(
@@ -706,7 +700,7 @@ impl<'a> BitBlasting<'a> {
                 }));
             }
 
-            let temp_mul = self.bitwise_multiplication(&quotient, divisor);
+            let temp_mul = self.bitwise_multiplication(&quotient, divisor, true);
             let temp_sum = self.bitwise_add(&temp_mul, &remainder, true);
 
             assert!(dividend.len() == temp_sum.len());
@@ -989,12 +983,12 @@ impl<'a> BitBlasting<'a> {
             Node::Mul { left, right, .. } => {
                 let left_operand = self.visit(left);
                 let right_operand = self.visit(right);
-                let replacement = self.bitwise_multiplication(&left_operand, &right_operand);
+                let replacement = self.bitwise_multiplication(&left_operand, &right_operand, false);
                 self.record_mapping(node, replacement)
             }
             Node::Div { left, right, .. } => {
-                let left_operand = self.visit(&left.clone());
-                let right_operand = self.visit(&right.clone());
+                let left_operand = self.visit(left);
+                let right_operand = self.visit(right);
                 let result = self.divide(&left_operand, &right_operand);
                 self.record_constraint_dependency(&result.0.clone(), (left.clone(), right.clone()));
                 self.record_constraint_dependency(&result.1, (left.clone(), right.clone()));
