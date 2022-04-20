@@ -61,6 +61,12 @@ pub fn args() -> Command<'static> {
                     .long("dimacs")
                 )
                 .arg(
+                    Arg::new("incremental-opt")
+                    .help("Incremental optimization during unrolling")
+                    .short('i')
+                    .long("incremental")
+                )
+                .arg(
                     Arg::new("input-file")
                         .help("RISC-U ELF binary to be converted")
                         .takes_value(true)

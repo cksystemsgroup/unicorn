@@ -575,8 +575,10 @@ impl<S: Solver> ConstantFolder<S> {
                             }
                         }
                     }
+                    true
+                } else {
+                    panic!("expecting only initialized 'State' node");
                 }
-                true
             } else {
                 panic!("expecting 'State' node here");
             }

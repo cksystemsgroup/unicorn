@@ -54,6 +54,8 @@ fn main() -> Result<()> {
             let max_heap = expect_arg::<u32>(args, "max-heap")?;
             let max_stack = expect_arg::<u32>(args, "max-stack")?;
             let memory_size = ByteSize::mib(expect_arg(args, "memory")?).as_u64();
+            let incremental = is_beator && args.is_present("incremental-opt");
+            let prune = !is_beator || args.is_present("prune-model");
 
             let program = load_object_file(&input)?;
 
@@ -64,14 +66,18 @@ fn main() -> Result<()> {
                 replace_memory(&mut model);
                 for n in 0..unroll_depth {
                     unroll_model(&mut model, n);
-                    optimize_model::<none_impl::NoneSolver>(&mut model)
+                    if incremental {
+                        optimize_model::<none_impl::NoneSolver>(&mut model)
+                    }
                 }
-                if !is_beator || args.is_present("prune-model") {
+                if prune {
                     prune_model(&mut model);
                 }
 
                 match solver {
-                    ::unicorn::SmtType::Generic => (), // nothing left to do
+                    ::unicorn::SmtType::Generic => {
+                        optimize_model::<none_impl::NoneSolver>(&mut model)
+                    }
                     #[cfg(feature = "boolector")]
                     ::unicorn::SmtType::Boolector => {
                         optimize_model::<boolector_impl::BoolectorSolver>(&mut model)
