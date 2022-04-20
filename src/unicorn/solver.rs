@@ -209,13 +209,15 @@ pub mod boolector_impl {
                     let bv_value = self.visit(value);
                     bv_value.not()
                 }
-                Node::State { init: None, sort, name, .. } => {
+                Node::State { sort, name, .. } => {
                     let width = sort.bitsize() as u32;
                     BV::new(self.solver.clone(), width, name.as_deref())
                 }
-                Node::State { init: Some(_), .. } => panic!("initialized"),
+                Node::Input { sort, name, .. } => {
+                    let width = sort.bitsize() as u32;
+                    BV::new(self.solver.clone(), width, Some(name))
+                }
                 Node::Next { .. } => panic!("should be unreachable"),
-                Node::Input { .. } => panic!("should be unreachable"),
                 Node::Bad { .. } => panic!("should be unreachable"),
                 Node::Comment(_) => panic!("cannot translate"),
             }
@@ -329,9 +331,17 @@ pub mod z3solver_impl {
                     let z3_right = self.visit(right).as_bv().expect("bv");
                     z3_left.bvsub(&z3_right).into()
                 }
-                Node::Mul { .. } => panic!("implement MUL"),
+                Node::Mul { left, right, .. } => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvmul(&z3_right).into()
+                }
                 Node::Div { .. } => panic!("implement DIV"),
-                Node::Rem { .. } => panic!("implement REM"),
+                Node::Rem { left, right, .. } => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvurem(&z3_right).into()
+                }
                 Node::Ult { left, right, .. } => {
                     let z3_left = self.visit(left).as_bv().expect("bv");
                     let z3_right = self.visit(right).as_bv().expect("bv");
@@ -366,13 +376,20 @@ pub mod z3solver_impl {
                     let z3_value = self.visit(value).as_bool().expect("bool");
                     z3_value.not().into()
                 }
-                Node::State { init: None, sort, name, .. } => {
-                    let width = sort.bitsize() as u32;
-                    BV::new_const(self.context, name.as_deref().expect("name"), width).into()
+                Node::State { sort: NodeType::Bit, name, .. } => {
+                    let name = name.as_deref().expect("name");
+                    Bool::new_const(self.context, name).into()
                 }
-                Node::State { init: Some(_), .. } => panic!("initialized"),
+                Node::State { sort, name, .. } => {
+                    let width = sort.bitsize() as u32;
+                    let name = name.as_deref().expect("name");
+                    BV::new_const(self.context, name, width).into()
+                }
+                Node::Input { sort, name, .. } => {
+                    let width = sort.bitsize() as u32;
+                    BV::new_const(self.context, name.to_owned(), width).into()
+                }
                 Node::Next { .. } => panic!("should be unreachable"),
-                Node::Input { .. } => panic!("should be unreachable"),
                 Node::Bad { .. } => panic!("should be unreachable"),
                 Node::Comment(_) => panic!("cannot translate"),
             }
