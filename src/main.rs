@@ -127,6 +127,7 @@ fn main() -> Result<()> {
                     let file = File::create(output_path)?;
                     qubot.dump_model(file, bad_state_qubits.clone())?;
                 }
+                qubot.dump_statistics();
 
                 if let Some(all_inputs) = inputs {
                     let total_variables = gate_model.input_gates.len();

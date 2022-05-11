@@ -3,6 +3,7 @@ use crate::unicorn::get_nid;
 use crate::unicorn::HashableNodeRef;
 use crate::unicorn::NodeRef;
 use anyhow::Result;
+use log::info;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -266,6 +267,57 @@ impl<'a> Qubot<'a> {
         } else {
             None
         }
+    }
+
+    pub fn dump_statistics(&self) {
+        let coeffs: Vec<i32> = self.qubo.linear_coefficients.values().cloned().collect();
+        info!(
+            "linear coefficients   : avg={:.2}, avg_abs={:.2}, min={}, max={}, #={}",
+            coeffs.iter().sum::<i32>() as f64 / coeffs.len() as f64,
+            coeffs.iter().map(|x| i32::abs(*x)).sum::<i32>() as f64 / coeffs.len() as f64,
+            coeffs.iter().min().unwrap(),
+            coeffs.iter().max().unwrap(),
+            coeffs.len()
+        );
+
+        let mut coeffs: Vec<i32> = Vec::new();
+        for (qubit1, edges) in self.qubo.quadratic_coefficients.iter() {
+            let id1 = (*qubit1.value.borrow()).name;
+            for (qubit2, coeff) in edges.iter() {
+                let id2 = (*qubit2.value.borrow()).name;
+                if id1 < id2 {
+                    coeffs.push(*coeff);
+                }
+            }
+        }
+        info!(
+            "quadratic coefficients: avg={:.2}, avg_abs={:.2}, min={}, max={}, #={}",
+            coeffs.iter().sum::<i32>() as f64 / coeffs.len() as f64,
+            coeffs.iter().map(|x| i32::abs(*x)).sum::<i32>() as f64 / coeffs.len() as f64,
+            coeffs.iter().min().unwrap(),
+            coeffs.iter().max().unwrap(),
+            coeffs.len()
+        );
+
+        let mut connect_map: HashMap<u64, u32> = HashMap::new();
+        for (qubit1, edges) in self.qubo.quadratic_coefficients.iter() {
+            let id1 = (*qubit1.value.borrow()).name;
+            for (qubit2, _) in edges.iter() {
+                let id2 = (*qubit2.value.borrow()).name;
+                if id1 < id2 {
+                    *connect_map.entry(id1).or_insert(0) += 1;
+                    *connect_map.entry(id2).or_insert(0) += 1;
+                }
+            }
+        }
+        let connect: Vec<u32> = connect_map.values().cloned().collect();
+        info!(
+            "qubit connectivity    : avg={:.2}, min={}, max={}, #={}",
+            connect.iter().sum::<u32>() as f64 / connect.len() as f64,
+            connect.iter().min().unwrap(),
+            connect.iter().max().unwrap(),
+            connect.len()
+        );
     }
 
     pub fn dump_model<W>(&self, mut out: W, bad_state_qubits: Vec<(QubitRef, u64)>) -> Result<()>
