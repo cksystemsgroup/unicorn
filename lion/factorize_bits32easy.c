@@ -1,5 +1,5 @@
 // cksystemsgroup.github.io/unicorn
-// @SOLUTIONS = ???
+// @SOLUTIONS = 120
 // @UNROLL = 150
 
 uint64_t main() {
@@ -22,7 +22,10 @@ uint64_t main() {
 
   c = a * b;
 
-  // TODO: Calculate number of solutions using number theory.
+  // For `n = 10000000000` there are a total of 121 divisors (including
+  // 1 and `n` itself), yielding a total of ceil(119 / 2) = 60 distinct
+  // pairs of integers whose product is `n`. Taking commutativity into
+  // account we get a total of 120 satisfying solutions.
   if (c == 10000000000)
     return 1;
 
