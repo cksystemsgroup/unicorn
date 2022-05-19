@@ -318,6 +318,11 @@ impl<'a> Qubot<'a> {
             connect.iter().max().unwrap(),
             connect.len()
         );
+
+        info!(
+            "number of qubits      : {}",
+            self.qubo.get_count_variables()
+        );
     }
 
     pub fn dump_model<W>(&self, mut out: W, bad_state_qubits: Vec<(QubitRef, u64)>) -> Result<()>
