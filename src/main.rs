@@ -8,6 +8,7 @@ use crate::unicorn::bitblasting_dimacs::write_dimacs_model;
 use crate::unicorn::bitblasting_printer::write_btor2_model;
 use crate::unicorn::builder::generate_model;
 use crate::unicorn::memory::replace_memory;
+use crate::unicorn::openqasm_printer::write_openqasm_code;
 use crate::unicorn::optimize::optimize_model;
 use crate::unicorn::qubot::{InputEvaluator, Qubot};
 use crate::unicorn::solver::*;
@@ -121,41 +122,50 @@ fn main() -> Result<()> {
                 let inputs = expect_optional_arg::<String>(args, "input")?;
                 let gate_model = bitblast_model(&model, true, 64);
 
-                let mut qubot = Qubot::new(&gate_model);
-                let bad_state_qubits = qubot.build_qubo();
-                if let Some(ref output_path) = output {
-                    let file = File::create(output_path)?;
-                    qubot.dump_model(file, bad_state_qubits.clone())?;
-                }
-                qubot.dump_statistics();
+                if args.is_present("qasm") {
+                    if let Some(ref output_path) = output {
+                        let file = File::create(output_path)?;
+                        write_openqasm_code(&gate_model, file)?;
+                    } else {
+                        write_openqasm_code(&gate_model, stdout())?;
+                    }
+                } else {
+                    let mut qubot = Qubot::new(&gate_model);
+                    let bad_state_qubits = qubot.build_qubo();
+                    if let Some(ref output_path) = output {
+                        let file = File::create(output_path)?;
+                        qubot.dump_model(file, bad_state_qubits.clone())?;
+                    }
+                    qubot.dump_statistics();
 
-                if let Some(all_inputs) = inputs {
-                    let total_variables = gate_model.input_gates.len();
-                    let instances: Vec<&str> = all_inputs.split('-').collect();
+                    if let Some(all_inputs) = inputs {
+                        let total_variables = gate_model.input_gates.len();
+                        let instances: Vec<&str> = all_inputs.split('-').collect();
 
-                    for instance in instances {
-                        let mut values: Vec<i64> = instance
-                            .split(',')
-                            .map(|x| i64::from_str(x).unwrap())
-                            .collect();
+                        for instance in instances {
+                            let mut values: Vec<i64> = instance
+                                .split(',')
+                                .map(|x| i64::from_str(x).unwrap())
+                                .collect();
 
-                        while values.len() < total_variables {
-                            values.push(0);
+                            while values.len() < total_variables {
+                                values.push(0);
+                            }
+
+                            let mut input_evaluator = InputEvaluator::new();
+                            let (final_offset, true_bad_states) = input_evaluator.evaluate_inputs(
+                                &qubot.qubo,
+                                &qubot.mapping,
+                                &gate_model.input_gates,
+                                &values,
+                                bad_state_qubits.clone(),
+                            );
+                            println!(
+                                "offset:{}, bad states count:{}",
+                                final_offset,
+                                true_bad_states.len()
+                            );
                         }
-
-                        let mut input_evaluator = InputEvaluator::new();
-                        let (final_offset, true_bad_states) = input_evaluator.evaluate_inputs(
-                            &qubot.qubo,
-                            &qubot.mapping,
-                            &gate_model.input_gates,
-                            &values,
-                            bad_state_qubits.clone(),
-                        );
-                        println!(
-                            "offset:{}, bad states count:{}",
-                            final_offset,
-                            true_bad_states.len()
-                        );
                     }
                 }
             }

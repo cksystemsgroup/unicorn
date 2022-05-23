@@ -14,6 +14,7 @@ pub mod bitblasting_dimacs;
 pub mod bitblasting_printer;
 pub mod builder;
 pub mod memory;
+pub mod openqasm_printer;
 pub mod optimize;
 pub mod qubot;
 pub mod solver;

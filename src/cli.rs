@@ -203,7 +203,12 @@ pub fn args() -> Command<'static> {
                     .value_name("NUMBER")
                     .validator(is::<usize>),
                 )
-
+                .arg(
+                    Arg::new("qasm")
+                    .help("Outputs an OpenQASM v2.0 file")
+                    .short('q')
+                    .long("qasm")
+                )
         )
 
         .subcommand(
