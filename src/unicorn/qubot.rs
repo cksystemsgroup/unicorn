@@ -110,22 +110,57 @@ pub enum Rule {
 }
 
 pub struct Qubo {
-    pub linear_coefficients: HashMap<HashableQubitRef, i32>,
-    pub quadratic_coefficients: HashMap<HashableQubitRef, HashMap<HashableQubitRef, i32>>,
-    pub offset: i32,
+    pub linear_coefficients: HashMap<HashableQubitRef, f64>,
+    pub quadratic_coefficients: HashMap<HashableQubitRef, HashMap<HashableQubitRef, f64>>,
+    pub offset: f64,
     rules: HashMap<HashableQubitRef, Rule>, // used when we want to evaluate an input
     pub fixed_variables: HashMap<HashableQubitRef, bool>, // used for when we want to evaluate an input
+    pub is_ising: bool,
 }
 
 impl Qubo {
-    pub fn new() -> Self {
+    pub fn new(is_ising: bool) -> Self {
         Self {
             linear_coefficients: HashMap::new(),
             quadratic_coefficients: HashMap::new(),
-            offset: 0,
+            offset: 0.0,
             rules: HashMap::new(),
             fixed_variables: HashMap::new(),
+            is_ising,
         }
+    }
+
+    pub fn binary_to_ising(&mut self) {
+        let mut linear_offset = 0.0;
+        let mut quadratic_offset = 0.0;
+
+        for value in self.linear_coefficients.values_mut() {
+            linear_offset += *value;
+            *value *= 0.5;
+        }
+
+        for (node, neighbours) in self.quadratic_coefficients.iter_mut() {
+            for (neighbour, value) in neighbours.iter_mut() {
+                if (*node).value.borrow().name < (*neighbour).value.borrow().name {
+                    if let Some(unwrapped_node) = self.linear_coefficients.get_mut(node) {
+                        *unwrapped_node += 0.25 * (*value);
+                    } else {
+                        let key = HashableQubitRef::from((*node).value.clone());
+                        self.linear_coefficients.insert(key, 0.25 * (*value));
+                    }
+
+                    if let Some(unwrapped_node) = self.linear_coefficients.get_mut(neighbour) {
+                        *unwrapped_node += 0.25 * (*value);
+                    } else {
+                        let key = HashableQubitRef::from((*neighbour).value.clone());
+                        self.linear_coefficients.insert(key, 0.25 * (*value));
+                    }
+                    quadratic_offset += *value;
+                }
+                *value *= 0.25;
+            }
+        }
+        self.offset += 0.5 * linear_offset + 0.25 * quadratic_offset;
     }
 
     pub fn get_count_variables(&self) -> usize {
@@ -148,12 +183,12 @@ impl Qubo {
         assert!(self.rules.insert(key, value).is_none())
     }
 
-    pub fn add_linear_coeff(&mut self, qubit: &QubitRef, value: i32) {
-        if value == 0 {
+    pub fn add_linear_coeff(&mut self, qubit: &QubitRef, value: f64) {
+        if value == 0.0 {
             return;
         }
         let key = HashableQubitRef::from(qubit.clone());
-        let entry = self.linear_coefficients.entry(key).or_insert(0);
+        let entry = self.linear_coefficients.entry(key).or_insert(0.0);
         *entry += value;
     }
 
@@ -164,11 +199,11 @@ impl Qubo {
             .or_insert_with(HashMap::new);
     }
 
-    fn insert_quadratic_coeff(&mut self, qubit1: &QubitRef, qubit2: &QubitRef, value: i32) {
+    fn insert_quadratic_coeff(&mut self, qubit1: &QubitRef, qubit2: &QubitRef, value: f64) {
         let key1 = HashableQubitRef::from(qubit1.clone());
         let key2 = HashableQubitRef::from(qubit2.clone());
 
-        let hashmap: &mut HashMap<HashableQubitRef, i32> =
+        let hashmap: &mut HashMap<HashableQubitRef, f64> =
             self.quadratic_coefficients.get_mut(&key1).unwrap();
 
         if hashmap.contains_key(&key2) {
@@ -179,8 +214,8 @@ impl Qubo {
         }
     }
 
-    pub fn add_quadratic_coeffs(&mut self, qubit1: &QubitRef, qubit2: &QubitRef, value: i32) {
-        if value == 0 {
+    pub fn add_quadratic_coeffs(&mut self, qubit1: &QubitRef, qubit2: &QubitRef, value: f64) {
+        if value == 0.0 {
             return;
         } else if qubit1.borrow().name == qubit2.borrow().name {
             return self.add_linear_coeff(qubit1, value);
@@ -194,13 +229,13 @@ impl Qubo {
         self.insert_quadratic_coeff(qubit2, qubit1, value);
     }
 
-    pub fn add_offset(&mut self, value: i32) -> i32 {
+    pub fn add_offset(&mut self, value: f64) -> f64 {
         self.offset += value;
         self.offset
     }
 
     pub fn fix_variable(&mut self, qubit: &QubitRef, value: bool) {
-        let num: i32 = (value as i32) as i32;
+        let num: f64 = (value as i64) as f64;
 
         let key = HashableQubitRef::from(qubit.clone());
         self.fixed_variables.insert(key, value);
@@ -218,10 +253,10 @@ impl Qubo {
         }
 
         if self.quadratic_coefficients.contains_key(&key) {
-            let hashmap = <&HashMap<HashableQubitRef, i32>>::clone(
+            let hashmap = <&HashMap<HashableQubitRef, f64>>::clone(
                 &self.quadratic_coefficients.get(&key).unwrap(),
             );
-            let pairs: Vec<(QubitRef, i32)> =
+            let pairs: Vec<(QubitRef, f64)> =
                 hashmap.iter().map(|(x, y)| (x.value.clone(), *y)).collect();
             for (qubit_ref, value) in pairs {
                 self.add_linear_coeff(&qubit_ref, value * num);
@@ -247,9 +282,9 @@ pub struct Qubot<'a> {
 }
 
 impl<'a> Qubot<'a> {
-    pub fn new(model: &'a GateModel) -> Self {
+    pub fn new(model: &'a GateModel, is_ising: bool) -> Self {
         Self {
-            qubo: Qubo::new(),
+            qubo: Qubo::new(is_ising),
             mapping: HashMap::new(),
             mapping_carries: HashMap::new(),
             const_false_qubit: QubitRef::new(RefCell::new(Qubit { name: 0 })),
@@ -270,17 +305,17 @@ impl<'a> Qubot<'a> {
     }
 
     pub fn dump_statistics(&self) {
-        let coeffs: Vec<i32> = self.qubo.linear_coefficients.values().cloned().collect();
+        let coeffs: Vec<f64> = self.qubo.linear_coefficients.values().cloned().collect();
         info!(
             "linear coefficients   : avg={:.2}, avg_abs={:.2}, min={}, max={}, #={}",
-            coeffs.iter().sum::<i32>() as f64 / coeffs.len() as f64,
-            coeffs.iter().map(|x| i32::abs(*x)).sum::<i32>() as f64 / coeffs.len() as f64,
-            coeffs.iter().min().unwrap(),
-            coeffs.iter().max().unwrap(),
+            coeffs.iter().sum::<f64>() / coeffs.len() as f64,
+            coeffs.iter().map(|x| f64::abs(*x)).sum::<f64>() / coeffs.len() as f64,
+            coeffs.clone().into_iter().reduce(f64::min).unwrap(),
+            coeffs.clone().into_iter().reduce(f64::max).unwrap(),
             coeffs.len()
         );
 
-        let mut coeffs: Vec<i32> = Vec::new();
+        let mut coeffs: Vec<f64> = Vec::new();
         for (qubit1, edges) in self.qubo.quadratic_coefficients.iter() {
             let id1 = (*qubit1.value.borrow()).name;
             for (qubit2, coeff) in edges.iter() {
@@ -292,10 +327,10 @@ impl<'a> Qubot<'a> {
         }
         info!(
             "quadratic coefficients: avg={:.2}, avg_abs={:.2}, min={}, max={}, #={}",
-            coeffs.iter().sum::<i32>() as f64 / coeffs.len() as f64,
-            coeffs.iter().map(|x| i32::abs(*x)).sum::<i32>() as f64 / coeffs.len() as f64,
-            coeffs.iter().min().unwrap(),
-            coeffs.iter().max().unwrap(),
+            coeffs.iter().sum::<f64>() / coeffs.len() as f64,
+            coeffs.iter().map(|x| f64::abs(*x)).sum::<f64>() as f64 / coeffs.len() as f64,
+            coeffs.clone().into_iter().reduce(f64::min).unwrap(),
+            coeffs.clone().into_iter().reduce(f64::max).unwrap(),
             coeffs.len()
         );
 
@@ -377,27 +412,16 @@ impl<'a> Qubot<'a> {
 
         writeln!(out)?;
 
-        // TODO: If Qubits are always referenced by their `name: u64` this can
-        // be simplified by just typedef'ing `Qubit` instead.
-        let mut sorted_linear_coeffs: Vec<(&HashableQubitRef, &i32)> =
-            self.qubo.linear_coefficients.iter().collect();
-        sorted_linear_coeffs.sort_by_key(|(qubit, _)| (*qubit.value.borrow()).name);
-        for (qubit, coeff) in sorted_linear_coeffs {
+        for (qubit, coeff) in self.qubo.linear_coefficients.iter() {
             let id = (*qubit.value.borrow()).name;
             writeln!(out, "{} {}", id, *coeff)?;
         }
 
         writeln!(out)?;
-
-        let mut sorted_quadratic_coeffs: Vec<(&HashableQubitRef, &HashMap<HashableQubitRef, i32>)> =
-            self.qubo.quadratic_coefficients.iter().collect();
-        sorted_quadratic_coeffs.sort_by_key(|(qubit, _)| (*qubit.value.borrow()).name);
-        for (qubit1, edges) in sorted_quadratic_coeffs {
+        for (qubit1, edges) in self.qubo.quadratic_coefficients.iter() {
             let id1 = (*qubit1.value.borrow()).name;
 
-            let mut sorted_edges: Vec<(&HashableQubitRef, &i32)> = edges.iter().collect();
-            sorted_edges.sort_by_key(|(qubit, _)| (*qubit.value.borrow()).name);
-            for (qubit2, coeff) in sorted_edges {
+            for (qubit2, coeff) in edges.iter() {
                 let id2 = (*qubit2.value.borrow()).name;
 
                 if id1 < id2 {
@@ -522,11 +546,11 @@ impl<'a> Qubot<'a> {
                     name: self.get_current_index(),
                 });
 
-                self.qubo.add_linear_coeff(&operand, -2);
-                self.qubo.add_linear_coeff(&z, -2);
+                self.qubo.add_linear_coeff(&operand, -2.0);
+                self.qubo.add_linear_coeff(&z, -2.0);
 
-                self.qubo.add_quadratic_coeffs(&operand, &z, 4);
-                self.qubo.add_offset(2);
+                self.qubo.add_quadratic_coeffs(&operand, &z, 4.0);
+                self.qubo.add_offset(2.0);
 
                 self.qubo.add_rule(&z, Rule::Not { x1: operand });
                 self.record_mapping(gate, z)
@@ -538,15 +562,15 @@ impl<'a> Qubot<'a> {
                     name: self.get_current_index(),
                 });
 
-                self.qubo.add_linear_coeff(&x1, 0);
-                self.qubo.add_linear_coeff(&x2, 0);
-                self.qubo.add_linear_coeff(&z, 6);
+                self.qubo.add_linear_coeff(&x1, 0.0);
+                self.qubo.add_linear_coeff(&x2, 0.0);
+                self.qubo.add_linear_coeff(&z, 6.0);
 
-                self.qubo.add_quadratic_coeffs(&x1, &x2, 2);
-                self.qubo.add_quadratic_coeffs(&x1, &z, -4);
-                self.qubo.add_quadratic_coeffs(&x2, &z, -4);
+                self.qubo.add_quadratic_coeffs(&x1, &x2, 2.0);
+                self.qubo.add_quadratic_coeffs(&x1, &z, -4.0);
+                self.qubo.add_quadratic_coeffs(&x2, &z, -4.0);
 
-                self.qubo.add_offset(0);
+                self.qubo.add_offset(0.0);
 
                 self.qubo.add_rule(&z, Rule::And { x1, x2 });
                 self.record_mapping(gate, z)
@@ -558,15 +582,15 @@ impl<'a> Qubot<'a> {
                     name: self.get_current_index(),
                 });
 
-                self.qubo.add_linear_coeff(&x1, -4);
-                self.qubo.add_linear_coeff(&x2, -4);
-                self.qubo.add_linear_coeff(&z, -6);
+                self.qubo.add_linear_coeff(&x1, -4.0);
+                self.qubo.add_linear_coeff(&x2, -4.0);
+                self.qubo.add_linear_coeff(&z, -6.0);
 
-                self.qubo.add_quadratic_coeffs(&x1, &x2, 2);
-                self.qubo.add_quadratic_coeffs(&x1, &z, 4);
-                self.qubo.add_quadratic_coeffs(&x2, &z, 4);
+                self.qubo.add_quadratic_coeffs(&x1, &x2, 2.0);
+                self.qubo.add_quadratic_coeffs(&x1, &z, 4.0);
+                self.qubo.add_quadratic_coeffs(&x2, &z, 4.0);
 
-                self.qubo.add_offset(6);
+                self.qubo.add_offset(6.0);
 
                 self.qubo.add_rule(&z, Rule::Nand { x1, x2 });
                 self.record_mapping(gate, z)
@@ -578,15 +602,15 @@ impl<'a> Qubot<'a> {
                     name: self.get_current_index(),
                 });
 
-                self.qubo.add_linear_coeff(&x1, 0);
-                self.qubo.add_linear_coeff(&x2, 2);
-                self.qubo.add_linear_coeff(&z, 2);
+                self.qubo.add_linear_coeff(&x1, 0.0);
+                self.qubo.add_linear_coeff(&x2, 2.0);
+                self.qubo.add_linear_coeff(&z, 2.0);
 
-                self.qubo.add_quadratic_coeffs(&x1, &x2, -2);
-                self.qubo.add_quadratic_coeffs(&x1, &z, 4);
-                self.qubo.add_quadratic_coeffs(&x2, &z, -4);
+                self.qubo.add_quadratic_coeffs(&x1, &x2, -2.0);
+                self.qubo.add_quadratic_coeffs(&x1, &z, 4.0);
+                self.qubo.add_quadratic_coeffs(&x2, &z, -4.0);
 
-                self.qubo.add_offset(0);
+                self.qubo.add_offset(0.0);
 
                 self.qubo.add_rule(&z, Rule::Matriarch1 { x1, x2 });
                 self.record_mapping(gate, z)
@@ -598,15 +622,15 @@ impl<'a> Qubot<'a> {
                     name: self.get_current_index(),
                 });
 
-                self.qubo.add_linear_coeff(&x1, 2);
-                self.qubo.add_linear_coeff(&x2, 2);
-                self.qubo.add_linear_coeff(&z, 2);
+                self.qubo.add_linear_coeff(&x1, 2.0);
+                self.qubo.add_linear_coeff(&x2, 2.0);
+                self.qubo.add_linear_coeff(&z, 2.0);
 
-                self.qubo.add_quadratic_coeffs(&x1, &x2, 2);
-                self.qubo.add_quadratic_coeffs(&x1, &z, -4);
-                self.qubo.add_quadratic_coeffs(&x2, &z, -4);
+                self.qubo.add_quadratic_coeffs(&x1, &x2, 2.0);
+                self.qubo.add_quadratic_coeffs(&x1, &z, -4.0);
+                self.qubo.add_quadratic_coeffs(&x2, &z, -4.0);
 
-                self.qubo.add_offset(0);
+                self.qubo.add_offset(0.0);
 
                 self.qubo.add_rule(&z, Rule::Or { x1, x2 });
                 self.record_mapping(gate, z)
@@ -627,22 +651,22 @@ impl<'a> Qubot<'a> {
 
                 self.update_mapping_carries(gate, carry.clone());
 
-                self.qubo.add_linear_coeff(&x1, 2);
-                self.qubo.add_linear_coeff(&x2, 2);
-                self.qubo.add_linear_coeff(&z, 2);
-                self.qubo.add_linear_coeff(&aux, 4);
-                self.qubo.add_linear_coeff(&carry, 4);
+                self.qubo.add_linear_coeff(&x1, 2.0);
+                self.qubo.add_linear_coeff(&x2, 2.0);
+                self.qubo.add_linear_coeff(&z, 2.0);
+                self.qubo.add_linear_coeff(&aux, 4.0);
+                self.qubo.add_linear_coeff(&carry, 4.0);
 
-                self.qubo.add_quadratic_coeffs(&carry, &aux, 4);
-                self.qubo.add_quadratic_coeffs(&x1, &aux, -4);
-                self.qubo.add_quadratic_coeffs(&x1, &carry, -4);
-                self.qubo.add_quadratic_coeffs(&x2, &aux, 4);
-                self.qubo.add_quadratic_coeffs(&x2, &carry, -4);
-                self.qubo.add_quadratic_coeffs(&x1, &x2, 0);
-                self.qubo.add_quadratic_coeffs(&z, &aux, -4);
-                self.qubo.add_quadratic_coeffs(&z, &carry, 4);
-                self.qubo.add_quadratic_coeffs(&x1, &z, 0);
-                self.qubo.add_quadratic_coeffs(&x2, &z, -4);
+                self.qubo.add_quadratic_coeffs(&carry, &aux, 4.0);
+                self.qubo.add_quadratic_coeffs(&x1, &aux, -4.0);
+                self.qubo.add_quadratic_coeffs(&x1, &carry, -4.0);
+                self.qubo.add_quadratic_coeffs(&x2, &aux, 4.0);
+                self.qubo.add_quadratic_coeffs(&x2, &carry, -4.0);
+                self.qubo.add_quadratic_coeffs(&x1, &x2, 0.0);
+                self.qubo.add_quadratic_coeffs(&z, &aux, -4.0);
+                self.qubo.add_quadratic_coeffs(&z, &carry, 4.0);
+                self.qubo.add_quadratic_coeffs(&x1, &z, 0.0);
+                self.qubo.add_quadratic_coeffs(&x2, &z, -4.0);
 
                 self.qubo.add_rule(
                     &carry,
@@ -682,23 +706,23 @@ impl<'a> Qubot<'a> {
 
                 self.update_mapping_carries(gate, carry.clone());
 
-                self.qubo.add_linear_coeff(&x1, 2);
-                self.qubo.add_linear_coeff(&x2, 2);
-                self.qubo.add_linear_coeff(&x3, 2);
-                self.qubo.add_linear_coeff(&z, 2);
-                self.qubo.add_linear_coeff(&aux, 4);
-                self.qubo.add_linear_coeff(&carry, 4);
+                self.qubo.add_linear_coeff(&x1, 2.0);
+                self.qubo.add_linear_coeff(&x2, 2.0);
+                self.qubo.add_linear_coeff(&x3, 2.0);
+                self.qubo.add_linear_coeff(&z, 2.0);
+                self.qubo.add_linear_coeff(&aux, 4.0);
+                self.qubo.add_linear_coeff(&carry, 4.0);
 
-                self.qubo.add_quadratic_coeffs(&x1, &aux, -4);
-                self.qubo.add_quadratic_coeffs(&x1, &carry, -4);
-                self.qubo.add_quadratic_coeffs(&x2, &aux, -4);
-                self.qubo.add_quadratic_coeffs(&x2, &carry, -4);
-                self.qubo.add_quadratic_coeffs(&x1, &x2, 4);
-                self.qubo.add_quadratic_coeffs(&x3, &aux, 4);
-                self.qubo.add_quadratic_coeffs(&x3, &carry, -4);
-                self.qubo.add_quadratic_coeffs(&z, &aux, -4);
-                self.qubo.add_quadratic_coeffs(&z, &carry, 4);
-                self.qubo.add_quadratic_coeffs(&z, &x3, -4);
+                self.qubo.add_quadratic_coeffs(&x1, &aux, -4.0);
+                self.qubo.add_quadratic_coeffs(&x1, &carry, -4.0);
+                self.qubo.add_quadratic_coeffs(&x2, &aux, -4.0);
+                self.qubo.add_quadratic_coeffs(&x2, &carry, -4.0);
+                self.qubo.add_quadratic_coeffs(&x1, &x2, 4.0);
+                self.qubo.add_quadratic_coeffs(&x3, &aux, 4.0);
+                self.qubo.add_quadratic_coeffs(&x3, &carry, -4.0);
+                self.qubo.add_quadratic_coeffs(&z, &aux, -4.0);
+                self.qubo.add_quadratic_coeffs(&z, &carry, 4.0);
+                self.qubo.add_quadratic_coeffs(&z, &x3, -4.0);
 
                 self.qubo.add_rule(
                     &carry,
@@ -717,7 +741,7 @@ impl<'a> Qubot<'a> {
                     },
                 );
                 self.qubo.add_rule(&z, Rule::ResultFullAdder { x1, x2, x3 });
-                self.qubo.add_offset(0);
+                self.qubo.add_offset(0.0);
                 self.record_mapping(gate, z)
             }
             Gate::CarryHalfAdder { .. } => {
@@ -766,9 +790,9 @@ impl<'a> Qubot<'a> {
                 let z = QubitRef::from(Qubit {
                     name: self.get_current_index(),
                 });
-                self.qubo.add_linear_coeff(&ored_bad_states, 2);
-                self.qubo.add_linear_coeff(qubit, 2);
-                self.qubo.add_linear_coeff(&z, 2);
+                self.qubo.add_linear_coeff(&ored_bad_states, 2.0);
+                self.qubo.add_linear_coeff(qubit, 2.0);
+                self.qubo.add_linear_coeff(&z, 2.0);
 
                 self.qubo.add_rule(
                     &z,
@@ -778,9 +802,9 @@ impl<'a> Qubot<'a> {
                     },
                 );
 
-                self.qubo.add_quadratic_coeffs(&ored_bad_states, qubit, 2);
-                self.qubo.add_quadratic_coeffs(&ored_bad_states, &z, -4);
-                self.qubo.add_quadratic_coeffs(qubit, &z, -4);
+                self.qubo.add_quadratic_coeffs(&ored_bad_states, qubit, 2.0);
+                self.qubo.add_quadratic_coeffs(&ored_bad_states, &z, -4.0);
+                self.qubo.add_quadratic_coeffs(qubit, &z, -4.0);
                 ored_bad_states = z;
             }
 
@@ -801,6 +825,10 @@ impl<'a> Qubot<'a> {
 
         //fix false constants
         self.qubo.fix_variable(&self.const_false_qubit, false);
+
+        if self.qubo.is_ising {
+            self.qubo.binary_to_ising();
+        }
 
         bad_state_qubits
     }
@@ -972,7 +1000,7 @@ impl InputEvaluator {
         input_gates: &[(NodeRef, Vec<GateRef>)],
         input_values: &[i64],
         bad_states: Vec<(QubitRef, u64)>,
-    ) -> (i32, Vec<u64>) {
+    ) -> (f64, Vec<u64>) {
         assert!(input_gates.len() == input_values.len());
 
         // fix qubits that represent input
@@ -992,16 +1020,28 @@ impl InputEvaluator {
         let mut offset = qubo.offset;
 
         for (qubit_hash, coeff) in qubo.linear_coefficients.iter() {
-            let qubit_value = self.get_qubit_value(&qubit_hash.value, qubo) as i32;
-            offset += (*coeff) * qubit_value;
+            let qubit_value = self.get_qubit_value(&qubit_hash.value, qubo);
+            let final_value: f64;
+            if qubo.is_ising && !qubit_value {
+                final_value = -1.0;
+            } else {
+                final_value = (qubit_value as u64) as f64;
+            }
+            offset += (*coeff) * final_value;
         }
 
         for (qubit_hash1, more_qubits) in qubo.quadratic_coefficients.iter() {
-            let value1 = self.get_qubit_value(&qubit_hash1.value, qubo) as i32;
+            let mut value1 = (self.get_qubit_value(&qubit_hash1.value, qubo) as i64) as f64;
+            if qubo.is_ising && value1 == 0.0 {
+                value1 = -1.0;
+            }
             for (qubit_hash2, coeff) in more_qubits.iter() {
                 if qubit_hash1.value.borrow().name < qubit_hash2.value.borrow().name {
-                    let value2 = self.get_qubit_value(&qubit_hash2.value, qubo) as i32;
+                    let mut value2 = (self.get_qubit_value(&qubit_hash2.value, qubo) as i64) as f64;
 
+                    if qubo.is_ising && value2 == 0.0 {
+                        value2 = -1.0;
+                    }
                     offset += value1 * value2 * coeff;
                 }
             }

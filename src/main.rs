@@ -120,8 +120,9 @@ fn main() -> Result<()> {
             } else {
                 let inputs = expect_optional_arg::<String>(args, "input")?;
                 let gate_model = bitblast_model(&model, true, 64);
+                let is_ising = args.is_present("ising");
 
-                let mut qubot = Qubot::new(&gate_model);
+                let mut qubot = Qubot::new(&gate_model, is_ising);
                 let bad_state_qubits = qubot.build_qubo();
                 if let Some(ref output_path) = output {
                     let file = File::create(output_path)?;
