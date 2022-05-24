@@ -12,19 +12,11 @@ pub fn write_openqasm_code<W>(gate_model: &GateModel, out: W) -> Result<()>
 where
     W: Write,
 {
-    // let zip = gate_model
-    //     .bad_state_nodes
-    //     .iter()
-    //     .zip(gate_model.bad_state_gates.iter());
     let mut printer = OpenQasmPrinter::new(out);
     printer.print_file_header()?;
+    printer.print_oracle(gate_model)?;
+    printer.print_amplitude_amplification(gate_model)?;
     printer.print_input_initialization(gate_model)?;
-    // for (bad_state, gate) in zip {
-    //     printer.print_bad_state(bad_state, gate)?;
-    // }
-    // for (gate, val) in &gate_model.constraints {
-    //     printer.print_constraint(&gate.value, *val)?;
-    // }
     printer.print_input_measurement(gate_model)?;
     Ok(())
 }
@@ -74,6 +66,14 @@ impl<W: Write> OpenQasmPrinter<W> {
             writeln!(self.out, "h qin{}_{}\n", nid, timestep)?;
         }
         writeln!(self.out, "\n")?;
+        Ok(())
+    }
+
+    fn print_oracle(&mut self, _gate_model: &GateModel) -> Result<()> {
+        Ok(())
+    }
+
+    fn print_amplitude_amplification(&mut self, _gate_model: &GateModel) -> Result<()> {
         Ok(())
     }
 
