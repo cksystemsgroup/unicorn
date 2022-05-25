@@ -414,7 +414,7 @@ impl<'a> Qubot<'a> {
 
         // TODO: If Qubits are always referenced by their `name: u64` this can
         // be simplified by just typedef'ing `Qubit` instead.
-        let mut sorted_linear_coeffs: Vec<(&HashableQubitRef, &i32)> =
+        let mut sorted_linear_coeffs: Vec<(&HashableQubitRef, &f64)> =
             self.qubo.linear_coefficients.iter().collect();
         sorted_linear_coeffs.sort_by_key(|(qubit, _)| (*qubit.value.borrow()).name);
         for (qubit, coeff) in sorted_linear_coeffs {
@@ -423,14 +423,14 @@ impl<'a> Qubot<'a> {
         }
 
         writeln!(out)?;
-        
-        let mut sorted_quadratic_coeffs: Vec<(&HashableQubitRef, &HashMap<HashableQubitRef, i32>)> =
+
+        let mut sorted_quadratic_coeffs: Vec<(&HashableQubitRef, &HashMap<HashableQubitRef, f64>)> =
             self.qubo.quadratic_coefficients.iter().collect();
         sorted_quadratic_coeffs.sort_by_key(|(qubit, _)| (*qubit.value.borrow()).name);
         for (qubit1, edges) in sorted_quadratic_coeffs {
             let id1 = (*qubit1.value.borrow()).name;
 
-            let mut sorted_edges: Vec<(&HashableQubitRef, &i32)> = edges.iter().collect();
+            let mut sorted_edges: Vec<(&HashableQubitRef, &f64)> = edges.iter().collect();
             sorted_edges.sort_by_key(|(qubit, _)| (*qubit.value.borrow()).name);
             for (qubit2, coeff) in sorted_edges {
                 let id2 = (*qubit2.value.borrow()).name;
