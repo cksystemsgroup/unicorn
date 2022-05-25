@@ -205,7 +205,7 @@ pub fn args() -> Command<'static> {
                 )
                 .arg(
                     Arg::new("ising")
-                    .help("Perform bitblasting of the model")
+                    .help("Makes qubot output an ising model")
                     .short('I')
                     .long("ising")
                 )
