@@ -6,6 +6,7 @@ use crate::quantum_annealing::dwave_api::sample_quantum_annealer;
 use crate::unicorn::bitblasting::bitblast_model;
 use crate::unicorn::bitblasting_dimacs::write_dimacs_model;
 use crate::unicorn::bitblasting_printer::write_btor2_model;
+use crate::unicorn::btor2file_parser::parse_btor2_file;
 use crate::unicorn::builder::generate_model;
 use crate::unicorn::memory::replace_memory;
 use crate::unicorn::optimize::optimize_model;
@@ -57,9 +58,15 @@ fn main() -> Result<()> {
             let incremental = is_beator && args.is_present("incremental-opt");
             let prune = !is_beator || args.is_present("prune-model");
 
-            let program = load_object_file(&input)?;
+            let mut model;
 
-            let mut model = generate_model(&program, memory_size, max_heap, max_stack)?;
+            if is_beator || !args.is_present("from-btor2") {
+                let program = load_object_file(&input)?;
+                model = generate_model(&program, memory_size, max_heap, max_stack)?;
+            } else {
+                model = parse_btor2_file(&input);
+            }
+
             if let Some(unroll_depth) = unroll {
                 model.lines.clear();
                 // TODO: Check if memory replacement is requested.
