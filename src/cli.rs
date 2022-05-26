@@ -203,7 +203,12 @@ pub fn args() -> Command<'static> {
                     .value_name("NUMBER")
                     .validator(is::<usize>),
                 )
-
+                .arg(
+                    Arg::new("ising")
+                    .help("Makes qubot output an ising model")
+                    .short('I')
+                    .long("ising")
+                )
         )
 
         .subcommand(
