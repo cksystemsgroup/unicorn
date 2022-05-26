@@ -501,12 +501,10 @@ mod tests_btor2_parser {
                         } else {
                             assert!(j == 118);
                         }
+                    } else if c == 1 {
+                        assert!(i != 118);
                     } else {
-                        if c == 1 {
-                            assert!(i != 118);
-                        } else {
-                            assert!(j != 118);
-                        }
+                        assert!(j != 118);
                     }
                 }
             }
