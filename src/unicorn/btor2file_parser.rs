@@ -285,7 +285,7 @@ mod tests_btor2_parser {
         let lines: Vec<String> = file.split('\n').map(|s| s.to_string()).collect();
         parser.parse_lines(&lines);
         parser.run_inits();
-        let model = Model {
+        Model {
             lines: Vec::new(),
             sequentials: parser.get_sequentials(),
             bad_states_initial: parser.get_bad_state_sequentials(),
@@ -294,9 +294,7 @@ mod tests_btor2_parser {
             heap_range: Range { start: 0, end: 0 },
             stack_range: Range { start: 0, end: 0 },
             memory_size: 0,
-        };
-
-        model
+        }
     }
     #[test]
     fn test_add() {
