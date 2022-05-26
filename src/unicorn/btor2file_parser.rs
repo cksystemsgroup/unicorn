@@ -296,7 +296,7 @@ mod tests_btor2_parser {
             memory_size: 0,
         };
 
-        return model;
+        model
     }
     #[test]
     fn test_add() {
