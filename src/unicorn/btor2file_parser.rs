@@ -12,8 +12,8 @@ pub fn parse_btor2_file(path: &Path) -> Model {
     Model {
         lines: Vec::new(),
         sequentials: parser.get_sequentials(),
-        bad_states_initial: Vec::new(),
-        bad_states_sequential: parser.get_bad_state_sequentials(),
+        bad_states_initial: parser.get_bad_state_sequentials(),
+        bad_states_sequential: Vec::new(),
         data_range: Range { start: 0, end: 0 },
         heap_range: Range { start: 0, end: 0 },
         stack_range: Range { start: 0, end: 0 },
@@ -42,34 +42,51 @@ impl BTOR2Parser {
         Ok(io::BufReader::new(file).lines())
     }
 
-    fn parse_file(&mut self, path: &Path) {
-        if let Ok(lines) = self.read_lines(path) {
-            for line in lines.flatten() {
-                let mut cleaned_line = line.trim();
-                if let Some(comment_start_index) = cleaned_line.find(';') {
-                    cleaned_line = &cleaned_line[comment_start_index..];
-                }
+    fn parse_lines(&mut self, lines: &[String]) {
+        for line in lines {
+            let mut cleaned_line = line.trim();
+            if let Some(comment_start_index) = cleaned_line.find(';') {
+                cleaned_line = &cleaned_line[comment_start_index..];
+            }
 
-                let elements: Vec<&str> = cleaned_line.split(' ').collect();
+            let elements: Vec<&str> = cleaned_line.split(' ').collect();
 
-                let mut parsed_line: Vec<String> = Vec::new();
+            let mut parsed_line: Vec<String> = Vec::new();
 
-                for element in elements {
-                    if !element.is_empty() {
-                        parsed_line.push(element.to_string());
-                    }
-                }
-
-                if !parsed_line.is_empty() {
-                    if let Ok(nid) = parsed_line[0].parse::<u64>() {
-                        self.lines.insert(nid, parsed_line);
-                    } else {
-                        panic!("could not parse line->'{:?}'", parsed_line);
-                    }
+            for element in elements {
+                if !element.is_empty() {
+                    parsed_line.push(element.to_string());
                 }
             }
+
+            if !parsed_line.is_empty() {
+                if let Ok(nid) = parsed_line[0].parse::<u64>() {
+                    self.lines.insert(nid, parsed_line);
+                } else {
+                    panic!("could not parse line->'{:?}'", parsed_line);
+                }
+            }
+        }
+    }
+    fn parse_file(&mut self, path: &Path) {
+        if let Ok(lines) = self.read_lines(path) {
+            let flattened_lines: Vec<String> = lines.flatten().collect();
+            self.parse_lines(&flattened_lines);
         } else {
             println!("Error reading file ({:?})", path);
+        }
+    }
+
+    fn get_sort(&self, nid: Nid) -> usize {
+        let line = self.lines.get(&nid).unwrap().clone();
+        if line[2] == "bitvec" {
+            if let Ok(answer) = line[3].parse::<usize>() {
+                answer
+            } else {
+                panic!("Not valid sort: {:?}", line);
+            }
+        } else {
+            0
         }
     }
 
@@ -77,7 +94,8 @@ impl BTOR2Parser {
         let mut current_node: Option<NodeRef> = None;
         let line = self.lines.get(&nid).unwrap().clone();
 
-        if let Ok(sort) = line[2].parse::<usize>() {
+        if let Ok(sort_nid) = line[2].parse::<Nid>() {
+            let sort = self.get_sort(sort_nid);
             if self.mapping.contains_key(&nid) {
                 return self.mapping.get(&nid).unwrap().clone();
             }
@@ -85,7 +103,7 @@ impl BTOR2Parser {
             let operator_name = line[1].to_lowercase();
 
             match operator_name.as_str() {
-                "const" => {
+                "constd" => {
                     if let Ok(imm) = line[3].parse::<u64>() {
                         current_node = Some(NodeRef::from(Node::Const {
                             nid,
@@ -134,23 +152,20 @@ impl BTOR2Parser {
                         name: None,
                     }));
                 }
-                "not" | "bad" => {
+                "not" => {
                     if let Ok(nid_value) = line[3].parse::<Nid>() {
                         let value = self.process_node(nid_value);
-
-                        match operator_name.as_str() {
-                            "not" => current_node = Some(NodeRef::from(Node::Not { nid, value })),
-                            "bad" => {
-                                current_node = Some(NodeRef::from(Node::Bad {
-                                    nid,
-                                    cond: value,
-                                    name: None,
-                                }))
-                            }
-                            _ => {
-                                panic!("this piece of code should be unreacheable");
-                            }
-                        }
+                        current_node = Some(NodeRef::from(Node::Not { nid, value }))
+                    }
+                }
+                "bad" => {
+                    if let Ok(nid_value) = line[2].parse::<Nid>() {
+                        let value = self.process_node(nid_value);
+                        current_node = Some(NodeRef::from(Node::Bad {
+                            nid,
+                            cond: value,
+                            name: None,
+                        }))
                     }
                 }
                 "ite" => {
@@ -255,7 +270,453 @@ impl BTOR2Parser {
                 result.push(self.process_node(nid));
             }
         }
-
         result
+    }
+}
+
+#[cfg(test)]
+mod tests_btor2_parser {
+    use super::*;
+    use crate::unicorn::bitblasting::bitblast_model;
+    use crate::unicorn::qubot::{InputEvaluator, Qubot};
+
+    fn get_model(file: &str) -> Model {
+        let mut parser = BTOR2Parser::new();
+        let lines: Vec<String> = file.split('\n').map(|s| s.to_string()).collect();
+        parser.parse_lines(&lines);
+        parser.run_inits();
+        let model = Model {
+            lines: Vec::new(),
+            sequentials: parser.get_sequentials(),
+            bad_states_initial: parser.get_bad_state_sequentials(),
+            bad_states_sequential: Vec::new(),
+            data_range: Range { start: 0, end: 0 },
+            heap_range: Range { start: 0, end: 0 },
+            stack_range: Range { start: 0, end: 0 },
+            memory_size: 0,
+        };
+
+        return model;
+    }
+    #[test]
+    fn test_add() {
+        let file = "1 sort bitvec 8
+        2 input 1
+        3 input 1
+        4 add 1 2 3
+        5 constd 1 118
+        6 eq 1 4 5
+        7 bad 6
+        ";
+        let model = get_model(file);
+        let gate_model = bitblast_model(&model, true, 64);
+        let mut qubot = Qubot::new(&gate_model);
+
+        let bad_state_qubits = qubot.build_qubo();
+        let all_inputs = gate_model.input_gates.clone();
+        assert!(all_inputs.len() == 2);
+        assert!(all_inputs[0].1.len() == 8);
+        assert!(all_inputs[0].1.len() == all_inputs[1].1.len());
+
+        for i in 0..256 {
+            for j in 0..256 {
+                let mut input_evaluator = InputEvaluator::new();
+                let (final_offset, _true_bad_states) = input_evaluator.evaluate_inputs(
+                    &qubot.qubo,
+                    &qubot.mapping,
+                    &all_inputs,
+                    &[i, j],
+                    bad_state_qubits.clone(),
+                );
+
+                let local_result = (i + j) & 255;
+                if final_offset == 0 {
+                    assert!(local_result == 118);
+                } else {
+                    assert!(local_result != 118);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_and() {
+        let file = "1 sort bitvec 8
+        2 input 1
+        3 input 1
+        4 and 1 2 3
+        5 constd 1 118
+        6 eq 1 4 5
+        7 bad 6
+        ";
+        let model = get_model(file);
+        let gate_model = bitblast_model(&model, true, 64);
+        let mut qubot = Qubot::new(&gate_model);
+
+        let bad_state_qubits = qubot.build_qubo();
+        let all_inputs = gate_model.input_gates.clone();
+        assert!(all_inputs.len() == 2);
+        assert!(all_inputs[0].1.len() == 8);
+        assert!(all_inputs[0].1.len() == all_inputs[1].1.len());
+
+        for i in 0..256 {
+            for j in 0..256 {
+                let mut input_evaluator = InputEvaluator::new();
+                let (final_offset, _true_bad_states) = input_evaluator.evaluate_inputs(
+                    &qubot.qubo,
+                    &qubot.mapping,
+                    &all_inputs,
+                    &[i, j],
+                    bad_state_qubits.clone(),
+                );
+                let local_result = i & j;
+                if final_offset == 0 {
+                    assert!(local_result == 118);
+                } else {
+                    assert!(local_result != 118);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_div() {
+        let file = "1 sort bitvec 8
+        2 input 1
+        3 input 1
+        4 udiv 1 2 3
+        5 constd 1 118
+        6 eq 1 4 5
+        7 bad 6
+        ";
+        let model = get_model(file);
+        let gate_model = bitblast_model(&model, true, 64);
+        let mut qubot = Qubot::new(&gate_model);
+
+        let bad_state_qubits = qubot.build_qubo();
+        let all_inputs = gate_model.input_gates.clone();
+        assert!(all_inputs.len() == 2);
+        assert!(all_inputs[0].1.len() == 8);
+        assert!(all_inputs[0].1.len() == all_inputs[1].1.len());
+
+        for i in 0..256 {
+            for j in 0..256 {
+                let mut input_evaluator = InputEvaluator::new();
+                if j > 0 {
+                    // avoid division by zero
+                    let (final_offset, _true_bad_states) = input_evaluator.evaluate_inputs(
+                        &qubot.qubo,
+                        &qubot.mapping,
+                        &all_inputs,
+                        &[i, j],
+                        bad_state_qubits.clone(),
+                    );
+
+                    let local_result: i64 = i / j;
+                    if final_offset == 0 {
+                        assert!(local_result == 118);
+                    } else {
+                        assert!(local_result != 118);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_eq() {
+        let file = "1 sort bitvec 8
+        2 input 1
+        3 input 1
+        4 eq 1 2 3
+        5 bad 4
+        ";
+
+        let model = get_model(file);
+        let gate_model = bitblast_model(&model, true, 64);
+        let mut qubot = Qubot::new(&gate_model);
+
+        let bad_state_qubits = qubot.build_qubo();
+        let all_inputs = gate_model.input_gates.clone();
+        assert!(all_inputs.len() == 2);
+        assert!(all_inputs[0].1.len() == 8);
+        assert!(all_inputs[0].1.len() == all_inputs[1].1.len());
+
+        for i in 0..256 {
+            for j in 0..256 {
+                let mut input_evaluator = InputEvaluator::new();
+                let (final_offset, _true_bad_states) = input_evaluator.evaluate_inputs(
+                    &qubot.qubo,
+                    &qubot.mapping,
+                    &all_inputs,
+                    &[i, j],
+                    bad_state_qubits.clone(),
+                );
+                if final_offset == 0 {
+                    assert!(i == j);
+                } else {
+                    assert!(i != j);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_ite() {
+        let file = "1 sort bitvec 8
+        2 sort bitvec 1
+        3 input 1
+        4 input 1
+        5 input 2
+        6 ite 1 5 3 4
+        7 constd 1 118
+        8 eq 2 6 7
+        9 bad 8
+        ";
+        let model = get_model(file);
+        let gate_model = bitblast_model(&model, true, 64);
+        let mut qubot = Qubot::new(&gate_model);
+
+        let bad_state_qubits = qubot.build_qubo();
+        let all_inputs = gate_model.input_gates.clone();
+        assert!(all_inputs.len() == 3);
+        assert!(all_inputs[0].1.len() == 1);
+        assert!(all_inputs[1].1.len() == 8);
+        assert!(all_inputs[1].1.len() == all_inputs[1].1.len());
+
+        for c in 0..2 {
+            for i in 0..256 {
+                for j in 0..256 {
+                    let mut input_evaluator = InputEvaluator::new();
+                    let (final_offset, _true_bad_states) = input_evaluator.evaluate_inputs(
+                        &qubot.qubo,
+                        &qubot.mapping,
+                        &all_inputs,
+                        &[c, i, j],
+                        bad_state_qubits.clone(),
+                    );
+                    if final_offset == 0 {
+                        if c == 1 {
+                            assert!(i == 118);
+                        } else {
+                            assert!(j == 118);
+                        }
+                    } else {
+                        if c == 1 {
+                            assert!(i != 118);
+                        } else {
+                            assert!(j != 118);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_mul() {
+        let file = "1 sort bitvec 8
+        2 input 1
+        3 input 1
+        4 mul 1 2 3
+        5 constd 1 118
+        6 eq 1 4 5
+        7 bad 6
+        ";
+        let model = get_model(file);
+        let gate_model = bitblast_model(&model, true, 64);
+        let mut qubot = Qubot::new(&gate_model);
+
+        let bad_state_qubits = qubot.build_qubo();
+        let all_inputs = gate_model.input_gates.clone();
+        assert!(all_inputs.len() == 2);
+        assert!(all_inputs[0].1.len() == 8);
+        assert!(all_inputs[0].1.len() == all_inputs[1].1.len());
+
+        for i in 0..256 {
+            for j in 0..256 {
+                let mut input_evaluator = InputEvaluator::new();
+                let (final_offset, _true_bad_states) = input_evaluator.evaluate_inputs(
+                    &qubot.qubo,
+                    &qubot.mapping,
+                    &all_inputs,
+                    &[i, j],
+                    bad_state_qubits.clone(),
+                );
+
+                let local_result = (i * j) & 255;
+                if final_offset == 0 {
+                    assert!(local_result == 118);
+                } else {
+                    assert!(local_result != 118);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_not() {
+        let file = "1 sort bitvec 8
+        2 input 1
+        4 not 1 2
+        5 constd 1 118
+        6 eq 1 4 5
+        7 bad 6
+        ";
+        let model = get_model(file);
+        let gate_model = bitblast_model(&model, true, 64);
+        let mut qubot = Qubot::new(&gate_model);
+
+        let bad_state_qubits = qubot.build_qubo();
+        let all_inputs = gate_model.input_gates.clone();
+        assert!(all_inputs.len() == 1);
+        assert!(all_inputs[0].1.len() == 8);
+
+        for i in 0..256 {
+            let mut input_evaluator = InputEvaluator::new();
+            let (final_offset, _true_bad_states) = input_evaluator.evaluate_inputs(
+                &qubot.qubo,
+                &qubot.mapping,
+                &all_inputs,
+                &[i],
+                bad_state_qubits.clone(),
+            );
+
+            let local_result = !i & 255;
+            if final_offset == 0 {
+                assert!(local_result == 118);
+            } else {
+                assert!(local_result != 118);
+            }
+        }
+    }
+
+    #[test]
+    fn test_rem() {
+        let file = "1 sort bitvec 8
+        2 input 1
+        3 input 1
+        4 urem 1 2 3
+        5 constd 1 118
+        6 eq 1 4 5
+        7 bad 6
+        ";
+        let model = get_model(file);
+        let gate_model = bitblast_model(&model, true, 64);
+        let mut qubot = Qubot::new(&gate_model);
+
+        let bad_state_qubits = qubot.build_qubo();
+        let all_inputs = gate_model.input_gates.clone();
+        assert!(all_inputs.len() == 2);
+        assert!(all_inputs[0].1.len() == 8);
+        assert!(all_inputs[0].1.len() == all_inputs[1].1.len());
+
+        for i in 0..256 {
+            for j in 0..256 {
+                let mut input_evaluator = InputEvaluator::new();
+                if j > 0 {
+                    // avoid division by zero
+                    let (final_offset, _true_bad_states) = input_evaluator.evaluate_inputs(
+                        &qubot.qubo,
+                        &qubot.mapping,
+                        &all_inputs,
+                        &[i, j],
+                        bad_state_qubits.clone(),
+                    );
+
+                    let local_result: i64 = i % j;
+                    if final_offset == 0 {
+                        assert!(local_result == 118);
+                    } else {
+                        assert!(local_result != 118);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_sub() {
+        let file = "1 sort bitvec 8
+        2 input 1
+        3 input 1
+        4 sub 1 2 3
+        5 constd 1 118
+        6 eq 1 4 5
+        7 bad 6
+        ";
+
+        let model = get_model(file);
+        let gate_model = bitblast_model(&model, true, 64);
+        let mut qubot = Qubot::new(&gate_model);
+
+        let bad_state_qubits = qubot.build_qubo();
+        let all_inputs = gate_model.input_gates.clone();
+        assert!(all_inputs.len() == 2);
+        assert!(all_inputs[0].1.len() == 8);
+        assert!(all_inputs[0].1.len() == all_inputs[1].1.len());
+
+        for i in 0..256 {
+            for j in 0..256 {
+                let mut input_evaluator = InputEvaluator::new();
+                let (final_offset, _true_bad_states) = input_evaluator.evaluate_inputs(
+                    &qubot.qubo,
+                    &qubot.mapping,
+                    &all_inputs,
+                    &[i, j],
+                    bad_state_qubits.clone(),
+                );
+
+                let local_result = (i - j) & 255;
+                if final_offset == 0 {
+                    assert!(local_result == 118);
+                } else {
+                    assert!(local_result != 118);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_ult() {
+        let file = "1 sort bitvec 8
+        2 sort bitvec 1
+        3 input 1
+        4 input 1
+        5 ult 1 3 4
+        6 constd 2 1
+        7 eq 1 5 6
+        8 bad 7
+        ";
+
+        let model = get_model(file);
+        let gate_model = bitblast_model(&model, true, 64);
+        let mut qubot = Qubot::new(&gate_model);
+
+        let bad_state_qubits = qubot.build_qubo();
+        let all_inputs = gate_model.input_gates.clone();
+        assert!(all_inputs.len() == 2);
+        assert!(all_inputs[0].1.len() == 8);
+        assert!(all_inputs[0].1.len() == all_inputs[1].1.len());
+
+        for i in 0..256 {
+            for j in 0..256 {
+                let mut input_evaluator = InputEvaluator::new();
+                let (final_offset, _true_bad_states) = input_evaluator.evaluate_inputs(
+                    &qubot.qubo,
+                    &qubot.mapping,
+                    &all_inputs,
+                    &[i, j],
+                    bad_state_qubits.clone(),
+                );
+
+                let local_result = i < j;
+                if final_offset == 0 {
+                    assert!(local_result);
+                } else {
+                    assert!(!local_result);
+                }
+            }
+        }
     }
 }
