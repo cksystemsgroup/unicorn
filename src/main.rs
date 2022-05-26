@@ -96,7 +96,7 @@ fn main() -> Result<()> {
                 }
             }
 
-            if !is_beator || unroll.is_some() {
+            if unroll.is_some() {
                 renumber_model(&mut model);
             }
 
