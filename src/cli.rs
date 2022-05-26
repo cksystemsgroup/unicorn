@@ -132,6 +132,12 @@ pub fn args() -> Command<'static> {
                     .value_name("NUMBER")
                     .validator(is::<usize>),
                 )
+                .arg(
+                    Arg::new("from-btor2")
+                    .help("Pass this flag if the input file is a BTOR2 file.")
+                    .short('f')
+                    .long("from-btor2")
+                )
         )
         .subcommand(
             Command::new("qubot")
@@ -146,7 +152,7 @@ pub fn args() -> Command<'static> {
                 .arg(
                     Arg::new("from-btor2")
                     .help("Pass this flag if the input file is a BTOR2 file.")
-                    .short('b')
+                    .short('f')
                     .long("from-btor2")
                 )
                 .arg(

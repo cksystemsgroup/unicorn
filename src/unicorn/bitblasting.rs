@@ -709,8 +709,6 @@ impl<'a> BitBlasting<'a> {
                 }));
             }
 
-            
-
             // Add constraint enforcing `dividend == divisor * quotient + remainder`
             let temp_mul = self.bitwise_multiplication(&quotient, divisor, true);
             let temp_sum = self.bitwise_add(&temp_mul, &remainder, true);
