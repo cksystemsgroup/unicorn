@@ -383,7 +383,7 @@ mod tests_btor2_parser {
         2 input 1
         3 input 1
         4 udiv 1 2 3
-        5 constd 1 118
+        5 constd 1 2
         6 eq 1 4 5
         7 bad 6
         ";
@@ -411,10 +411,11 @@ mod tests_btor2_parser {
                     );
 
                     let local_result: i64 = i / j;
-                    if final_offset == 0.0 {
-                        assert!(local_result == 118);
+
+                    if local_result == 2 {
+                        assert!(final_offset == 0.0);
                     } else {
-                        assert!(local_result != 118);
+                        assert!(final_offset > 0.0);
                     }
                 }
             }

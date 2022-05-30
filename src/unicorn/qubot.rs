@@ -801,6 +801,10 @@ impl<'a> Qubot<'a> {
             }
         }
 
+        for gate in self.gate_model.constraints.keys() {
+            self.process_gate(&gate.value);
+        }
+
         // or bad states
         if !bad_state_qubits.is_empty() {
             let mut ored_bad_states = bad_state_qubits[0].0.clone();
