@@ -209,6 +209,11 @@ pub fn args() -> Command<'static> {
                     .short('I')
                     .long("ising")
                 )
+                .arg(
+                    Arg::new("from-dimacs")
+                    .help("Consume DIMACS instead of RISC-U inputs")
+                    .long("from-dimacs")
+                )
         )
 
         .subcommand(

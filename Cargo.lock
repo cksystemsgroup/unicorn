@@ -842,6 +842,7 @@ dependencies = [
  "log",
  "pyo3",
  "rayon",
+ "regex",
  "riscu",
  "strum",
  "tempfile",
