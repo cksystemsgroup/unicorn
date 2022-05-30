@@ -1,7 +1,5 @@
 use anyhow::{anyhow, Context, Result};
-use bytesize::ByteSize;
 use clap::{crate_authors, crate_description, crate_version, Arg, ArgMatches, Command};
-use const_format::formatcp;
 use std::str::FromStr;
 use strum::{EnumString, EnumVariantNames, IntoStaticStr, VariantNames};
 use unicorn::solver::SmtType;
@@ -16,7 +14,7 @@ pub enum LogLevel {
     Error,
 }
 
-const MEMORY_SIZE: ByteSize = ByteSize(bytesize::MIB);
+const DEFAULT_MEMORY_SIZE: &str = "1"; // 1 MiB
 
 pub fn args() -> Command<'static> {
     Command::new("Unicorn")
@@ -97,7 +95,7 @@ pub fn args() -> Command<'static> {
                         .long("memory")
                         .takes_value(true)
                         .value_name("NUMBER")
-                        .default_value(formatcp!("{}", MEMORY_SIZE.0 / bytesize::MIB))
+                        .default_value(DEFAULT_MEMORY_SIZE)
                         .validator(is_valid_memory_size),
                 )
                 .arg(
@@ -174,7 +172,7 @@ pub fn args() -> Command<'static> {
                         .long("memory")
                         .takes_value(true)
                         .value_name("NUMBER")
-                        .default_value(formatcp!("{}", MEMORY_SIZE.0 / bytesize::MIB))
+                        .default_value(DEFAULT_MEMORY_SIZE)
                         .validator(is_valid_memory_size),
                 )
                 .arg(
