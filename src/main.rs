@@ -60,7 +60,7 @@ fn main() -> Result<()> {
 
             let mut model;
 
-            if is_beator && !args.is_present("from-btor2") {
+            if !args.is_present("from-btor2") {
                 let program = load_object_file(&input)?;
                 model = generate_model(&program, memory_size, max_heap, max_stack)?;
             } else {
