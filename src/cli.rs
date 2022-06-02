@@ -59,12 +59,6 @@ pub fn args() -> Command<'static> {
                     .long("dimacs")
                 )
                 .arg(
-                    Arg::new("incremental-opt")
-                    .help("Incremental optimization during unrolling")
-                    .short('i')
-                    .long("incremental")
-                )
-                .arg(
                     Arg::new("input-file")
                         .help("RISC-U ELF binary to be converted")
                         .takes_value(true)
@@ -97,6 +91,13 @@ pub fn args() -> Command<'static> {
                         .value_name("NUMBER")
                         .default_value(DEFAULT_MEMORY_SIZE)
                         .validator(is_valid_memory_size),
+                )
+                .arg(
+                    Arg::new("inputs")
+                    .help("Concrete inputs to specialize the model")
+                    .short('i')
+                    .long("inputs")
+                    .takes_value(true)
                 )
                 .arg(
                     Arg::new("output-file")
@@ -176,7 +177,7 @@ pub fn args() -> Command<'static> {
                         .validator(is_valid_memory_size),
                 )
                 .arg(
-                    Arg::new("input")
+                    Arg::new("inputs")
                     .help("Provide inputs to evaluate the model, separate by commas the values for a single instance, and with semicolon for various instances.")
                     .short('i')
                     .long("inputs")
