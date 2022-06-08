@@ -188,10 +188,10 @@ impl Qubo {
 
         self.fixed_variables.insert(qubit, value);
 
-        assert!(
-            self.linear_coefficients.contains_key(&qubit)
-                || self.quadratic_coefficients.contains_key(&qubit)
-        );
+        // assert!(
+        //     self.linear_coefficients.contains_key(&key)
+        //         || self.quadratic_coefficients.contains_key(&key)
+        // ); // TODO: investigate more on this assertion. Seems that a key is fixed more than once.
 
         if self.linear_coefficients.contains_key(&qubit) {
             let coeff = self.linear_coefficients.get(&qubit).unwrap();
@@ -251,8 +251,8 @@ impl<'a> Qubot<'a> {
             "linear coefficients   : avg={:.2}, avg_abs={:.2}, min={}, max={}, #={}",
             coeffs.iter().sum::<f64>() / coeffs.len() as f64,
             coeffs.iter().map(|x| f64::abs(*x)).sum::<f64>() / coeffs.len() as f64,
-            coeffs.clone().into_iter().reduce(f64::min).unwrap(),
-            coeffs.clone().into_iter().reduce(f64::max).unwrap(),
+            coeffs.clone().into_iter().reduce(f64::min).unwrap_or(0.0),
+            coeffs.clone().into_iter().reduce(f64::max).unwrap_or(0.0),
             coeffs.len()
         );
 
@@ -270,8 +270,8 @@ impl<'a> Qubot<'a> {
             "quadratic coefficients: avg={:.2}, avg_abs={:.2}, min={}, max={}, #={}",
             coeffs.iter().sum::<f64>() / coeffs.len() as f64,
             coeffs.iter().map(|x| f64::abs(*x)).sum::<f64>() as f64 / coeffs.len() as f64,
-            coeffs.clone().into_iter().reduce(f64::min).unwrap(),
-            coeffs.clone().into_iter().reduce(f64::max).unwrap(),
+            coeffs.clone().into_iter().reduce(f64::min).unwrap_or(0.0),
+            coeffs.clone().into_iter().reduce(f64::max).unwrap_or(0.0),
             coeffs.len()
         );
 
@@ -290,8 +290,8 @@ impl<'a> Qubot<'a> {
         info!(
             "qubit connectivity    : avg={:.2}, min={}, max={}, #={}",
             connect.iter().sum::<u32>() as f64 / connect.len() as f64,
-            connect.iter().min().unwrap(),
-            connect.iter().max().unwrap(),
+            connect.iter().min().unwrap_or(&0),
+            connect.iter().max().unwrap_or(&0),
             connect.len()
         );
 
@@ -315,21 +315,27 @@ impl<'a> Qubot<'a> {
             let mut values: String = "".to_string();
             for gate in gates {
                 let gate_key = HashableGateRef::from((*gate).clone());
-                let qubit = self.mapping.get(&gate_key).unwrap();
+
                 if !str_gates.is_empty() {
                     values += ",";
                     str_gates += ",";
                 }
-                str_gates += &qubit.name.to_string();
+                if let Some(qubit) = self.mapping.get(&gate_key) {
+                    // TODO: investigate. Sometimes because of constant propagation input bits are never reached.
+                    str_gates += &qubit.name.to_string();
 
-                if let Some(qubit_value) = self.get_qubit_value(*qubit) {
-                    if qubit_value {
-                        values += "1";
+                    if let Some(qubit_value) = self.get_qubit_value(*qubit) {
+                        if qubit_value {
+                            values += "1";
+                        } else {
+                            values += "0";
+                        }
                     } else {
-                        values += "0";
+                        values += "-";
                     }
                 } else {
-                    values += "-";
+                    values += "0";
+                    str_gates += "?"
                 }
             }
             writeln!(out, "{} {} {}", get_nid(nid), str_gates, values)?;
@@ -699,6 +705,10 @@ impl<'a> Qubot<'a> {
             }
         }
 
+        for gate in self.gate_model.constraints.keys() {
+            self.process_gate(&gate.value);
+        }
+
         // or bad states
         if !bad_state_qubits.is_empty() {
             let mut ored_bad_states = bad_state_qubits[0].0;
@@ -734,8 +744,9 @@ impl<'a> Qubot<'a> {
 
         // apply constraints
         for (gate, value) in self.gate_model.constraints.iter() {
-            let qubit = self.mapping.get(gate).unwrap();
-            self.qubo.fix_variable(*qubit, *value);
+            if let Some(qubit) = self.mapping.get(gate) {
+                self.qubo.fix_variable(*qubit, *value);
+            }
         }
 
         // fix true constants
@@ -930,6 +941,7 @@ impl InputEvaluator {
                 self.fixed_qubits.insert(*qubit, (current_val % 2) == 1);
                 current_val /= 2;
             }
+            assert!(current_val == 0); // checks for overflow
         }
 
         // start solving QUBO

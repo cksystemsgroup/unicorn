@@ -12,6 +12,7 @@ use std::rc::Rc;
 pub mod bitblasting;
 pub mod bitblasting_dimacs;
 pub mod bitblasting_printer;
+pub mod btor2file_parser;
 pub mod builder;
 pub mod dimacs_parser;
 pub mod memory;
@@ -122,6 +123,12 @@ pub enum Node {
     Comment(String),
 }
 
+impl From<Node> for NodeRef {
+    fn from(node: Node) -> Self {
+        Rc::new(RefCell::new(node))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum NodeType {
     Bit,
@@ -134,6 +141,23 @@ pub enum NodeType {
     Input5Byte,
     Input6Byte,
     Input7Byte,
+}
+
+pub fn get_nodetype(n: usize) -> NodeType {
+    match n {
+        1 => NodeType::Bit,
+        64 => NodeType::Word,
+        8 => NodeType::Input1Byte,
+        16 => NodeType::Input2Byte,
+        24 => NodeType::Input3Byte,
+        32 => NodeType::Input4Byte,
+        40 => NodeType::Input5Byte,
+        48 => NodeType::Input6Byte,
+        56 => NodeType::Input7Byte,
+        _ => {
+            panic!("trying to get an unknown nodetype")
+        }
+    }
 }
 
 #[derive(Debug)]

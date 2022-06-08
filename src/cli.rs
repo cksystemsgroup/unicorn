@@ -131,16 +131,28 @@ pub fn args() -> Command<'static> {
                     .value_name("NUMBER")
                     .validator(is::<usize>),
                 )
+                .arg(
+                    Arg::new("from-btor2")
+                    .help("Pass this flag if the input file is a BTOR2 file.")
+                    .short('f')
+                    .long("from-btor2")
+                )
         )
         .subcommand(
             Command::new("qubot")
                 .about("Create a QUBO model for a RISC-U ELF binary")
                 .arg(
                     Arg::new("input-file")
-                        .help("RISC-U ELF binary to be converted")
+                        .help("If --from-btor2 flag is not passed, then RISC-U ELF binary to be converted, else a BTOR2 file.")
                         .takes_value(true)
                         .value_name("FILE")
                         .required(true),
+                )
+                .arg(
+                    Arg::new("from-btor2")
+                    .help("Pass this flag if the input file is a BTOR2 file.")
+                    .short('f')
+                    .long("from-btor2")
                 )
                 .arg(
                     Arg::new("output-file")

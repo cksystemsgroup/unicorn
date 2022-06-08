@@ -6,6 +6,7 @@ use crate::quantum_annealing::dwave_api::sample_quantum_annealer;
 use crate::unicorn::bitblasting::bitblast_model;
 use crate::unicorn::bitblasting_dimacs::write_dimacs_model;
 use crate::unicorn::bitblasting_printer::write_btor2_model;
+use crate::unicorn::btor2file_parser::parse_btor2_file;
 use crate::unicorn::builder::generate_model;
 use crate::unicorn::dimacs_parser::load_dimacs_as_gatemodel;
 use crate::unicorn::memory::replace_memory;
@@ -61,8 +62,15 @@ fn main() -> Result<()> {
             let input_is_dimacs = !is_beator && args.is_present("from-dimacs");
 
             let model = if !input_is_dimacs {
-                let program = load_object_file(&input)?;
-                let mut model = generate_model(&program, memory_size, max_heap, max_stack)?;
+                let mut model;
+
+                if !args.is_present("from-btor2") {
+                    let program = load_object_file(&input)?;
+                    model = generate_model(&program, memory_size, max_heap, max_stack)?;
+                } else {
+                    model = parse_btor2_file(&input);
+                }
+
                 if let Some(unroll_depth) = unroll {
                     model.lines.clear();
                     // TODO: Check if memory replacement is requested.
@@ -105,7 +113,7 @@ fn main() -> Result<()> {
                     }
                 }
 
-                if !is_beator || unroll.is_some() {
+                if unroll.is_some() {
                     renumber_model(&mut model);
                 }
                 Some(model)

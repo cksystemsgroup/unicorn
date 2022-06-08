@@ -524,7 +524,7 @@ impl<'a> BitBlasting<'a> {
 
         assert!(left.len() == right.len());
         let mut replacement: Vec<GateRef> = Vec::new();
-        let mut carry: GateRef = GateRef::from(Gate::ConstFalse); // initlaize so compiler not complains
+        let mut carry: GateRef = GateRef::from(Gate::ConstFalse); // initialize so compiler not complains
         let mut is_first = true;
         for (l_bit, r_bit) in left.iter().zip(right.iter()) {
             let l_const = get_constant(l_bit);
