@@ -30,11 +30,11 @@ clap = { version = "~3.1", features = ["cargo"] }
 strum = { version = "~0.24", features = ["derive"] }
 riscu = "~0.5"
 log = "~0.4"
+regex = "~1.5"
 env_logger = "~0.9"
 bytesize = "~1.1"
 anyhow = "~1.0"
 thiserror = "~1.0"
-const_format = "~0.2"
 boolector-solver = { package = "boolector", version = "~0.4", features = ["vendor-lgl"], optional = true }
 boolector-sys = { version = "~0", features = ["vendor-lgl"], optional = true }
 z3-solver = { package = "z3", version = "~0.11", features = ["static-link-z3"], optional = true }

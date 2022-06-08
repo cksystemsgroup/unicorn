@@ -8,8 +8,9 @@ use crate::unicorn::bitblasting_dimacs::write_dimacs_model;
 use crate::unicorn::bitblasting_printer::write_btor2_model;
 use crate::unicorn::btor2file_parser::parse_btor2_file;
 use crate::unicorn::builder::generate_model;
+use crate::unicorn::dimacs_parser::load_dimacs_as_gatemodel;
 use crate::unicorn::memory::replace_memory;
-use crate::unicorn::optimize::optimize_model;
+use crate::unicorn::optimize::{optimize_model, optimize_model_with_input};
 use crate::unicorn::qubot::{InputEvaluator, Qubot};
 use crate::unicorn::solver::*;
 use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
@@ -55,57 +56,77 @@ fn main() -> Result<()> {
             let max_heap = expect_arg::<u32>(args, "max-heap")?;
             let max_stack = expect_arg::<u32>(args, "max-stack")?;
             let memory_size = ByteSize::mib(expect_arg(args, "memory")?).as_u64();
-            let incremental = is_beator && args.is_present("incremental-opt");
+            let has_concrete_inputs = is_beator && args.is_present("inputs");
+            let inputs = expect_optional_arg::<String>(args, "inputs")?;
             let prune = !is_beator || args.is_present("prune-model");
+            let input_is_dimacs = !is_beator && args.is_present("from-dimacs");
 
-            let mut model;
+            let model = if !input_is_dimacs {
+                let mut model;
 
-            if !args.is_present("from-btor2") {
-                let program = load_object_file(&input)?;
-                model = generate_model(&program, memory_size, max_heap, max_stack)?;
+                if !args.is_present("from-btor2") {
+                    let program = load_object_file(&input)?;
+                    model = generate_model(&program, memory_size, max_heap, max_stack)?;
+                } else {
+                    model = parse_btor2_file(&input);
+                }
+
+                if let Some(unroll_depth) = unroll {
+                    model.lines.clear();
+                    // TODO: Check if memory replacement is requested.
+                    replace_memory(&mut model);
+                    let mut input_values: Vec<u64> = if has_concrete_inputs {
+                        inputs
+                            .as_ref()
+                            .unwrap()
+                            .split(',')
+                            .map(|x| u64::from_str(x).unwrap())
+                            .collect()
+                    } else {
+                        vec![]
+                    };
+                    for n in 0..unroll_depth {
+                        unroll_model(&mut model, n);
+                        if has_concrete_inputs {
+                            optimize_model_with_input::<none_impl::NoneSolver>(
+                                &mut model,
+                                &mut input_values,
+                            )
+                        }
+                    }
+                    if prune {
+                        prune_model(&mut model);
+                    }
+
+                    match solver {
+                        ::unicorn::SmtType::Generic => {
+                            optimize_model::<none_impl::NoneSolver>(&mut model)
+                        }
+                        #[cfg(feature = "boolector")]
+                        ::unicorn::SmtType::Boolector => {
+                            optimize_model::<boolector_impl::BoolectorSolver>(&mut model)
+                        }
+                        #[cfg(feature = "z3")]
+                        ::unicorn::SmtType::Z3 => {
+                            optimize_model::<z3solver_impl::Z3SolverWrapper>(&mut model)
+                        }
+                    }
+                }
+
+                if unroll.is_some() {
+                    renumber_model(&mut model);
+                }
+                Some(model)
             } else {
-                model = parse_btor2_file(&input);
-            }
-
-            if let Some(unroll_depth) = unroll {
-                model.lines.clear();
-                // TODO: Check if memory replacement is requested.
-                replace_memory(&mut model);
-                for n in 0..unroll_depth {
-                    unroll_model(&mut model, n);
-                    if incremental {
-                        optimize_model::<none_impl::NoneSolver>(&mut model)
-                    }
-                }
-                if prune {
-                    prune_model(&mut model);
-                }
-
-                match solver {
-                    ::unicorn::SmtType::Generic => {
-                        optimize_model::<none_impl::NoneSolver>(&mut model)
-                    }
-                    #[cfg(feature = "boolector")]
-                    ::unicorn::SmtType::Boolector => {
-                        optimize_model::<boolector_impl::BoolectorSolver>(&mut model)
-                    }
-                    #[cfg(feature = "z3")]
-                    ::unicorn::SmtType::Z3 => {
-                        optimize_model::<z3solver_impl::Z3SolverWrapper>(&mut model)
-                    }
-                }
-            }
-
-            if unroll.is_some() {
-                renumber_model(&mut model);
-            }
+                None
+            };
 
             if is_beator {
                 let bitblast = args.is_present("bitblast");
                 let dimacs = args.is_present("dimacs");
 
                 if bitblast {
-                    let gate_model = bitblast_model(&model, true, 64);
+                    let gate_model = bitblast_model(&model.unwrap(), true, 64);
                     if let Some(ref output_path) = output {
                         let file = File::create(output_path)?;
                         if dimacs {
@@ -120,14 +141,18 @@ fn main() -> Result<()> {
                     }
                 } else if let Some(ref output_path) = output {
                     let file = File::create(output_path)?;
-                    write_model(&model, file)?;
+                    write_model(&model.unwrap(), file)?;
                 } else {
-                    write_model(&model, stdout())?;
+                    write_model(&model.unwrap(), stdout())?;
                 }
             } else {
-                let inputs = expect_optional_arg::<String>(args, "input")?;
-                let gate_model = bitblast_model(&model, true, 64);
                 let is_ising = args.is_present("ising");
+
+                let gate_model = if !input_is_dimacs {
+                    bitblast_model(&model.unwrap(), true, 64)
+                } else {
+                    load_dimacs_as_gatemodel(&input)?
+                };
 
                 let mut qubot = Qubot::new(&gate_model, is_ising);
                 let bad_state_qubits = qubot.build_qubo();

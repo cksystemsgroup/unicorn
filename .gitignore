@@ -10,7 +10,7 @@
 .z3-trace
 lion/*.btor2
 lion/*.cnf
-lion/*.data
+lion/*.data?
 lion/*.m
 lion/data.csv
 monster-x86_64-apple-darwin

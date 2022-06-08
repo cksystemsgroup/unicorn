@@ -12,7 +12,20 @@ use std::rc::Rc;
 
 pub fn optimize_model<S: Solver>(model: &mut Model) {
     debug!("Optimizing model using '{}' SMT solver ...", S::name());
-    let mut constant_folder = ConstantFolder::<S>::new();
+    optimize_model_impl::<S>(model, &mut vec![]);
+}
+
+pub fn optimize_model_with_input<S: Solver>(model: &mut Model, inputs: &mut Vec<u64>) {
+    debug!("Optimizing model with {} concrete inputs ...", inputs.len());
+    optimize_model_impl::<S>(model, inputs);
+}
+
+//
+// Private Implementation
+//
+
+fn optimize_model_impl<S: Solver>(model: &mut Model, inputs: &mut Vec<u64>) {
+    let mut constant_folder = ConstantFolder::<S>::new(inputs);
     model
         .sequentials
         .retain(|s| constant_folder.should_retain_sequential(s));
@@ -27,16 +40,13 @@ pub fn optimize_model<S: Solver>(model: &mut Model) {
         .retain(|s| constant_folder.should_retain_bad_state(s, false));
 }
 
-//
-// Private Implementation
-//
-
-struct ConstantFolder<S> {
+struct ConstantFolder<'a, S> {
     smt_solver: S,
     marks: HashSet<HashableNodeRef>,
     mapping: HashMap<HashableNodeRef, NodeRef>,
     const_false: NodeRef,
     const_true: NodeRef,
+    concrete_inputs: &'a mut Vec<u64>,
 }
 
 fn get_constant(node: &NodeRef) -> Option<u64> {
@@ -56,6 +66,7 @@ fn is_const_false(node: &NodeRef) -> bool {
 }
 
 fn new_const_with_type(imm: u64, sort: NodeType) -> NodeRef {
+    assert!(!matches!(sort, NodeType::Memory));
     Rc::new(RefCell::new(Node::Const { nid: 0, sort, imm }))
 }
 
@@ -63,14 +74,15 @@ fn new_const(imm: u64) -> NodeRef {
     new_const_with_type(imm, NodeType::Word)
 }
 
-impl<S: Solver> ConstantFolder<S> {
-    fn new() -> Self {
+impl<'a, S: Solver> ConstantFolder<'a, S> {
+    fn new(concrete_inputs: &'a mut Vec<u64>) -> Self {
         Self {
             smt_solver: S::new(),
             marks: HashSet::new(),
             mapping: HashMap::new(),
             const_false: new_const_with_type(0, NodeType::Bit),
             const_true: new_const_with_type(1, NodeType::Bit),
+            concrete_inputs,
         }
     }
 
@@ -371,6 +383,26 @@ impl<S: Solver> ConstantFolder<S> {
         None
     }
 
+    fn specialize_to_concrete_input(
+        &mut self,
+        sort: NodeType,
+        name: &Option<String>,
+    ) -> Option<NodeRef> {
+        if !self.concrete_inputs.is_empty()
+            && !name.as_deref().unwrap_or("").starts_with("memory-dump")
+        {
+            self.concrete_inputs.rotate_left(1);
+            let concrete_value = self.concrete_inputs.pop().unwrap();
+            warn!(
+                "Specializing to concrete input STATE({}) -> {}",
+                name.as_deref().unwrap_or("?"),
+                concrete_value,
+            );
+            return Some(new_const_with_type(concrete_value, sort));
+        }
+        None
+    }
+
     #[rustfmt::skip]
     fn process_fold(&mut self, node: &NodeRef) -> Option<NodeRef> {
         match *node.borrow_mut() {
@@ -459,7 +491,9 @@ impl<S: Solver> ConstantFolder<S> {
                 if let Some(n) = self.visit(value) { *value = n }
                 self.fold_not(value)
             }
-            Node::State { init: None, .. } => None,
+            Node::State { init: None, ref sort, ref name, .. } => {
+                self.specialize_to_concrete_input(sort.clone(), name)
+            }
             Node::State { init: Some(ref mut init), .. } => {
                 if let Some(n) = self.visit(init) { *init = n }
                 None
