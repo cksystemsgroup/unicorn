@@ -225,7 +225,21 @@ impl BTOR2Parser {
                         }
                     }
                 }
-                "ext" | "read" | "write" => {
+                "uext" => {
+                    if let Ok(nid_value) = line[3].parse::<Nid>() {
+                        if let Ok(bits_ext) = line[4].parse::<usize>() {
+                            let value = self.process_node(nid_value);
+                            let bits_dest = get_nodetype(sort).bitsize();
+                            let bits_src = bits_dest - bits_ext;
+                            current_node = Some(NodeRef::from(Node::Ext {
+                                nid,
+                                from: get_nodetype(bits_src),
+                                value,
+                            }))
+                        }
+                    }
+                }
+                "read" | "write" => {
                     // TODO implement these btor2 operators
                     panic!("BTOR2 operator not implemented!");
                 }
