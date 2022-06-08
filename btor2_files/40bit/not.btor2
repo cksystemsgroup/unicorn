@@ -1,0 +1,6 @@
+1 sort bitvec 40
+2 input 1
+4 not 1 2
+5 constd 1 118
+6 eq 1 4 5
+7 bad 6

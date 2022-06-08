@@ -1,0 +1,6 @@
+1 sort bitvec 64
+2 input 1
+3 constd 1 184467440737095519
+4 not 1 2
+5 ult 1 4 3
+6 bad 5

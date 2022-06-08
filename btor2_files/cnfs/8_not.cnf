@@ -1,0 +1,59 @@
+c cksystemsgroup.github.io/unicorn
+c CNF contains a total of 44 clauses.
+c CNF contains a total of 26 variables.
+c CNF clauses cover 1 bad states.
+c Variable name mapping (9 names):
+c   1: input[bit=0]
+c   4: input[bit=1]
+c   7: input[bit=2]
+c   10: input[bit=3]
+c   14: input[bit=4]
+c   17: input[bit=5]
+c   20: input[bit=6]
+c   23: input[bit=7]
+c   26: ?
+p cnf 26 44
+-1 -2 0
+1 2 0
+-2 -3 0
+2 3 0
+-4 -5 0
+4 5 0
+-3 -5 6 0
+3 -6 0
+5 -6 0
+-7 -8 0
+7 8 0
+-6 -8 9 0
+6 -9 0
+8 -9 0
+-10 -11 0
+10 11 0
+-11 -12 0
+11 12 0
+-9 -12 13 0
+9 -13 0
+12 -13 0
+-14 -15 0
+14 15 0
+-13 -15 16 0
+13 -16 0
+15 -16 0
+-17 -18 0
+17 18 0
+-16 -18 19 0
+16 -19 0
+18 -19 0
+-20 -21 0
+20 21 0
+-19 -21 22 0
+19 -22 0
+21 -22 0
+-23 -24 0
+23 24 0
+-24 -25 0
+24 25 0
+-22 -25 26 0
+22 -26 0
+25 -26 0
+26 0
