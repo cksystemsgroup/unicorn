@@ -46,7 +46,7 @@ impl BTOR2Parser {
         for line in lines {
             let mut cleaned_line = line.trim();
             if let Some(comment_start_index) = cleaned_line.find(';') {
-                cleaned_line = &cleaned_line[comment_start_index..];
+                cleaned_line = &cleaned_line[..comment_start_index];
             }
 
             let elements: Vec<&str> = cleaned_line.split(' ').collect();
@@ -145,11 +145,16 @@ impl BTOR2Parser {
                     panic!("Error parsing init ({:?})", line);
                 }
                 "state" => {
+                    let name = if let Ok(name_str) = line[3].parse::<String>() {
+                        Some(name_str)
+                    } else {
+                        None
+                    };
                     current_node = Some(NodeRef::from(Node::State {
                         nid,
                         sort: get_nodetype(sort),
                         init: None,
-                        name: None,
+                        name,
                     }));
                 }
                 "not" => {
@@ -160,11 +165,16 @@ impl BTOR2Parser {
                 }
                 "bad" => {
                     if let Ok(nid_value) = line[2].parse::<Nid>() {
+                        let name = if let Ok(name_str) = line[3].parse::<String>() {
+                            Some(name_str)
+                        } else {
+                            None
+                        };
                         let value = self.process_node(nid_value);
                         current_node = Some(NodeRef::from(Node::Bad {
                             nid,
                             cond: value,
-                            name: None,
+                            name,
                         }))
                     }
                 }
