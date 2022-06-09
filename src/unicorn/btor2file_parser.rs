@@ -145,11 +145,7 @@ impl BTOR2Parser {
                     panic!("Error parsing init ({:?})", line);
                 }
                 "state" => {
-                    let name = if let Ok(name_str) = line[3].parse::<String>() {
-                        Some(name_str)
-                    } else {
-                        None
-                    };
+                    let name = line.get(3).cloned();
                     current_node = Some(NodeRef::from(Node::State {
                         nid,
                         sort: get_nodetype(sort),
@@ -165,11 +161,7 @@ impl BTOR2Parser {
                 }
                 "bad" => {
                     if let Ok(nid_value) = line[2].parse::<Nid>() {
-                        let name = if let Ok(name_str) = line[3].parse::<String>() {
-                            Some(name_str)
-                        } else {
-                            None
-                        };
+                        let name = line.get(3).cloned();
                         let value = self.process_node(nid_value);
                         current_node = Some(NodeRef::from(Node::Bad {
                             nid,
