@@ -51,20 +51,20 @@ fn main() -> Result<()> {
 
             let input = expect_arg::<PathBuf>(args, "input-file")?;
             let output = expect_optional_arg::<PathBuf>(args, "output-file")?;
-            let unroll = expect_optional_arg(args, "unroll-model")?;
+            let unroll = args.get_one::<usize>("unroll-model").cloned();
             let solver = expect_arg::<SmtType>(args, "solver")?;
-            let max_heap = expect_arg::<u32>(args, "max-heap")?;
-            let max_stack = expect_arg::<u32>(args, "max-stack")?;
-            let memory_size = ByteSize::mib(expect_arg(args, "memory")?).as_u64();
-            let has_concrete_inputs = is_beator && args.is_present("inputs");
+            let max_heap = *args.get_one::<u32>("max-heap").unwrap();
+            let max_stack = *args.get_one::<u32>("max-stack").unwrap();
+            let memory_size = ByteSize::mib(*args.get_one("memory").unwrap()).as_u64();
+            let has_concrete_inputs = is_beator && args.contains_id("inputs");
             let inputs = expect_optional_arg::<String>(args, "inputs")?;
-            let prune = !is_beator || args.is_present("prune-model");
-            let input_is_dimacs = !is_beator && args.is_present("from-dimacs");
+            let prune = !is_beator || args.contains_id("prune-model");
+            let input_is_dimacs = !is_beator && args.contains_id("from-dimacs");
 
             let model = if !input_is_dimacs {
                 let mut model;
 
-                if !args.is_present("from-btor2") {
+                if !args.contains_id("from-btor2") {
                     let program = load_object_file(&input)?;
                     model = generate_model(&program, memory_size, max_heap, max_stack)?;
                 } else {
@@ -122,8 +122,8 @@ fn main() -> Result<()> {
             };
 
             if is_beator {
-                let bitblast = args.is_present("bitblast");
-                let dimacs = args.is_present("dimacs");
+                let bitblast = args.contains_id("bitblast");
+                let dimacs = args.contains_id("dimacs");
 
                 if bitblast {
                     let gate_model = bitblast_model(&model.unwrap(), true, 64);
@@ -146,7 +146,7 @@ fn main() -> Result<()> {
                     write_model(&model.unwrap(), stdout())?;
                 }
             } else {
-                let is_ising = args.is_present("ising");
+                let is_ising = args.contains_id("ising");
 
                 let gate_model = if !input_is_dimacs {
                     bitblast_model(&model.unwrap(), true, 64)
@@ -196,11 +196,11 @@ fn main() -> Result<()> {
             Ok(())
         }
         Some(("dwave", args)) => {
-            let input = expect_arg::<String>(args, "input-file")?;
-            let runs = expect_arg::<u32>(args, "num-runs")?;
-            let chain_strength = expect_arg::<f32>(args, "chain-strength")?;
+            let input = args.get_one::<String>("input-file").unwrap();
+            let runs = *args.get_one::<u32>("num-runs").unwrap();
+            let chain_strength = *args.get_one::<f32>("chain-strength").unwrap();
 
-            sample_quantum_annealer(&input, runs, chain_strength)
+            sample_quantum_annealer(input, runs, chain_strength)
         }
         _ => unreachable!(),
     }

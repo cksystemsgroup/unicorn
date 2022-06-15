@@ -1,5 +1,7 @@
 use anyhow::{anyhow, Context, Result};
-use clap::{crate_authors, crate_description, crate_version, Arg, ArgMatches, Command};
+use clap::{
+    crate_authors, crate_description, crate_version, value_parser, Arg, ArgMatches, Command,
+};
 use std::str::FromStr;
 use strum::{EnumString, EnumVariantNames, IntoStaticStr, VariantNames};
 use unicorn::solver::SmtType;
@@ -28,7 +30,7 @@ pub fn args() -> Command<'static> {
                 .help("configure logging level to use")
                 .takes_value(true)
                 .value_name("LEVEL")
-                .possible_values(LogLevel::VARIANTS)
+                .value_parser(value_parser_log_level())
                 .default_value(LogLevel::Info.into())
                 .global(true),
         )
@@ -72,7 +74,7 @@ pub fn args() -> Command<'static> {
                         .takes_value(true)
                         .value_name("NUMBER")
                         .default_value("8")
-                        .validator(is::<u32>),
+                        .value_parser(value_parser!(u32)),
                 )
                 .arg(
                     Arg::new("max-stack")
@@ -81,7 +83,7 @@ pub fn args() -> Command<'static> {
                         .takes_value(true)
                         .value_name("NUMBER")
                         .default_value("16")
-                        .validator(is::<u32>),
+                        .value_parser(value_parser!(u32)),
                 )
                 .arg(
                     Arg::new("memory")
@@ -90,7 +92,7 @@ pub fn args() -> Command<'static> {
                         .takes_value(true)
                         .value_name("NUMBER")
                         .default_value(DEFAULT_MEMORY_SIZE)
-                        .validator(is_valid_memory_size),
+                        .value_parser(value_parser_memory_size()),
                 )
                 .arg(
                     Arg::new("inputs")
@@ -119,7 +121,7 @@ pub fn args() -> Command<'static> {
                         .long("solver")
                         .takes_value(true)
                         .value_name("SOLVER")
-                        .possible_values(SmtType::VARIANTS)
+                        .value_parser(value_parser_smt_type())
                         .default_value(SmtType::Generic.into()),
                 )
                 .arg(
@@ -129,7 +131,7 @@ pub fn args() -> Command<'static> {
                     .long("unroll")
                     .takes_value(true)
                     .value_name("NUMBER")
-                    .validator(is::<usize>),
+                    .value_parser(value_parser!(usize)),
                 )
                 .arg(
                     Arg::new("from-btor2")
@@ -168,7 +170,7 @@ pub fn args() -> Command<'static> {
                         .takes_value(true)
                         .value_name("NUMBER")
                         .default_value("8")
-                        .validator(is::<u32>),
+                        .value_parser(value_parser!(u32)),
                 )
                 .arg(
                     Arg::new("max-stack")
@@ -177,7 +179,7 @@ pub fn args() -> Command<'static> {
                         .takes_value(true)
                         .value_name("NUMBER")
                         .default_value("16")
-                        .validator(is::<u32>),
+                        .value_parser(value_parser!(u32)),
                 )
                 .arg(
                     Arg::new("memory")
@@ -186,7 +188,7 @@ pub fn args() -> Command<'static> {
                         .takes_value(true)
                         .value_name("NUMBER")
                         .default_value(DEFAULT_MEMORY_SIZE)
-                        .validator(is_valid_memory_size),
+                        .value_parser(value_parser_memory_size()),
                 )
                 .arg(
                     Arg::new("inputs")
@@ -202,7 +204,7 @@ pub fn args() -> Command<'static> {
                         .long("solver")
                         .takes_value(true)
                         .value_name("SOLVER")
-                        .possible_values(SmtType::VARIANTS)
+                        .value_parser(value_parser_smt_type())
                         .default_value(SmtType::Generic.into()),
                 )
                 .arg(
@@ -212,7 +214,7 @@ pub fn args() -> Command<'static> {
                     .long("unroll")
                     .takes_value(true)
                     .value_name("NUMBER")
-                    .validator(is::<usize>),
+                    .value_parser(value_parser!(usize)),
                 )
                 .arg(
                     Arg::new("ising")
@@ -245,7 +247,7 @@ pub fn args() -> Command<'static> {
                         .takes_value(true)
                         .value_name("NUMBER")
                         .default_value("1000")
-                        .validator(is::<u32>),
+                        .value_parser(value_parser!(u32)),
                 )
                 .arg(
                     Arg::new("chain-strength")
@@ -254,7 +256,7 @@ pub fn args() -> Command<'static> {
                         .takes_value(true)
                         .value_name("NUMBER")
                         .default_value("1.0")
-                        .validator(is::<f32>),
+                        .value_parser(value_parser!(f32)),
                 )
 
         )
@@ -267,7 +269,7 @@ pub fn expect_arg<T: FromStr>(m: &ArgMatches, arg: &str) -> Result<T>
 where
     <T as FromStr>::Err: Send + Sync + std::error::Error + 'static,
 {
-    m.value_of(arg)
+    m.get_one::<String>(arg)
         .ok_or_else(|| anyhow!("argument \"{}\" has to be set in CLI at all times", arg))
         .and_then(|s| {
             T::from_str(s).with_context(|| format!("argument \"{}\" has wrong format", arg))
@@ -278,7 +280,7 @@ pub fn expect_optional_arg<T: FromStr>(m: &ArgMatches, arg: &str) -> Result<Opti
 where
     <T as FromStr>::Err: Send + Sync + std::error::Error + 'static,
 {
-    match m.value_of(arg) {
+    match m.get_one::<String>(arg) {
         Some(s) => {
             let res =
                 T::from_str(s).with_context(|| format!("argument \"{}\" has wrong format", arg))?;
@@ -288,25 +290,16 @@ where
     }
 }
 
-fn is<T: FromStr>(v: &str) -> Result<(), String>
-where
-    <T as FromStr>::Err: std::fmt::Display,
-{
-    v.parse::<T>().map(|_| ()).map_err(|e| e.to_string())
+fn value_parser_memory_size() -> clap::builder::RangedU64ValueParser {
+    value_parser!(u64).range(1_u64..=1024_u64)
 }
 
-fn is_valid_memory_size(v: &str) -> Result<(), String> {
-    is::<u64>(v).and_then(|_| {
-        let memory_size = v.parse::<u64>().expect("have checked that already");
+fn value_parser_log_level() -> clap::builder::PossibleValuesParser {
+    clap::builder::PossibleValuesParser::new(LogLevel::VARIANTS)
+}
 
-        let valid_range = 1_u64..=1024_u64;
-
-        if valid_range.contains(&memory_size) {
-            Ok(())
-        } else {
-            Err(String::from("memory size has to be in range: 1 - 1024"))
-        }
-    })
+fn value_parser_smt_type() -> clap::builder::PossibleValuesParser {
+    clap::builder::PossibleValuesParser::new(SmtType::VARIANTS)
 }
 
 #[cfg(test)]
@@ -325,8 +318,8 @@ mod tests {
     #[test]
     fn test_execute_defaults_are_set() {
         with_matches(vec!["unicorn", "beator", "file.o"], |m| {
-            assert!(m.is_present("memory"), "Default memory size is set");
-            assert!(m.is_present("solver"), "Default solver is set");
+            assert!(m.contains_id("memory"), "Default memory size is set");
+            assert!(m.contains_id("solver"), "Default solver is set");
         });
     }
 
