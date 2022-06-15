@@ -17,10 +17,9 @@ use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
 use crate::unicorn::write_model;
 
 use ::unicorn::disassemble::disassemble;
-use ::unicorn::SmtType;
 use anyhow::{Context, Result};
 use bytesize::ByteSize;
-use cli::{expect_arg, expect_optional_arg, LogLevel};
+use cli::{expect_arg, expect_optional_arg, LogLevel, SmtType};
 use env_logger::{Env, TimestampPrecision};
 use riscu::load_object_file;
 use std::{
@@ -99,17 +98,13 @@ fn main() -> Result<()> {
                     }
 
                     match solver {
-                        ::unicorn::SmtType::Generic => {
-                            optimize_model::<none_impl::NoneSolver>(&mut model)
-                        }
+                        SmtType::Generic => optimize_model::<none_impl::NoneSolver>(&mut model),
                         #[cfg(feature = "boolector")]
-                        ::unicorn::SmtType::Boolector => {
+                        SmtType::Boolector => {
                             optimize_model::<boolector_impl::BoolectorSolver>(&mut model)
                         }
                         #[cfg(feature = "z3")]
-                        ::unicorn::SmtType::Z3 => {
-                            optimize_model::<z3solver_impl::Z3SolverWrapper>(&mut model)
-                        }
+                        SmtType::Z3 => optimize_model::<z3solver_impl::Z3SolverWrapper>(&mut model),
                     }
                 }
 

@@ -3,10 +3,8 @@ pub mod util;
 
 pub mod disassemble;
 pub mod engine;
-pub mod solver;
 
 use riscu::{load_object_file, Program};
-pub use solver::SmtType;
 use std::path::Path;
 use thiserror::Error;
 

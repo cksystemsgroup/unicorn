@@ -4,7 +4,6 @@ use clap::{
 };
 use std::str::FromStr;
 use strum::{EnumString, EnumVariantNames, IntoStaticStr, VariantNames};
-use unicorn::solver::SmtType;
 
 #[derive(Debug, PartialEq, EnumString, EnumVariantNames, IntoStaticStr)]
 #[strum(serialize_all = "kebab_case")]
@@ -14,6 +13,16 @@ pub enum LogLevel {
     Info,
     Warn,
     Error,
+}
+
+#[derive(Debug, EnumString, EnumVariantNames, IntoStaticStr)]
+#[strum(serialize_all = "kebab_case")]
+pub enum SmtType {
+    Generic,
+    #[cfg(feature = "boolector")]
+    Boolector,
+    #[cfg(feature = "z3")]
+    Z3,
 }
 
 const DEFAULT_MEMORY_SIZE: &str = "1"; // 1 MiB
