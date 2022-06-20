@@ -1,5 +1,5 @@
 // cksystemsgroup.github.io/unicorn
-// @SOLUTIONS = 120
+// @SOLUTIONS = 119
 // @UNROLL = 150
 
 uint64_t main() {
@@ -23,9 +23,10 @@ uint64_t main() {
   c = a * b;
 
   // For `n = 10000000000` there are a total of 121 divisors (including
-  // 1 and `n` itself), yielding a total of ceil(119 / 2) = 60 distinct
-  // pairs of integers whose product is `n`. Taking commutativity into
-  // account we get a total of 120 satisfying solutions.
+  // 1 and `n` itself), yielding a total of 119 distinct integers to
+  // choose among. Picking `a` from this set also fixes `b` to be one
+  // specific value from this set. See the following for details:
+  // - https://en.wikipedia.org/wiki/Divisor_function
   if (c == 10000000000)
     return 1;
 
