@@ -2,6 +2,7 @@
 pub mod util;
 
 pub mod disassemble;
+pub mod emulate;
 pub mod engine;
 
 use riscu::{load_object_file, Program};

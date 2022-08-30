@@ -44,6 +44,26 @@ pub fn args() -> Command<'static> {
                 .global(true),
         )
         .subcommand(
+            Command::new("emulate")
+                .about("Emulate execution of a RISC-U ELF binary")
+                .arg(
+                    Arg::new("input-file")
+                        .value_name("FILE")
+                        .help("Binary file to be executed")
+                        .takes_value(true)
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("memory")
+                        .help("Total size of memory in MiB [possible: 1 .. 1024]")
+                        .long("memory")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .default_value(DEFAULT_MEMORY_SIZE)
+                        .value_parser(value_parser_memory_size()),
+                ),
+        )
+        .subcommand(
             Command::new("disassemble")
                 .about("Disassemble a RISC-V ELF binary")
                 .arg(

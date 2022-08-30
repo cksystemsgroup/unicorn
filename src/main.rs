@@ -17,6 +17,7 @@ use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
 use crate::unicorn::write_model;
 
 use ::unicorn::disassemble::disassemble;
+use ::unicorn::emulate::EmulatorState;
 use anyhow::{Context, Result};
 use bytesize::ByteSize;
 use cli::{expect_arg, expect_optional_arg, LogLevel, SmtType};
@@ -44,6 +45,16 @@ fn main() -> Result<()> {
             let input = expect_arg::<PathBuf>(args, "input-file")?;
 
             disassemble(input)
+        }
+        Some(("emulate", args)) => {
+            let input = expect_arg::<PathBuf>(args, "input-file")?;
+            let memory_size = ByteSize::mib(*args.get_one("memory").unwrap()).as_u64();
+
+            let program = load_object_file(&input)?.decode()?;
+            let mut emulator = EmulatorState::new(memory_size as usize);
+            emulator.run(&program);
+
+            Ok(())
         }
         Some(("beator", args)) | Some(("qubot", args)) => {
             let is_beator = matches.subcommand().unwrap().0 == "beator";
