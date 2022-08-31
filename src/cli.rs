@@ -61,6 +61,14 @@ pub fn args() -> Command<'static> {
                         .value_name("NUMBER")
                         .default_value(DEFAULT_MEMORY_SIZE)
                         .value_parser(value_parser_memory_size()),
+                )
+                .arg(
+                    Arg::new("extras")
+                        .help("Arguments passed to emulated program")
+                        .value_name("ARGUMENTS")
+                        .last(true)
+                        .allow_hyphen_values(true)
+                        .multiple(true)
                 ),
         )
         .subcommand(
@@ -316,6 +324,13 @@ where
             Ok(Some(res))
         }
         None => Ok(None),
+    }
+}
+
+pub fn collect_arg_values(m: &ArgMatches, arg: &str) -> Vec<String> {
+    match m.values_of::<String>(arg.to_string()) {
+        Some(iter) => iter.map(|it| it.into()).collect(),
+        None => vec![],
     }
 }
 

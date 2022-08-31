@@ -20,7 +20,7 @@ use ::unicorn::disassemble::disassemble;
 use ::unicorn::emulate::EmulatorState;
 use anyhow::{Context, Result};
 use bytesize::ByteSize;
-use cli::{expect_arg, expect_optional_arg, LogLevel, SmtType};
+use cli::{collect_arg_values, expect_arg, expect_optional_arg, LogLevel, SmtType};
 use env_logger::{Env, TimestampPrecision};
 use riscu::load_object_file;
 use std::{
@@ -49,10 +49,13 @@ fn main() -> Result<()> {
         Some(("emulate", args)) => {
             let input = expect_arg::<PathBuf>(args, "input-file")?;
             let memory_size = ByteSize::mib(*args.get_one("memory").unwrap()).as_u64();
+            let arg0 = expect_arg::<String>(args, "input-file")?;
+            let extras = collect_arg_values(args, "extras");
 
+            let argv = [vec![arg0], extras].concat();
             let program = load_object_file(&input)?.decode()?;
             let mut emulator = EmulatorState::new(memory_size as usize);
-            emulator.run(&program);
+            emulator.run(&program, &argv);
 
             Ok(())
         }

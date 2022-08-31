@@ -1,4 +1,5 @@
 use crate::engine::system::SyscallId;
+use byteorder::{ByteOrder, LittleEndian};
 use log::{debug, info, trace};
 use riscu::{types::*, DecodedProgram, Instruction, Register};
 use std::io::{self, Write};
@@ -30,12 +31,13 @@ impl EmulatorState {
         }
     }
 
-    pub fn run(&mut self, program: &DecodedProgram) {
-        let sp_value = (self.memory.len() - 1) * riscu::WORD_SIZE;
+    pub fn run(&mut self, program: &DecodedProgram, argv: &[String]) {
+        let sp_value = self.memory.len() * riscu::WORD_SIZE;
         self.set_reg(Register::Sp, sp_value as u64);
         self.program_counter = program.code.address;
         self.program_break = initial_program_break(program);
         self.load_data_segment(program);
+        self.load_stack_segment(argv);
         self.running = true;
         while self.running {
             let instr = fetch_and_decode(self, program);
@@ -105,11 +107,45 @@ impl EmulatorState {
         self.memory[adr as usize / riscu::WORD_SIZE] = val;
     }
 
+    fn push_stack(&mut self, val: EmulatorValue) {
+        let sp = self.get_reg(Register::Sp) - riscu::WORD_SIZE as u64;
+        self.set_reg(Register::Sp, sp);
+        self.set_mem(sp, val);
+    }
+
     fn load_data_segment(&mut self, program: &DecodedProgram) {
         for (i, val) in program.data.content.iter().enumerate() {
             let adr = program.data.address as usize + i * riscu::WORD_SIZE;
             self.set_mem(adr as u64, *val);
         }
+    }
+
+    // Prepares arguments on the stack like a UNIX system. Note that we
+    // pass an empty environment and that all strings will be properly
+    // zero-terminated and word-aligned:
+    //
+    // | argc | argv[0] | ... | argv[n] | 0 | env[0] | ... | env[m] | 0 |
+    //
+    fn load_stack_segment(&mut self, argv: &[String]) {
+        let argc = argv.len() as EmulatorValue;
+        debug!("argc: {}, argv: {:?}", argc, argv);
+        let argv_ptrs: Vec<EmulatorValue> = argv
+            .iter()
+            .rev()
+            .map(|arg| {
+                let c_string = arg.to_owned() + "\0\0\0\0\0\0\0\0";
+                for chunk in c_string.as_bytes().chunks_exact(size_of::<u64>()).rev() {
+                    self.push_stack(LittleEndian::read_u64(chunk));
+                }
+                self.get_reg(Register::Sp)
+            })
+            .collect();
+        self.push_stack(0); // terminate env table
+        self.push_stack(0); // terminate argv table
+        for argv_ptr in argv_ptrs {
+            self.push_stack(argv_ptr);
+        }
+        self.push_stack(argc);
     }
 }
 
