@@ -44,7 +44,7 @@ pyo3 = { version = "~0.17", features = ["auto-initialize"] }
 [dev-dependencies]
 rayon = "~1.5"
 tempfile = "~3.3"
-which = "~4.2"
+which = "~4.3"
 log = "~0.4"
 env_logger = "~0.9"
 
