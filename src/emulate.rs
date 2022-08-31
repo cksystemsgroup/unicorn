@@ -48,10 +48,19 @@ impl EmulatorState {
 // Private Implementation
 //
 
+const PAGE_SIZE: u64 = 4 * 1024;
 const NUMBER_OF_REGISTERS: usize = 32;
+const INSTRUCTION_SIZE_MASK: u64 = riscu::INSTRUCTION_SIZE as u64 - 1;
+const WORD_SIZE_MASK: u64 = riscu::WORD_SIZE as u64 - 1;
+
+fn next_multiple_of(value: u64, align: u64) -> u64 {
+    ((value + (align - 1)) / align) * align
+}
 
 fn initial_program_break(program: &DecodedProgram) -> EmulatorValue {
-    program.data.address + (program.data.content.len() * riscu::WORD_SIZE) as u64
+    let data_size = program.data.content.len() * riscu::WORD_SIZE;
+    let data_end = program.data.address + data_size as u64;
+    next_multiple_of(data_end, PAGE_SIZE)
 }
 
 impl EmulatorState {
@@ -64,7 +73,7 @@ impl EmulatorState {
     }
 
     fn pc_set(&mut self, val: EmulatorValue) {
-        assert!(val & 0b0011 == 0, "program counter must be aligned");
+        assert!(val & INSTRUCTION_SIZE_MASK == 0, "program counter aligned");
         self.program_counter = val;
     }
 
@@ -105,7 +114,7 @@ impl EmulatorState {
 }
 
 fn fetch_and_decode(state: &mut EmulatorState, program: &DecodedProgram) -> Instruction {
-    assert!(state.program_counter as usize % riscu::INSTRUCTION_SIZE == 0);
+    assert!(state.program_counter & INSTRUCTION_SIZE_MASK == 0);
     let offset = state.program_counter - program.code.address;
     program.code.content[offset as usize / riscu::INSTRUCTION_SIZE]
 }
@@ -123,7 +132,7 @@ fn execute(state: &mut EmulatorState, instr: Instruction) {
         Instruction::Sub(rtype) => exec_sub(state, rtype),
         Instruction::Sltu(rtype) => exec_sltu(state, rtype),
         Instruction::Mul(rtype) => exec_mul(state, rtype),
-        Instruction::Divu(_rtype) => unimplemented!("missing `divu`"),
+        Instruction::Divu(rtype) => exec_divu(state, rtype),
         Instruction::Remu(rtype) => exec_remu(state, rtype),
         Instruction::Ecall(_itype) => exec_ecall(state),
     }
@@ -225,6 +234,16 @@ fn exec_mul(state: &mut EmulatorState, rtype: RType) {
     state.pc_next();
 }
 
+fn exec_divu(state: &mut EmulatorState, rtype: RType) {
+    let rs1_value = state.get_reg(rtype.rs1());
+    let rs2_value = state.get_reg(rtype.rs2());
+    assert!(rs2_value != 0, "check for non-zero divisor");
+    let rd_value = rs1_value.wrapping_div(rs2_value);
+    trace_rtype(state, "divu", rtype, rd_value);
+    state.set_reg(rtype.rd(), rd_value);
+    state.pc_next();
+}
+
 fn exec_remu(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
     let rs2_value = state.get_reg(rtype.rs2());
@@ -288,13 +307,18 @@ fn syscall_openat(_state: &mut EmulatorState) {
 }
 
 fn syscall_brk(state: &mut EmulatorState) {
-    let new_program_break = state.get_reg(Register::A0);
+    let address = state.get_reg(Register::A0);
 
-    // TODO: Implement `brk` system call.
+    // Check provided address is valid and falls between the current
+    // program break (highest heap) and `sp` register (lowest stack).
+    assert!(address & WORD_SIZE_MASK == 0, "program break aligned");
+    if (address >= state.program_break) && (address < state.get_reg(Register::Sp)) {
+        state.program_break = address;
+    }
     let result = state.program_break;
 
     state.set_reg(Register::A0, result);
-    debug!("brk({:#x}) -> {:#x}", new_program_break, result);
+    debug!("brk({:#x}) -> {:#x}", address, result);
 }
 
 fn trace_btype(state: &EmulatorState, mne: &str, btype: BType) {
