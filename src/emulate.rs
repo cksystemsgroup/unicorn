@@ -1,3 +1,4 @@
+use crate::engine::memory::VirtualMemory;
 use crate::engine::system::SyscallId;
 use byteorder::{ByteOrder, LittleEndian};
 use log::{debug, info, trace};
@@ -16,7 +17,7 @@ pub type EmulatorValue = u64;
 #[derive(Debug)]
 pub struct EmulatorState {
     registers: Vec<EmulatorValue>,
-    memory: Vec<EmulatorValue>,
+    memory: VirtualMemory<EmulatorValue>,
     program_counter: EmulatorValue,
     program_break: EmulatorValue,
     opened: Vec<File>,
@@ -29,7 +30,7 @@ impl EmulatorState {
     pub fn new(memory_size: usize) -> Self {
         Self {
             registers: vec![0; NUMBER_OF_REGISTERS],
-            memory: vec![0; memory_size / riscu::WORD_SIZE],
+            memory: VirtualMemory::new(memory_size / riscu::WORD_SIZE, PAGE_SIZE),
             program_counter: 0,
             program_break: 0,
             opened: Vec::new(),
@@ -40,7 +41,7 @@ impl EmulatorState {
     }
 
     pub fn run(&mut self, program: &DecodedProgram, argv: &[String]) {
-        let sp_value = self.memory.len() * riscu::WORD_SIZE;
+        let sp_value = self.memory.size() * riscu::WORD_SIZE;
         self.set_reg(Register::Sp, sp_value as u64);
         self.program_counter = program.code.address;
         self.program_break = initial_program_break(program);
@@ -58,7 +59,7 @@ impl EmulatorState {
 // Private Implementation
 //
 
-const PAGE_SIZE: u64 = 4 * 1024;
+const PAGE_SIZE: usize = 4 * 1024;
 const NUMBER_OF_REGISTERS: usize = 32;
 const INSTRUCTION_SIZE_MASK: u64 = riscu::INSTRUCTION_SIZE as u64 - 1;
 const WORD_SIZE_MASK: u64 = riscu::WORD_SIZE as u64 - 1;
@@ -72,7 +73,7 @@ fn next_multiple_of(value: u64, align: u64) -> u64 {
 fn initial_program_break(program: &DecodedProgram) -> EmulatorValue {
     let data_size = program.data.content.len() * riscu::WORD_SIZE;
     let data_end = program.data.address + data_size as u64;
-    next_multiple_of(data_end, PAGE_SIZE)
+    next_multiple_of(data_end, PAGE_SIZE as u64)
 }
 
 impl EmulatorState {
@@ -110,7 +111,10 @@ impl EmulatorState {
     }
 
     fn get_mem_maybe(&self, adr: EmulatorValue) -> Option<EmulatorValue> {
-        self.memory.get(adr as usize / riscu::WORD_SIZE).cloned()
+        if adr as usize >= self.memory.size() {
+            return None;
+        }
+        Some(self.get_mem(adr))
     }
 
     fn set_mem(&mut self, adr: EmulatorValue, val: EmulatorValue) {
