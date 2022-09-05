@@ -45,11 +45,12 @@ impl EmulatorState {
         self.set_reg(Register::Sp, sp_value as u64);
         self.program_counter = program.code.address;
         self.program_break = initial_program_break(program);
+        self.load_code_segment(program);
         self.load_data_segment(program);
         self.load_stack_segment(argv);
         self.running = true;
         while self.running {
-            let fetched = fetch(self, program);
+            let fetched = fetch(self);
             let decoded = decode(fetched);
             execute(self, decoded);
         }
@@ -108,10 +109,12 @@ impl EmulatorState {
     }
 
     fn get_mem(&self, adr: EmulatorValue) -> EmulatorValue {
+        assert!(adr & WORD_SIZE_MASK == 0, "address aligned");
         self.memory[adr as usize / riscu::WORD_SIZE]
     }
 
     fn get_mem_maybe(&self, adr: EmulatorValue) -> Option<EmulatorValue> {
+        assert!(adr & WORD_SIZE_MASK == 0, "address aligned");
         if adr as usize >= self.memory.size() {
             return None;
         }
@@ -119,6 +122,7 @@ impl EmulatorState {
     }
 
     fn set_mem(&mut self, adr: EmulatorValue, val: EmulatorValue) {
+        assert!(adr & WORD_SIZE_MASK == 0, "address aligned");
         self.memory[adr as usize / riscu::WORD_SIZE] = val;
     }
 
@@ -128,7 +132,17 @@ impl EmulatorState {
         self.set_mem(sp, val);
     }
 
+    fn load_code_segment(&mut self, program: &Program) {
+        assert!(program.code.content.len() % riscu::WORD_SIZE == 0);
+        for (i, buf) in program.code.content.chunks(riscu::WORD_SIZE).enumerate() {
+            let adr = program.code.address as usize + i * riscu::WORD_SIZE;
+            let val = LittleEndian::read_u64(buf);
+            self.set_mem(adr as u64, val);
+        }
+    }
+
     fn load_data_segment(&mut self, program: &Program) {
+        assert!(program.data.content.len() % riscu::WORD_SIZE == 0);
         for (i, buf) in program.data.content.chunks(riscu::WORD_SIZE).enumerate() {
             let adr = program.data.address as usize + i * riscu::WORD_SIZE;
             let val = LittleEndian::read_u64(buf);
@@ -189,10 +203,12 @@ impl EmulatorState {
     }
 }
 
-fn fetch(state: &mut EmulatorState, program: &Program) -> u32 {
+fn fetch(state: &mut EmulatorState) -> u32 {
     assert!(state.program_counter & INSTRUCTION_SIZE_MASK == 0);
-    let offset = state.program_counter - program.code.address;
-    LittleEndian::read_u32(&program.code.content[(offset as usize)..])
+    let address = state.program_counter & !WORD_SIZE_MASK;
+    let offset = state.program_counter & WORD_SIZE_MASK;
+    let bytes = state.get_mem(address).to_le_bytes();
+    LittleEndian::read_u32(&bytes[(offset as usize)..])
 }
 
 fn decode(instruction_half_word: u32) -> Instruction {
