@@ -2,7 +2,7 @@ use crate::engine::memory::VirtualMemory;
 use crate::engine::system::SyscallId;
 use byteorder::{ByteOrder, LittleEndian};
 use log::{debug, info, trace};
-use riscu::{types::*, DecodedProgram, Instruction, Register};
+use riscu::{types::*, Instruction, Program, Register};
 use std::cmp::min;
 use std::fs::File;
 use std::io::{self, Read, Stdin, Stdout, Write};
@@ -40,7 +40,7 @@ impl EmulatorState {
         }
     }
 
-    pub fn run(&mut self, program: &DecodedProgram, argv: &[String]) {
+    pub fn run(&mut self, program: &Program, argv: &[String]) {
         let sp_value = self.memory.size() * riscu::WORD_SIZE;
         self.set_reg(Register::Sp, sp_value as u64);
         self.program_counter = program.code.address;
@@ -49,8 +49,9 @@ impl EmulatorState {
         self.load_stack_segment(argv);
         self.running = true;
         while self.running {
-            let instr = fetch_and_decode(self, program);
-            execute(self, instr);
+            let fetched = fetch(self, program);
+            let decoded = decode(fetched);
+            execute(self, decoded);
         }
     }
 }
@@ -70,8 +71,8 @@ fn next_multiple_of(value: u64, align: u64) -> u64 {
     ((value + (align - 1)) / align) * align
 }
 
-fn initial_program_break(program: &DecodedProgram) -> EmulatorValue {
-    let data_size = program.data.content.len() * riscu::WORD_SIZE;
+fn initial_program_break(program: &Program) -> EmulatorValue {
+    let data_size = program.data.content.len();
     let data_end = program.data.address + data_size as u64;
     next_multiple_of(data_end, PAGE_SIZE as u64)
 }
@@ -127,10 +128,11 @@ impl EmulatorState {
         self.set_mem(sp, val);
     }
 
-    fn load_data_segment(&mut self, program: &DecodedProgram) {
-        for (i, val) in program.data.content.iter().enumerate() {
+    fn load_data_segment(&mut self, program: &Program) {
+        for (i, buf) in program.data.content.chunks(riscu::WORD_SIZE).enumerate() {
             let adr = program.data.address as usize + i * riscu::WORD_SIZE;
-            self.set_mem(adr as u64, *val);
+            let val = LittleEndian::read_u64(buf);
+            self.set_mem(adr as u64, val);
         }
     }
 
@@ -187,10 +189,14 @@ impl EmulatorState {
     }
 }
 
-fn fetch_and_decode(state: &mut EmulatorState, program: &DecodedProgram) -> Instruction {
+fn fetch(state: &mut EmulatorState, program: &Program) -> u32 {
     assert!(state.program_counter & INSTRUCTION_SIZE_MASK == 0);
     let offset = state.program_counter - program.code.address;
-    program.code.content[offset as usize / riscu::INSTRUCTION_SIZE]
+    LittleEndian::read_u32(&program.code.content[(offset as usize)..])
+}
+
+fn decode(instruction_half_word: u32) -> Instruction {
+    riscu::decode(instruction_half_word).expect("valid instruction")
 }
 
 fn execute(state: &mut EmulatorState, instr: Instruction) {
