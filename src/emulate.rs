@@ -2,7 +2,9 @@ use crate::engine::system::SyscallId;
 use byteorder::{ByteOrder, LittleEndian};
 use log::{debug, info, trace};
 use riscu::{types::*, DecodedProgram, Instruction, Register};
-use std::io::{self, Write};
+use std::cmp::min;
+use std::fs::File;
+use std::io::{self, Read, Stdin, Stdout, Write};
 use std::mem::size_of;
 
 //
@@ -17,7 +19,10 @@ pub struct EmulatorState {
     memory: Vec<EmulatorValue>,
     program_counter: EmulatorValue,
     program_break: EmulatorValue,
+    opened: Vec<File>,
     running: bool,
+    stdin: Stdin,
+    stdout: Stdout,
 }
 
 impl EmulatorState {
@@ -27,7 +32,10 @@ impl EmulatorState {
             memory: vec![0; memory_size / riscu::WORD_SIZE],
             program_counter: 0,
             program_break: 0,
+            opened: Vec::new(),
             running: false,
+            stdin: io::stdin(),
+            stdout: io::stdout(),
         }
     }
 
@@ -54,6 +62,8 @@ const PAGE_SIZE: u64 = 4 * 1024;
 const NUMBER_OF_REGISTERS: usize = 32;
 const INSTRUCTION_SIZE_MASK: u64 = riscu::INSTRUCTION_SIZE as u64 - 1;
 const WORD_SIZE_MASK: u64 = riscu::WORD_SIZE as u64 - 1;
+const MAX_FILENAME_LENGTH: usize = 128;
+const FIRST_REAL_FD: usize = 3;
 
 fn next_multiple_of(value: u64, align: u64) -> u64 {
     ((value + (align - 1)) / align) * align
@@ -146,6 +156,30 @@ impl EmulatorState {
             self.push_stack(argv_ptr);
         }
         self.push_stack(argc);
+    }
+
+    fn fd_new(&mut self, file: File) -> EmulatorValue {
+        let fd = self.opened.len() + FIRST_REAL_FD;
+        self.opened.push(file);
+        fd as EmulatorValue
+    }
+
+    fn fd_read(&mut self, fd: EmulatorValue) -> &mut dyn Read {
+        match fd {
+            0 => &mut self.stdin,
+            1 => panic!("reading from `stdout` is a bad idea"),
+            2 => panic!("reading from `stderr` is a bad idea"),
+            _ => &mut self.opened[fd as usize - FIRST_REAL_FD],
+        }
+    }
+
+    fn fd_write(&mut self, fd: EmulatorValue) -> &mut dyn Write {
+        match fd {
+            0 => panic!("writing to `stdin` is a bad idea"),
+            1 => &mut self.stdout,
+            2 => unimplemented!("writing to `stderr` missing"),
+            _ => &mut self.opened[fd as usize - FIRST_REAL_FD],
+        }
     }
 }
 
@@ -310,9 +344,31 @@ fn exec_ecall(state: &mut EmulatorState) {
     state.pc_next();
 }
 
-fn syscall_read(_state: &mut EmulatorState) {
-    // TODO: Implement `read` system call.
-    unimplemented!("missing `read` system call");
+fn syscall_read(state: &mut EmulatorState) {
+    let fd = state.get_reg(Register::A0);
+    let buffer = state.get_reg(Register::A1);
+    let size = state.get_reg(Register::A2);
+
+    // Check provided address is valid, iterate through the buffer word
+    // by word, and emulate `read` system call via `std::io::Read`.
+    assert!(buffer & WORD_SIZE_MASK == 0, "buffer pointer aligned");
+    let mut total_bytes = 0; // counts total bytes read
+    let mut tmp_buffer: Vec<u8> = vec![0; 8]; // scratch buffer
+    for adr in (buffer..buffer + size).step_by(riscu::WORD_SIZE) {
+        let bytes_to_read = min(size as usize - total_bytes, riscu::WORD_SIZE);
+        LittleEndian::write_u64(&mut tmp_buffer, state.get_mem(adr));
+        let bytes = &mut tmp_buffer[0..bytes_to_read]; // only for safety
+        let bytes_read = state.fd_read(fd).read(bytes).expect("read success");
+        state.set_mem(adr, LittleEndian::read_u64(&tmp_buffer));
+        total_bytes += bytes_read; // tally all bytes
+        if bytes_read != bytes_to_read {
+            break;
+        }
+    }
+    let result = total_bytes as u64;
+
+    state.set_reg(Register::A0, result);
+    debug!("read({},{:#x},{}) -> {}", fd, buffer, size, result);
 }
 
 fn syscall_write(state: &mut EmulatorState) {
@@ -320,26 +376,49 @@ fn syscall_write(state: &mut EmulatorState) {
     let buffer = state.get_reg(Register::A1);
     let size = state.get_reg(Register::A2);
 
-    let result = 1;
-    let data_start = buffer;
-    let data_end = buffer + size;
-    assert!(fd == 1, "only STDOUT file descriptor supported");
-    (data_start..data_end)
-        .step_by(size_of::<u64>())
-        .for_each(|adr| {
-            io::stdout()
-                .write_all(&state.get_mem(adr).to_le_bytes())
-                .unwrap();
-        });
-    io::stdout().flush().unwrap();
+    // Check provided address is valid, iterate through the buffer word
+    // by word, and emulate `write` system call via `std::io::Write`.
+    assert!(buffer & WORD_SIZE_MASK == 0, "buffer pointer aligned");
+    let mut total_bytes = 0; // counts total bytes written
+    for adr in (buffer..buffer + size).step_by(riscu::WORD_SIZE) {
+        let bytes_to_write = min(size as usize - total_bytes, riscu::WORD_SIZE);
+        let bytes = &state.get_mem(adr).to_le_bytes()[0..bytes_to_write];
+        let bytes_written = state.fd_write(fd).write(bytes).expect("write success");
+        total_bytes += bytes_written; // tally all bytes
+        if bytes_written != bytes_to_write {
+            break;
+        }
+    }
+    let result = total_bytes as u64;
 
     state.set_reg(Register::A0, result);
-    debug!("write({}, {:#x}, {}) -> {}", fd, buffer, size, result);
+    debug!("write({},{:#x},{}) -> {}", fd, buffer, size, result);
 }
 
-fn syscall_openat(_state: &mut EmulatorState) {
-    // TODO: Implement `openat` system call.
-    unimplemented!("missing `openat` system call");
+fn syscall_openat(state: &mut EmulatorState) {
+    let fd = state.get_reg(Register::A0);
+    let path = state.get_reg(Register::A1);
+    let flag = state.get_reg(Register::A2);
+    let mode = state.get_reg(Register::A3);
+
+    // Check provided address is valid, copy path name from memory into
+    // a string, and emulate `openat` system call via `File::open`.
+    assert!(path & WORD_SIZE_MASK == 0, "path pointer aligned");
+    let mut path_buffer: Vec<u8> = vec![0; MAX_FILENAME_LENGTH];
+    for i in (0..MAX_FILENAME_LENGTH).step_by(riscu::WORD_SIZE) {
+        let chunk = &mut path_buffer[i..i + 8];
+        LittleEndian::write_u64(chunk, state.get_mem(path + i as u64));
+        if let Some(j) = chunk.iter().position(|x| *x == 0) {
+            path_buffer.truncate(i + j);
+            break;
+        }
+    }
+    let path_string = String::from_utf8(path_buffer).expect("valid UTF-8 string");
+    let file = File::open(path_string).expect("open success");
+    let result = state.fd_new(file);
+
+    state.set_reg(Register::A0, result);
+    debug!("openat({},{:#x},{},{}) -> {}", fd, path, flag, mode, result);
 }
 
 fn syscall_brk(state: &mut EmulatorState) {
