@@ -9,6 +9,7 @@ use std::mem::size_of;
 use std::ops::Range;
 use std::rc::Rc;
 use unicorn::engine::system::SyscallId;
+use unicorn::util::next_multiple_of;
 
 //
 // Public Interface
@@ -32,6 +33,7 @@ pub fn generate_model(
 
 const INSTRUCTION_SIZE: u64 = riscu::INSTRUCTION_SIZE as u64;
 const NUMBER_OF_REGISTERS: usize = 32;
+const PAGE_SIZE: u64 = 4 * 1024;
 
 // TODO: Add implementation of all syscalls.
 // TODO: Add initialization of stack segment.
@@ -672,12 +674,11 @@ impl ModelBuilder {
     }
 
     fn generate_model(&mut self, program: &Program) -> Result<()> {
-        let program_break = program.data.address + program.data.content.len() as u64;
         let data_start = program.data.address;
-        let data_end = program_break;
+        let data_end = program.data.address + program.data.content.len() as u64;
         self.data_range = data_start..data_end;
-        let heap_start = program_break;
-        let heap_end = program_break + self.max_heap_size;
+        let heap_start = next_multiple_of(data_end, PAGE_SIZE);
+        let heap_end = heap_start + self.max_heap_size;
         self.heap_range = heap_start..heap_end;
         let stack_start = self.memory_size - self.max_stack_size;
         let stack_end = self.memory_size;

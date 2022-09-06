@@ -1,5 +1,6 @@
 use crate::engine::memory::VirtualMemory;
 use crate::engine::system::SyscallId;
+use crate::util::next_multiple_of;
 use byteorder::{ByteOrder, LittleEndian};
 use log::{debug, info, trace};
 use riscu::{types::*, Instruction, Program, Register};
@@ -80,10 +81,6 @@ const INSTRUCTION_SIZE_MASK: u64 = riscu::INSTRUCTION_SIZE as u64 - 1;
 const WORD_SIZE_MASK: u64 = riscu::WORD_SIZE as u64 - 1;
 const MAX_FILENAME_LENGTH: usize = 128;
 const FIRST_REAL_FD: usize = 3;
-
-fn next_multiple_of(value: u64, align: u64) -> u64 {
-    ((value + (align - 1)) / align) * align
-}
 
 fn initial_program_break(program: &Program) -> EmulatorValue {
     let data_size = program.data.content.len();
@@ -192,6 +189,13 @@ impl EmulatorState {
             self.push_stack(argv_ptr);
         }
         self.push_stack(argc);
+    }
+
+    // TODO: Move to public portion of file.
+    pub fn set_program_break(&mut self, val: EmulatorValue) {
+        assert!(val & WORD_SIZE_MASK == 0, "program break aligned");
+        assert!(val >= self.program_break, "monotonic");
+        self.program_break = val;
     }
 
     fn fd_new(&mut self, file: File) -> EmulatorValue {
@@ -470,7 +474,7 @@ fn syscall_brk(state: &mut EmulatorState) {
     // program break (highest heap) and `sp` register (lowest stack).
     assert!(address & WORD_SIZE_MASK == 0, "program break aligned");
     if (address >= state.program_break) && (address < state.get_reg(Register::Sp)) {
-        state.program_break = address;
+        state.set_program_break(address);
     }
     let result = state.program_break;
 

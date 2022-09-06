@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     convert::TryFrom,
     hash::Hash,
-    ops::{Add, Div},
+    ops::{Add, Div, Mul, Sub},
 };
 
 macro_rules! time_info {
@@ -103,4 +103,16 @@ where
         .into_iter()
         .max_by_key(|&(_, count)| count)
         .map(|(value, _)| value)
+}
+
+pub fn next_multiple_of<T>(value: T, align: T) -> T
+where
+    T: Add<T, Output = T>
+        + Sub<T, Output = T>
+        + Mul<T, Output = T>
+        + Div<T, Output = T>
+        + From<u32>
+        + Copy,
+{
+    ((value + (align - T::from(1))) / align) * align
 }

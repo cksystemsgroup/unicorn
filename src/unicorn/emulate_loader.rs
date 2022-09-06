@@ -29,7 +29,13 @@ pub fn load_model_into_emulator(emulator: &mut EmulatorState, model: &Model) {
                     }
                     continue;
                 }
-                if name.eq_ignore_ascii_case("virtual-memory") {
+                if name == "bump-pointer" {
+                    let val = to_emulator_value(init);
+                    trace!("setting BRK <- {:#x}", val);
+                    emulator.set_program_break(val);
+                    continue;
+                }
+                if name == "virtual-memory" {
                     perform_stores(emulator, init);
                     continue;
                 }
