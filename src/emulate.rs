@@ -40,7 +40,9 @@ impl EmulatorState {
         }
     }
 
-    pub fn run(&mut self, program: &Program, argv: &[String]) {
+    // Fully bootstraps the emulator to allow execution of the given
+    // `program` from its beginning with given arguments `argv`.
+    pub fn bootstrap(&mut self, program: &Program, argv: &[String]) {
         let sp_value = self.memory.size() * riscu::WORD_SIZE;
         self.set_reg(Register::Sp, sp_value as u64);
         self.program_counter = program.code.address;
@@ -48,6 +50,17 @@ impl EmulatorState {
         self.load_code_segment(program);
         self.load_data_segment(program);
         self.load_stack_segment(argv);
+    }
+
+    // Partially prepares the emulator with the code segment from the
+    // given `program`. This can be used in conjunction with other
+    // mechanisms that restore the rest of the machine state.
+    pub fn prepare(&mut self, program: &Program) {
+        self.load_code_segment(program);
+    }
+
+    // Start emulation.
+    pub fn run(&mut self) {
         self.running = true;
         while self.running {
             let fetched = fetch(self);
@@ -87,7 +100,8 @@ impl EmulatorState {
         self.pc_add(riscu::INSTRUCTION_SIZE as u64);
     }
 
-    fn pc_set(&mut self, val: EmulatorValue) {
+    // TODO: Move to public portion of file.
+    pub fn pc_set(&mut self, val: EmulatorValue) {
         assert!(val & INSTRUCTION_SIZE_MASK == 0, "program counter aligned");
         self.program_counter = val;
     }
@@ -96,7 +110,8 @@ impl EmulatorState {
         self.registers[reg as usize]
     }
 
-    fn set_reg(&mut self, reg: Register, val: EmulatorValue) {
+    // TODO: Move to public portion of file.
+    pub fn set_reg(&mut self, reg: Register, val: EmulatorValue) {
         assert!(reg != Register::Zero, "cannot set `zero` register");
         self.registers[reg as usize] = val;
     }
@@ -121,7 +136,8 @@ impl EmulatorState {
         Some(self.get_mem(adr))
     }
 
-    fn set_mem(&mut self, adr: EmulatorValue, val: EmulatorValue) {
+    // TODO: Move to public portion of file.
+    pub fn set_mem(&mut self, adr: EmulatorValue, val: EmulatorValue) {
         assert!(adr & WORD_SIZE_MASK == 0, "address aligned");
         self.memory[adr as usize / riscu::WORD_SIZE] = val;
     }

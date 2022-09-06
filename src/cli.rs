@@ -63,6 +63,12 @@ pub fn args() -> Command<'static> {
                         .value_parser(value_parser_memory_size()),
                 )
                 .arg(
+                    Arg::new("via-model")
+                        .help("Starts emulation from an internal model instead")
+                        .short('m')
+                        .long("model"),
+                )
+                .arg(
                     Arg::new("extras")
                         .help("Arguments passed to emulated program")
                         .value_name("ARGUMENTS")

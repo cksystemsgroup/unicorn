@@ -9,6 +9,7 @@ use crate::unicorn::bitblasting_printer::write_btor2_model;
 use crate::unicorn::btor2file_parser::parse_btor2_file;
 use crate::unicorn::builder::generate_model;
 use crate::unicorn::dimacs_parser::load_dimacs_as_gatemodel;
+use crate::unicorn::emulate_loader::load_model_into_emulator;
 use crate::unicorn::memory::replace_memory;
 use crate::unicorn::optimize::{optimize_model, optimize_model_with_input};
 use crate::unicorn::qubot::{InputEvaluator, Qubot};
@@ -51,11 +52,19 @@ fn main() -> Result<()> {
             let memory_size = ByteSize::mib(*args.get_one("memory").unwrap()).as_u64();
             let arg0 = expect_arg::<String>(args, "input-file")?;
             let extras = collect_arg_values(args, "extras");
+            let via_model = args.contains_id("via-model");
 
             let argv = [vec![arg0], extras].concat();
             let program = load_object_file(&input)?;
             let mut emulator = EmulatorState::new(memory_size as usize);
-            emulator.run(&program, &argv);
+            if via_model {
+                emulator.prepare(&program); // only loads code
+                let model = generate_model(&program, memory_size, 8, 16)?;
+                load_model_into_emulator(&mut emulator, &model);
+            } else {
+                emulator.bootstrap(&program, &argv);
+            }
+            emulator.run();
 
             Ok(())
         }
