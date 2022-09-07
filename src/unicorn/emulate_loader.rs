@@ -1,5 +1,5 @@
 use crate::unicorn::{Model, Node, NodeRef, NodeType};
-use log::{debug, trace};
+use log::{debug, trace, warn};
 use riscu::Register;
 use unicorn::emulate::{EmulatorState, EmulatorValue};
 use unicorn::engine::system::NUMBER_OF_REGISTERS;
@@ -40,9 +40,16 @@ pub fn load_model_into_emulator(emulator: &mut EmulatorState, model: &Model) {
                     perform_stores(emulator, init);
                     continue;
                 }
-                // TODO: Eventually cover all state variables and turn
-                // this into a panic so new variable trip us up.
-                debug!("unhandled state: {}", name);
+                if name.starts_with("kernel-mode") {
+                    let val = to_emulator_value(init);
+                    assert!(val == 0 || val == 1);
+                    if val == 1 {
+                        warn!("Model in kernel mode '{}', emulation will fail!", name);
+                        panic!("model in kernel mode");
+                    }
+                    continue;
+                }
+                panic!("unhandled state: {}", name);
             } else {
                 panic!("expecting 'State' node here");
             }

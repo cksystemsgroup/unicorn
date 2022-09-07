@@ -52,18 +52,11 @@ fn main() -> Result<()> {
             let memory_size = ByteSize::mib(*args.get_one("memory").unwrap()).as_u64();
             let arg0 = expect_arg::<String>(args, "input-file")?;
             let extras = collect_arg_values(args, "extras");
-            let via_model = args.contains_id("via-model");
 
             let argv = [vec![arg0], extras].concat();
             let program = load_object_file(&input)?;
             let mut emulator = EmulatorState::new(memory_size as usize);
-            if via_model {
-                emulator.prepare(&program); // only loads code
-                let model = generate_model(&program, memory_size, 8, 16)?;
-                load_model_into_emulator(&mut emulator, &model);
-            } else {
-                emulator.bootstrap(&program, &argv);
-            }
+            emulator.bootstrap(&program, &argv);
             emulator.run();
 
             Ok(())
@@ -81,22 +74,25 @@ fn main() -> Result<()> {
             let has_concrete_inputs = is_beator && args.contains_id("inputs");
             let inputs = expect_optional_arg::<String>(args, "inputs")?;
             let prune = !is_beator || args.contains_id("prune-model");
+            let input_is_btor2 = args.contains_id("from-btor2");
             let input_is_dimacs = !is_beator && args.contains_id("from-dimacs");
+            let emulate_model = is_beator && args.contains_id("emulate");
 
             let model = if !input_is_dimacs {
-                let mut model;
-
-                if !args.contains_id("from-btor2") {
+                let mut model = if !input_is_btor2 {
                     let program = load_object_file(&input)?;
-                    model = generate_model(&program, memory_size, max_heap, max_stack)?;
+                    generate_model(&program, memory_size, max_heap, max_stack)?
                 } else {
-                    model = parse_btor2_file(&input);
-                }
+                    parse_btor2_file(&input)
+                };
 
                 if let Some(unroll_depth) = unroll {
                     model.lines.clear();
-                    // TODO: Check if memory replacement is requested.
-                    replace_memory(&mut model);
+                    // TODO: Check if memory discretization is requested.
+                    // TODO: Make emulate-loader work with discretized memory.
+                    if !emulate_model {
+                        replace_memory(&mut model);
+                    }
                     let mut input_values: Vec<u64> = if has_concrete_inputs {
                         inputs
                             .as_ref()
@@ -119,7 +115,6 @@ fn main() -> Result<()> {
                     if prune {
                         prune_model(&mut model);
                     }
-
                     match solver {
                         SmtType::Generic => optimize_model::<none_impl::NoneSolver>(&mut model),
                         #[cfg(feature = "boolector")]
@@ -129,15 +124,25 @@ fn main() -> Result<()> {
                         #[cfg(feature = "z3")]
                         SmtType::Z3 => optimize_model::<z3solver_impl::Z3SolverWrapper>(&mut model),
                     }
-                }
-
-                if unroll.is_some() {
                     renumber_model(&mut model);
                 }
+
                 Some(model)
             } else {
                 None
             };
+
+            if emulate_model {
+                assert!(!input_is_btor2, "cannot emulate arbitrary BTOR2");
+                assert!(!input_is_dimacs, "cannot emulate arbitrary DIMACS");
+
+                let program = load_object_file(&input)?;
+                let mut emulator = EmulatorState::new(memory_size as usize);
+                emulator.prepare(&program); // only loads the code
+                load_model_into_emulator(&mut emulator, &model.unwrap());
+                emulator.run();
+                return Ok(());
+            }
 
             if is_beator {
                 let bitblast = args.contains_id("bitblast");
