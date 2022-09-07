@@ -372,6 +372,8 @@ fn exec_ecall(state: &mut EmulatorState) {
     let a7_value = state.get_reg(Register::A7);
     if a7_value == SyscallId::Exit as u64 {
         let exit_code = state.get_reg(Register::A0);
+        println!(); // print empty newline to clean up
+        io::stdout().flush().expect("stdout flush success");
         info!("program exiting with exit code {}", exit_code);
         state.running = false;
     } else if a7_value == SyscallId::Read as u64 {
