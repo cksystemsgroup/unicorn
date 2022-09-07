@@ -2,6 +2,7 @@ use crate::unicorn::{Model, Node, NodeRef, NodeType};
 use log::{debug, trace};
 use riscu::Register;
 use unicorn::emulate::{EmulatorState, EmulatorValue};
+use unicorn::engine::system::NUMBER_OF_REGISTERS;
 
 //
 // Public Interface
@@ -54,8 +55,6 @@ pub fn load_model_into_emulator(emulator: &mut EmulatorState, model: &Model) {
 //
 // Private Implementation
 //
-
-const NUMBER_OF_REGISTERS: usize = 32;
 
 fn name_to_register(name: &str) -> Option<Register> {
     for r in 1..NUMBER_OF_REGISTERS {

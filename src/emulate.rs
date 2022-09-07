@@ -1,5 +1,5 @@
 use crate::engine::memory::VirtualMemory;
-use crate::engine::system::SyscallId;
+use crate::engine::system::{SyscallId, NUMBER_OF_REGISTERS, PAGE_SIZE};
 use crate::util::next_multiple_of;
 use byteorder::{ByteOrder, LittleEndian};
 use log::{debug, info, trace};
@@ -75,8 +75,6 @@ impl EmulatorState {
 // Private Implementation
 //
 
-const PAGE_SIZE: usize = 4 * 1024;
-const NUMBER_OF_REGISTERS: usize = 32;
 const INSTRUCTION_SIZE_MASK: u64 = riscu::INSTRUCTION_SIZE as u64 - 1;
 const WORD_SIZE_MASK: u64 = riscu::WORD_SIZE as u64 - 1;
 const MAX_FILENAME_LENGTH: usize = 128;

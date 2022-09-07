@@ -1,5 +1,8 @@
 use riscu::Instruction;
 
+pub const PAGE_SIZE: usize = 4 * 1024;
+pub const NUMBER_OF_REGISTERS: usize = 32;
+
 pub enum SyscallId {
     Exit = 93,
     Read = 63,

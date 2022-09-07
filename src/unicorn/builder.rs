@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::mem::size_of;
 use std::ops::Range;
 use std::rc::Rc;
-use unicorn::engine::system::SyscallId;
+use unicorn::engine::system::{SyscallId, NUMBER_OF_REGISTERS};
 use unicorn::util::next_multiple_of;
 
 //
@@ -32,8 +32,7 @@ pub fn generate_model(
 //
 
 const INSTRUCTION_SIZE: u64 = riscu::INSTRUCTION_SIZE as u64;
-const NUMBER_OF_REGISTERS: usize = 32;
-const PAGE_SIZE: u64 = 4 * 1024;
+const PAGE_SIZE: u64 = unicorn::engine::system::PAGE_SIZE as u64;
 
 // TODO: Add implementation of all syscalls.
 // TODO: Add initialization of stack segment.
