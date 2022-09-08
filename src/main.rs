@@ -77,11 +77,14 @@ fn main() -> Result<()> {
             let input_is_btor2 = args.contains_id("from-btor2");
             let input_is_dimacs = !is_beator && args.contains_id("from-dimacs");
             let emulate_model = is_beator && args.contains_id("emulate");
+            let arg0 = expect_arg::<String>(args, "input-file")?;
+            let extras = collect_arg_values(args, "extras");
 
             let model = if !input_is_dimacs {
                 let mut model = if !input_is_btor2 {
                     let program = load_object_file(&input)?;
-                    generate_model(&program, memory_size, max_heap, max_stack)?
+                    let argv = [vec![arg0], extras].concat();
+                    generate_model(&program, memory_size, max_heap, max_stack, &argv)?
                 } else {
                     parse_btor2_file(&input)
                 };

@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::mem::size_of;
 use std::ops::Range;
 use std::rc::Rc;
-use unicorn::engine::system::{SyscallId, NUMBER_OF_REGISTERS};
+use unicorn::engine::system::{prepare_unix_stack, SyscallId, NUMBER_OF_REGISTERS};
 use unicorn::util::next_multiple_of;
 
 //
@@ -20,10 +20,11 @@ pub fn generate_model(
     memory_size: u64,
     max_heap: u32,
     max_stack: u32,
+    argv: &[String],
 ) -> Result<Model> {
     trace!("Program: {:?}", program);
     let mut builder = ModelBuilder::new(memory_size, max_heap, max_stack);
-    builder.generate_model(program)?;
+    builder.generate_model(program, argv)?;
     Ok(builder.finalize())
 }
 
@@ -672,7 +673,7 @@ impl ModelBuilder {
         self.new_ite(activate, self.one_bit.clone(), flow, NodeType::Bit)
     }
 
-    fn generate_model(&mut self, program: &Program) -> Result<()> {
+    fn generate_model(&mut self, program: &Program, argv: &[String]) -> Result<()> {
         let data_start = program.data.address;
         let data_end = program.data.address + program.data.content.len() as u64;
         self.data_range = data_start..data_end;
@@ -682,6 +683,12 @@ impl ModelBuilder {
         let stack_start = self.memory_size - self.max_stack_size;
         let stack_end = self.memory_size;
         self.stack_range = stack_start..stack_end;
+
+        debug!("argc: {}, argv: {:?}", argv.len(), argv);
+        let initial_stack = prepare_unix_stack(argv, stack_end);
+        let initial_stack_size = initial_stack.len() * size_of::<u64>();
+        let initial_sp_value = stack_end - initial_stack_size as u64;
+        assert!(initial_sp_value >= stack_start, "initial stack fits");
 
         self.new_comment("common constants".to_string());
         self.zero_bit = self.add_node(Node::Const {
@@ -724,7 +731,7 @@ impl ModelBuilder {
         self.new_comment("32 64-bit general-purpose registers".to_string());
         self.current_nid = 200;
         let zero_register = self.new_const(0);
-        let sp_value = self.new_const(self.memory_size - 8);
+        let sp_value = self.new_const(initial_sp_value);
         self.register_nodes.push(zero_register);
         for r in 1..NUMBER_OF_REGISTERS {
             let reg = Register::from(r as u32);
@@ -762,21 +769,27 @@ impl ModelBuilder {
         self.new_comment("64-bit virtual memory".to_string());
         self.current_nid = 20000000;
         self.memory_node = self.new_state(None, "memory-dump".to_string(), NodeType::Memory);
+        fn write_value_to_memory(this: &mut ModelBuilder, val: u64, adr: u64) {
+            let address = this.new_const(adr);
+            let value = if val == 0 {
+                this.zero_word.clone()
+            } else {
+                this.new_const(val)
+            };
+            this.memory_node = this.new_write(address, value);
+        }
         program
             .data
             .content
             .chunks(size_of::<u64>())
             .map(LittleEndian::read_u64)
             .zip((data_start..data_end).step_by(size_of::<u64>()))
-            .for_each(|(val, adr)| {
-                let address = self.new_const(adr as u64);
-                let value = if val == 0 {
-                    self.zero_word.clone()
-                } else {
-                    self.new_const(val)
-                };
-                self.memory_node = self.new_write(address, value);
-            });
+            .for_each(|(val, adr)| write_value_to_memory(self, val, adr));
+        initial_stack
+            .into_iter()
+            .rev()
+            .zip((initial_sp_value..stack_end).step_by(size_of::<u64>()))
+            .for_each(|(val, adr)| write_value_to_memory(self, val, adr));
         self.memory_node = self.new_state(
             Some(self.memory_node.clone()),
             "virtual-memory".to_string(),

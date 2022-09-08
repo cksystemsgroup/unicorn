@@ -26,6 +26,8 @@ pub enum SmtType {
 }
 
 const DEFAULT_MEMORY_SIZE: &str = "1"; // 1 MiB
+const DEFAULT_MAX_HEAP: &str = "8"; // 8 words
+const DEFAULT_MAX_STACK: &str = "32"; // 32 words
 
 pub fn args() -> Command<'static> {
     Command::new("Unicorn")
@@ -86,16 +88,23 @@ pub fn args() -> Command<'static> {
             Command::new("beator")
                 .about("Create a BTOR2 model for a RISC-U ELF binary")
                 .arg(
+                    Arg::new("input-file")
+                        .help("RISC-U ELF binary to be converted")
+                        .takes_value(true)
+                        .value_name("FILE")
+                        .required(true),
+                )
+                .arg(
                     Arg::new("bitblast")
-                    .help("Perform bitblasting of the model")
-                    .short('b')
-                    .long("bitblast")
+                        .help("Perform bitblasting of the model")
+                        .short('b')
+                        .long("bitblast")
                 )
                 .arg(
                     Arg::new("dimacs")
-                    .help("Output DIMACS CNF instead of BTOR2")
-                    .short('d')
-                    .long("dimacs")
+                        .help("Output DIMACS CNF instead of BTOR2")
+                        .short('d')
+                        .long("dimacs")
                 )
                 .arg(
                     Arg::new("emulate")
@@ -104,19 +113,12 @@ pub fn args() -> Command<'static> {
                         .long("emulate"),
                 )
                 .arg(
-                    Arg::new("input-file")
-                        .help("RISC-U ELF binary to be converted")
-                        .takes_value(true)
-                        .value_name("FILE")
-                        .required(true),
-                )
-                .arg(
                     Arg::new("max-heap")
                         .help("Number of machine-words usable as heap")
                         .long("max-heap")
                         .takes_value(true)
                         .value_name("NUMBER")
-                        .default_value("8")
+                        .default_value(DEFAULT_MAX_HEAP)
                         .value_parser(value_parser!(u32)),
                 )
                 .arg(
@@ -125,7 +127,7 @@ pub fn args() -> Command<'static> {
                         .long("max-stack")
                         .takes_value(true)
                         .value_name("NUMBER")
-                        .default_value("16")
+                        .default_value(DEFAULT_MAX_STACK)
                         .value_parser(value_parser!(u32)),
                 )
                 .arg(
@@ -139,23 +141,23 @@ pub fn args() -> Command<'static> {
                 )
                 .arg(
                     Arg::new("inputs")
-                    .help("Concrete inputs to specialize the model")
-                    .short('i')
-                    .long("inputs")
-                    .takes_value(true)
+                        .help("Concrete inputs to specialize the model")
+                        .short('i')
+                        .long("inputs")
+                        .takes_value(true)
                 )
                 .arg(
                     Arg::new("output-file")
-                    .help("Output path for the generated BTOR2 file")
-                    .short('o')
-                    .long("out")
-                    .takes_value(true)
+                        .help("Output path for the generated BTOR2 file")
+                        .short('o')
+                        .long("out")
+                        .takes_value(true)
                 )
                 .arg(
                     Arg::new("prune-model")
-                    .help("Prunes sequential part from model")
-                    .short('p')
-                    .long("prune")
+                        .help("Prunes sequential part from model")
+                        .short('p')
+                        .long("prune")
                 )
                 .arg(
                     Arg::new("solver")
@@ -169,18 +171,26 @@ pub fn args() -> Command<'static> {
                 )
                 .arg(
                     Arg::new("unroll-model")
-                    .help("Number of instructions to unroll from model")
-                    .short('u')
-                    .long("unroll")
-                    .takes_value(true)
-                    .value_name("NUMBER")
-                    .value_parser(value_parser!(usize)),
+                        .help("Number of instructions to unroll from model")
+                        .short('u')
+                        .long("unroll")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .value_parser(value_parser!(usize)),
                 )
                 .arg(
                     Arg::new("from-btor2")
-                    .help("Pass this flag if the input file is a BTOR2 file.")
-                    .short('f')
-                    .long("from-btor2")
+                        .help("Pass this flag if the input file is a BTOR2 file.")
+                        .short('f')
+                        .long("from-btor2")
+                )
+                .arg(
+                    Arg::new("extras")
+                        .help("Arguments passed to emulated program")
+                        .value_name("ARGUMENTS")
+                        .last(true)
+                        .allow_hyphen_values(true)
+                        .multiple(true)
                 )
         )
         .subcommand(
@@ -195,16 +205,16 @@ pub fn args() -> Command<'static> {
                 )
                 .arg(
                     Arg::new("from-btor2")
-                    .help("Pass this flag if the input file is a BTOR2 file.")
-                    .short('f')
-                    .long("from-btor2")
+                        .help("Pass this flag if the input file is a BTOR2 file.")
+                        .short('f')
+                        .long("from-btor2")
                 )
                 .arg(
                     Arg::new("output-file")
-                    .help("Output path for the generated QUBO model")
-                    .short('o')
-                    .long("out")
-                    .takes_value(true)
+                        .help("Output path for the generated QUBO model")
+                        .short('o')
+                        .long("out")
+                        .takes_value(true)
                 )
                 .arg(
                     Arg::new("max-heap")
@@ -212,7 +222,7 @@ pub fn args() -> Command<'static> {
                         .long("max-heap")
                         .takes_value(true)
                         .value_name("NUMBER")
-                        .default_value("8")
+                        .default_value(DEFAULT_MAX_HEAP)
                         .value_parser(value_parser!(u32)),
                 )
                 .arg(
@@ -221,7 +231,7 @@ pub fn args() -> Command<'static> {
                         .long("max-stack")
                         .takes_value(true)
                         .value_name("NUMBER")
-                        .default_value("16")
+                        .default_value(DEFAULT_MAX_STACK)
                         .value_parser(value_parser!(u32)),
                 )
                 .arg(
@@ -235,10 +245,10 @@ pub fn args() -> Command<'static> {
                 )
                 .arg(
                     Arg::new("inputs")
-                    .help("Provide inputs to evaluate the model, separate by commas the values for a single instance, and with semicolon for various instances.")
-                    .short('i')
-                    .long("inputs")
-                    .takes_value(true)
+                        .help("Provide inputs to evaluate the model, separate by commas the values for a single instance, and with semicolon for various instances.")
+                        .short('i')
+                        .long("inputs")
+                        .takes_value(true)
                 )
                 .arg(
                     Arg::new("solver")
@@ -252,26 +262,33 @@ pub fn args() -> Command<'static> {
                 )
                 .arg(
                     Arg::new("unroll-model")
-                    .help("Number of instructions to unroll from model")
-                    .short('u')
-                    .long("unroll")
-                    .takes_value(true)
-                    .value_name("NUMBER")
-                    .value_parser(value_parser!(usize)),
+                        .help("Number of instructions to unroll from model")
+                        .short('u')
+                        .long("unroll")
+                        .takes_value(true)
+                        .value_name("NUMBER")
+                        .value_parser(value_parser!(usize)),
                 )
                 .arg(
                     Arg::new("ising")
-                    .help("Makes qubot output an ising model")
-                    .short('I')
-                    .long("ising")
+                        .help("Makes qubot output an ising model")
+                        .short('I')
+                        .long("ising")
                 )
                 .arg(
                     Arg::new("from-dimacs")
-                    .help("Consume DIMACS instead of RISC-U inputs")
-                    .long("from-dimacs")
+                        .help("Consume DIMACS instead of RISC-U inputs")
+                        .long("from-dimacs")
+                )
+                .arg(
+                    Arg::new("extras")
+                        .help("Arguments passed to emulated program")
+                        .value_name("ARGUMENTS")
+                        .last(true)
+                        .allow_hyphen_values(true)
+                        .multiple(true)
                 )
         )
-
         .subcommand(
             Command::new("dwave")
                 .about("Execute QUBO model on the quantum annealer")

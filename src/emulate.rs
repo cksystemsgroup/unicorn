@@ -1,5 +1,5 @@
 use crate::engine::memory::VirtualMemory;
-use crate::engine::system::{SyscallId, NUMBER_OF_REGISTERS, PAGE_SIZE};
+use crate::engine::system::{prepare_unix_stack, SyscallId, NUMBER_OF_REGISTERS, PAGE_SIZE};
 use crate::util::next_multiple_of;
 use byteorder::{ByteOrder, LittleEndian};
 use log::{debug, info, trace};
@@ -7,7 +7,6 @@ use riscu::{types::*, Instruction, Program, Register};
 use std::cmp::min;
 use std::fs::File;
 use std::io::{self, Read, Stdin, Stdout, Write};
-use std::mem::size_of;
 
 //
 // Public Interface
@@ -137,12 +136,6 @@ impl EmulatorState {
         self.memory[adr as usize / riscu::WORD_SIZE] = val;
     }
 
-    fn push_stack(&mut self, val: EmulatorValue) {
-        let sp = self.get_reg(Register::Sp) - riscu::WORD_SIZE as u64;
-        self.set_reg(Register::Sp, sp);
-        self.set_mem(sp, val);
-    }
-
     fn load_code_segment(&mut self, program: &Program) {
         assert!(program.code.content.len() % riscu::WORD_SIZE == 0);
         for (i, buf) in program.code.content.chunks(riscu::WORD_SIZE).enumerate() {
@@ -161,32 +154,13 @@ impl EmulatorState {
         }
     }
 
-    // Prepares arguments on the stack like a UNIX system. Note that we
-    // pass an empty environment and that all strings will be properly
-    // zero-terminated and word-aligned:
-    //
-    // | argc | argv[0] | ... | argv[n] | 0 | env[0] | ... | env[m] | 0 |
-    //
     fn load_stack_segment(&mut self, argv: &[String]) {
-        let argc = argv.len() as EmulatorValue;
-        debug!("argc: {}, argv: {:?}", argc, argv);
-        let argv_ptrs: Vec<EmulatorValue> = argv
-            .iter()
-            .rev()
-            .map(|arg| {
-                let c_string = arg.to_owned() + "\0\0\0\0\0\0\0\0";
-                for chunk in c_string.as_bytes().chunks_exact(size_of::<u64>()).rev() {
-                    self.push_stack(LittleEndian::read_u64(chunk));
-                }
-                self.get_reg(Register::Sp)
-            })
-            .collect();
-        self.push_stack(0); // terminate env table
-        self.push_stack(0); // terminate argv table
-        for argv_ptr in argv_ptrs {
-            self.push_stack(argv_ptr);
+        debug!("argc: {}, argv: {:?}", argv.len(), argv);
+        for val in prepare_unix_stack(argv, self.get_reg(Register::Sp)) {
+            let sp = self.get_reg(Register::Sp) - riscu::WORD_SIZE as u64;
+            self.set_reg(Register::Sp, sp);
+            self.set_mem(sp, val);
         }
-        self.push_stack(argc);
     }
 
     // TODO: Move to public portion of file.
