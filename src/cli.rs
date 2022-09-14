@@ -113,6 +113,12 @@ pub fn args() -> Command<'static> {
                         .long("emulate"),
                 )
                 .arg(
+                    Arg::new("compile")
+                        .help("Compile program from created model")
+                        .short('c')
+                        .long("compile"),
+                )
+                .arg(
                     Arg::new("max-heap")
                         .help("Number of machine-words usable as heap")
                         .long("max-heap")

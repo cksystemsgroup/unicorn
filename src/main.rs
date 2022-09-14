@@ -8,6 +8,7 @@ use crate::unicorn::bitblasting_dimacs::write_dimacs_model;
 use crate::unicorn::bitblasting_printer::write_btor2_model;
 use crate::unicorn::btor2file_parser::parse_btor2_file;
 use crate::unicorn::builder::generate_model;
+use crate::unicorn::codegen::compile_model_into_program;
 use crate::unicorn::dimacs_parser::load_dimacs_as_gatemodel;
 use crate::unicorn::emulate_loader::load_model_into_emulator;
 use crate::unicorn::memory::replace_memory;
@@ -76,6 +77,7 @@ fn main() -> Result<()> {
             let prune = !is_beator || args.contains_id("prune-model");
             let input_is_btor2 = args.contains_id("from-btor2");
             let input_is_dimacs = !is_beator && args.contains_id("from-dimacs");
+            let compile_model = is_beator && args.contains_id("compile");
             let emulate_model = is_beator && args.contains_id("emulate");
             let arg0 = expect_arg::<String>(args, "input-file")?;
             let extras = collect_arg_values(args, "extras");
@@ -93,7 +95,7 @@ fn main() -> Result<()> {
                     model.lines.clear();
                     // TODO: Check if memory discretization is requested.
                     // TODO: Make emulate-loader work with discretized memory.
-                    if !emulate_model {
+                    if !emulate_model && !compile_model {
                         replace_memory(&mut model);
                     }
                     let mut input_values: Vec<u64> = if has_concrete_inputs {
@@ -134,6 +136,24 @@ fn main() -> Result<()> {
             } else {
                 None
             };
+
+            if compile_model {
+                assert!(!input_is_btor2, "cannot compile arbitrary BTOR2");
+                assert!(!input_is_dimacs, "cannot compile arbitrary DIMACS");
+
+                // TODO: Just a workaround to get `argv` again.
+                let arg0 = expect_arg::<String>(args, "input-file")?;
+                let extras = collect_arg_values(args, "extras");
+                let argv = [vec![arg0], extras].concat();
+
+                let program = load_object_file(&input)?;
+                let mut emulator = EmulatorState::new(memory_size as usize);
+                // TODO: Eventually patch original program first, then bootstrap.
+                emulator.bootstrap(&program, &argv); // bootstrap original program
+                compile_model_into_program(&mut emulator, &model.unwrap(), &program);
+                emulator.run();
+                return Ok(());
+            }
 
             if emulate_model {
                 assert!(!input_is_btor2, "cannot emulate arbitrary BTOR2");

@@ -63,7 +63,8 @@ pub fn load_model_into_emulator(emulator: &mut EmulatorState, model: &Model) {
 // Private Implementation
 //
 
-fn name_to_register(name: &str) -> Option<Register> {
+// TODO: Move to public portion of file.
+pub fn name_to_register(name: &str) -> Option<Register> {
     for r in 1..NUMBER_OF_REGISTERS {
         let reg = Register::from(r as u32);
         if name == format!("{:?}", reg) {
@@ -73,7 +74,8 @@ fn name_to_register(name: &str) -> Option<Register> {
     None
 }
 
-fn name_to_pc_value(name: &str) -> Option<EmulatorValue> {
+// TODO: Move to public portion of file.
+pub fn name_to_pc_value(name: &str) -> Option<EmulatorValue> {
     let value = name.strip_prefix("pc=0x")?;
     u64::from_str_radix(value, 16).ok()
 }

@@ -14,6 +14,7 @@ pub mod bitblasting_dimacs;
 pub mod bitblasting_printer;
 pub mod btor2file_parser;
 pub mod builder;
+pub mod codegen;
 pub mod dimacs_parser;
 pub mod emulate_loader;
 pub mod memory;

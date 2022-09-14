@@ -100,7 +100,8 @@ impl EmulatorState {
         self.program_counter = val;
     }
 
-    fn get_reg(&self, reg: Register) -> EmulatorValue {
+    // TODO: Move to public portion of file.
+    pub fn get_reg(&self, reg: Register) -> EmulatorValue {
         self.registers[reg as usize]
     }
 
@@ -117,7 +118,8 @@ impl EmulatorState {
         self.set_reg(reg, val);
     }
 
-    fn get_mem(&self, adr: EmulatorValue) -> EmulatorValue {
+    // TODO: Move to public portion of file.
+    pub fn get_mem(&self, adr: EmulatorValue) -> EmulatorValue {
         assert!(adr & WORD_SIZE_MASK == 0, "address aligned");
         self.memory[adr as usize / riscu::WORD_SIZE]
     }
@@ -161,6 +163,16 @@ impl EmulatorState {
             self.set_reg(Register::Sp, sp);
             self.set_mem(sp, val);
         }
+    }
+
+    // TODO: Move to public portion of file.
+    pub fn get_program_counter(&self) -> EmulatorValue {
+        self.program_counter
+    }
+
+    // TODO: Move to public portion of file.
+    pub fn get_program_break(&self) -> EmulatorValue {
+        self.program_break
     }
 
     // TODO: Move to public portion of file.
