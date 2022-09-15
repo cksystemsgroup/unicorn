@@ -636,11 +636,11 @@ dependencies = [
 [[package]]
 name = "riscu"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a71514874b68cab4623dd0c8ca69eb6a82e3bbe18ba307bae3883b2f1fdca324"
+source = "git+https://github.com/cksystemsgroup/riscu#eaefa37d98e38505a7beaeaf9d1928d3da3deb98"
 dependencies = [
  "byteorder",
  "goblin",
+ "log",
  "thiserror",
 ]
 

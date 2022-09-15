@@ -41,6 +41,11 @@ z3-solver = { package = "z3", version = "~0.11", features = ["static-link-z3"], 
 z3-sys = { version = "~0", features = ["static-link-z3"], optional = true }
 pyo3 = { version = "~0.17", features = ["auto-initialize"] }
 
+[patch.crates-io]
+# TODO: Allows us to work on `riscu` and `unicorn` in parallel. Remove
+# once `riscu` stabilizes and we made another crates.io release of it.
+riscu = { git = 'https://github.com/cksystemsgroup/riscu' }
+
 [dev-dependencies]
 rayon = "~1.5"
 tempfile = "~3.3"

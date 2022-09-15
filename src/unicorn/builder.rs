@@ -575,6 +575,8 @@ impl ModelBuilder {
             Instruction::Jal(jtype) => self.model_jal(jtype, &mut jal_link),
             Instruction::Jalr(_itype) => {} // TODO: Implement me!
             Instruction::Ecall(_) => self.model_ecall(),
+            // TODO: Cover all needed instructions here.
+            _ => unimplemented!("not implemented: {:?}", inst),
         }
 
         match inst {
@@ -620,6 +622,8 @@ impl ModelBuilder {
                 }
                 self.go_to_instruction(inst, self.pc, self.pc_add(INSTRUCTION_SIZE), None);
             }
+            // TODO: Cover all needed instructions here.
+            _ => unimplemented!("not implemented: {:?}", inst),
         }
     }
 

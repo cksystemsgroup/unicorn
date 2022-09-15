@@ -308,5 +308,7 @@ fn encode_instruction(instr: &Instruction) -> u32 {
         Instruction::Divu(RType(encoded)) => *encoded,
         Instruction::Remu(RType(encoded)) => *encoded,
         Instruction::Ecall(IType(encoded)) => *encoded,
+        // TODO: Cover all needed instructions here.
+        _ => unimplemented!("not implemented: {:?}", instr),
     }
 }

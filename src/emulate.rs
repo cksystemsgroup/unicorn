@@ -235,6 +235,8 @@ fn execute(state: &mut EmulatorState, instr: Instruction) {
         Instruction::Divu(rtype) => exec_divu(state, rtype),
         Instruction::Remu(rtype) => exec_remu(state, rtype),
         Instruction::Ecall(_itype) => exec_ecall(state),
+        // TODO: Cover all needed instructions here.
+        _ => unimplemented!("not implemented: {:?}", instr),
     }
 }
 

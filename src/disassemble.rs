@@ -93,6 +93,8 @@ fn print_instruction(f: &mut fmt::Formatter<'_>, pc: u64, i: Instruction) -> fmt
         Instruction::Jalr(t) => print_itype(f, pc, "jalr", t),
         Instruction::Beq(t) => print_btype(f, pc, "beq", t),
         Instruction::Lui(t) => print_utype(f, pc, "lui", t),
+        // TODO: Improve disassembly by exhausting all instructions.
+        _ => writeln!(f, "{:#x}: unknown ({:?})", pc, i),
     }
 }
 
