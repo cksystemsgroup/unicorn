@@ -240,28 +240,44 @@ fn execute(state: &mut EmulatorState, instr: Instruction) {
         Instruction::Bne(btype) => exec_bne(state, btype),
         Instruction::Blt(btype) => exec_blt(state, btype),
         Instruction::Bge(btype) => exec_bge(state, btype),
+        Instruction::Bltu(btype) => exec_bltu(state, btype),
+        Instruction::Bgeu(btype) => exec_bgeu(state, btype),
+        Instruction::Lb(itype) => exec_lb(state, itype),
+        Instruction::Lh(itype) => exec_lh(state, itype),
         Instruction::Lw(itype) => exec_lw(state, itype),
         Instruction::Ld(itype) => exec_ld(state, itype),
         Instruction::Lbu(itype) => exec_lbu(state, itype),
+        Instruction::Lhu(itype) => exec_lhu(state, itype),
         Instruction::Sb(stype) => exec_sb(state, stype),
+        Instruction::Sh(stype) => exec_sh(state, stype),
         Instruction::Sw(stype) => exec_sw(state, stype),
         Instruction::Sd(stype) => exec_sd(state, stype),
         Instruction::Addi(itype) => exec_addi(state, itype),
+        Instruction::Sltiu(itype) => exec_sltiu(state, itype),
+        Instruction::Xori(itype) => exec_xori(state, itype),
+        Instruction::Ori(itype) => exec_ori(state, itype),
+        Instruction::Andi(itype) => exec_andi(state, itype),
         Instruction::Slli(itype) => exec_slli(state, itype),
         Instruction::SrliSrai(itype) => match (itype.imm() >> 6) & 0b111111 {
-            0b000000 => unimplemented!("missing SRLI"),
+            0b000000 => exec_srli(state, itype),
             0b010000 => exec_srai(state, itype),
             _ => panic!("illegal SRLI/SRAI"),
         },
         Instruction::Addiw(itype) => exec_addiw(state, itype),
+        Instruction::Slliw(itype) => exec_slliw(state, itype),
+        Instruction::Sraiw(itype) => exec_sraiw(state, itype),
         Instruction::Add(rtype) => exec_add(state, rtype),
         Instruction::Sub(rtype) => exec_sub(state, rtype),
+        Instruction::Sll(rtype) => exec_sll(state, rtype),
         Instruction::Sltu(rtype) => exec_sltu(state, rtype),
+        Instruction::Or(rtype) => exec_or(state, rtype),
         Instruction::And(rtype) => exec_and(state, rtype),
         Instruction::Mul(rtype) => exec_mul(state, rtype),
         Instruction::Div(rtype) => exec_div(state, rtype),
         Instruction::Divu(rtype) => exec_divu(state, rtype),
         Instruction::Remu(rtype) => exec_remu(state, rtype),
+        Instruction::Addw(rtype) => exec_addw(state, rtype),
+        Instruction::Subw(rtype) => exec_subw(state, rtype),
         Instruction::Sllw(rtype) => exec_sllw(state, rtype),
         Instruction::Ecall(_itype) => exec_ecall(state),
         // TODO: Cover all needed instructions here.
@@ -383,6 +399,45 @@ fn exec_bge(state: &mut EmulatorState, btype: BType) {
     }
 }
 
+// pc = pc + s64(imm)         ||| if (rs1 <u rs2)
+// pc = pc + 4                ||| otherwise
+fn exec_bltu(state: &mut EmulatorState, btype: BType) {
+    let rs1_value = state.get_reg(btype.rs1());
+    let rs2_value = state.get_reg(btype.rs2());
+    let condition = rs1_value < rs2_value;
+    trace_btype(state, "bltu", btype, condition);
+    if condition {
+        state.pc_add(btype.imm() as u64);
+    } else {
+        state.pc_next();
+    }
+}
+
+// pc = pc + s64(imm)         ||| if (rs1 >=u rs2)
+// pc = pc + 4                ||| otherwise
+fn exec_bgeu(state: &mut EmulatorState, btype: BType) {
+    let rs1_value = state.get_reg(btype.rs1());
+    let rs2_value = state.get_reg(btype.rs2());
+    let condition = rs1_value >= rs2_value;
+    trace_btype(state, "bgeu", btype, condition);
+    if condition {
+        state.pc_add(btype.imm() as u64);
+    } else {
+        state.pc_next();
+    }
+}
+
+// rd = s64(mem8[rs1 + s64(imm{12})])
+// pc = pc + 4
+fn exec_lb(state: &mut EmulatorState, itype: IType) {
+    let rs1_value = state.get_reg(itype.rs1());
+    let address = rs1_value.wrapping_add(itype.imm() as u64);
+    let rd_value = state.get_mem_typed::<i8>(address) as u64;
+    trace_itype(state, "lb", itype, rd_value);
+    state.set_reg(itype.rd(), rd_value);
+    state.pc_next();
+}
+
 // rd = z64(mem8[rs1 + s64(imm{12})])
 // pc = pc + 4
 fn exec_lbu(state: &mut EmulatorState, itype: IType) {
@@ -390,6 +445,28 @@ fn exec_lbu(state: &mut EmulatorState, itype: IType) {
     let address = rs1_value.wrapping_add(itype.imm() as u64);
     let rd_value = state.get_mem_typed::<u8>(address) as u64;
     trace_itype(state, "lbu", itype, rd_value);
+    state.set_reg(itype.rd(), rd_value);
+    state.pc_next();
+}
+
+// rd = s64(mem16[rs1 + s64(imm{12})])
+// pc = pc + 4
+fn exec_lh(state: &mut EmulatorState, itype: IType) {
+    let rs1_value = state.get_reg(itype.rs1());
+    let address = rs1_value.wrapping_add(itype.imm() as u64);
+    let rd_value = state.get_mem_typed::<i16>(address) as u64;
+    trace_itype(state, "lh", itype, rd_value);
+    state.set_reg(itype.rd(), rd_value);
+    state.pc_next();
+}
+
+// rd = z64(mem16[rs1 + s64(imm{12})])
+// pc = pc + 4
+fn exec_lhu(state: &mut EmulatorState, itype: IType) {
+    let rs1_value = state.get_reg(itype.rs1());
+    let address = rs1_value.wrapping_add(itype.imm() as u64);
+    let rd_value = state.get_mem_typed::<u16>(address) as u64;
+    trace_itype(state, "lhu", itype, rd_value);
     state.set_reg(itype.rd(), rd_value);
     state.pc_next();
 }
@@ -424,6 +501,17 @@ fn exec_sb(state: &mut EmulatorState, stype: SType) {
     let address = rs1_value.wrapping_add(stype.imm() as u64);
     trace_stype(state, "sb", stype, address);
     state.set_mem_typed::<u8>(address, rs2_value as u8);
+    state.pc_next();
+}
+
+// mem16[rs1 + s64(imm{12})] = rs2{16}
+// pc = pc + 4
+fn exec_sh(state: &mut EmulatorState, stype: SType) {
+    let rs1_value = state.get_reg(stype.rs1());
+    let rs2_value = state.get_reg(stype.rs2());
+    let address = rs1_value.wrapping_add(stype.imm() as u64);
+    trace_stype(state, "sh", stype, address);
+    state.set_mem_typed::<u16>(address, rs2_value as u16);
     state.pc_next();
 }
 
@@ -469,6 +557,48 @@ fn exec_addiw(state: &mut EmulatorState, itype: IType) {
     state.pc_next();
 }
 
+// rd = 1                     ||| if (rs1 <u s64(imm{12}))
+// rd = 0                     ||| otherwise
+// pc = pc + 4
+fn exec_sltiu(state: &mut EmulatorState, itype: IType) {
+    let rs1_value = state.get_reg(itype.rs1());
+    let condition = rs1_value < (itype.imm() as u64);
+    let rd_value = if condition { 1 } else { 0 };
+    trace_itype(state, "sltiu", itype, rd_value);
+    state.set_reg(itype.rd(), rd_value);
+    state.pc_next();
+}
+
+// rd = rs1 ^ s64(imm{12})
+// pc = pc + 4
+fn exec_xori(state: &mut EmulatorState, itype: IType) {
+    let rs1_value = state.get_reg(itype.rs1());
+    let rd_value = rs1_value ^ (itype.imm() as u64);
+    trace_itype(state, "xori", itype, rd_value);
+    state.set_reg(itype.rd(), rd_value);
+    state.pc_next();
+}
+
+// rd = rs1 | s64(imm{12})
+// pc = pc + 4
+fn exec_ori(state: &mut EmulatorState, itype: IType) {
+    let rs1_value = state.get_reg(itype.rs1());
+    let rd_value = rs1_value | (itype.imm() as u64);
+    trace_itype(state, "ori", itype, rd_value);
+    state.set_reg(itype.rd(), rd_value);
+    state.pc_next();
+}
+
+// rd = rs1 & s64(imm{12})
+// pc = pc + 4
+fn exec_andi(state: &mut EmulatorState, itype: IType) {
+    let rs1_value = state.get_reg(itype.rs1());
+    let rd_value = rs1_value & (itype.imm() as u64);
+    trace_itype(state, "andi", itype, rd_value);
+    state.set_reg(itype.rd(), rd_value);
+    state.pc_next();
+}
+
 // rd = rs1 << z32(imm{6})
 // pc = pc + 4
 fn exec_slli(state: &mut EmulatorState, itype: IType) {
@@ -479,12 +609,42 @@ fn exec_slli(state: &mut EmulatorState, itype: IType) {
     state.pc_next();
 }
 
+// rd = s64(rs1{32} << z32(imm{5}))
+// pc = pc + 4
+fn exec_slliw(state: &mut EmulatorState, itype: IType) {
+    let rs1_value = state.get_reg(itype.rs1());
+    let rd_value = (rs1_value as i32).wrapping_shl(itype.imm() as u32) as u64;
+    trace_itype(state, "slliw", itype, rd_value);
+    state.set_reg(itype.rd(), rd_value);
+    state.pc_next();
+}
+
+// rd = rs1 >>u z32(imm{6})
+// pc = pc + 4
+fn exec_srli(state: &mut EmulatorState, itype: IType) {
+    let rs1_value = state.get_reg(itype.rs1());
+    let rd_value = rs1_value.wrapping_shr(itype.imm() as u32);
+    trace_itype(state, "srli", itype, rd_value);
+    state.set_reg(itype.rd(), rd_value);
+    state.pc_next();
+}
+
 // rd = rs1 >>s z32(imm{6})
 // pc = pc + 4
 fn exec_srai(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
     let rd_value = (rs1_value as i64).wrapping_shr(itype.imm() as u32) as u64;
     trace_itype(state, "srai", itype, rd_value);
+    state.set_reg(itype.rd(), rd_value);
+    state.pc_next();
+}
+
+// rd = s64(rs1{32} >>s z32(imm{5}))
+// pc = pc + 4
+fn exec_sraiw(state: &mut EmulatorState, itype: IType) {
+    let rs1_value = state.get_reg(itype.rs1());
+    let rd_value = (rs1_value as i32).wrapping_shr(itype.imm() as u32) as u64;
+    trace_itype(state, "sraiw", itype, rd_value);
     state.set_reg(itype.rd(), rd_value);
     state.pc_next();
 }
@@ -500,6 +660,17 @@ fn exec_add(state: &mut EmulatorState, rtype: RType) {
     state.pc_next();
 }
 
+// rd = s64(rs1{32} + rs2{32})
+// pc = pc + 4
+fn exec_addw(state: &mut EmulatorState, rtype: RType) {
+    let rs1_value = state.get_reg(rtype.rs1());
+    let rs2_value = state.get_reg(rtype.rs2());
+    let rd_value = (rs1_value as i32).wrapping_add(rs2_value as i32) as u64;
+    trace_rtype(state, "addw", rtype, rd_value);
+    state.set_reg(rtype.rd(), rd_value);
+    state.pc_next();
+}
+
 // rd = rs1 - rs2
 // pc = pc + 4
 fn exec_sub(state: &mut EmulatorState, rtype: RType) {
@@ -507,6 +678,28 @@ fn exec_sub(state: &mut EmulatorState, rtype: RType) {
     let rs2_value = state.get_reg(rtype.rs2());
     let rd_value = rs1_value.wrapping_sub(rs2_value);
     trace_rtype(state, "sub", rtype, rd_value);
+    state.set_reg(rtype.rd(), rd_value);
+    state.pc_next();
+}
+
+// rd = s64(rs1{32} - rs2{32})
+// pc = pc + 4
+fn exec_subw(state: &mut EmulatorState, rtype: RType) {
+    let rs1_value = state.get_reg(rtype.rs1());
+    let rs2_value = state.get_reg(rtype.rs2());
+    let rd_value = (rs1_value as i32).wrapping_sub(rs2_value as i32) as u64;
+    trace_rtype(state, "subw", rtype, rd_value);
+    state.set_reg(rtype.rd(), rd_value);
+    state.pc_next();
+}
+
+// rd = rs1 << z32(rs2{6})
+// pc = pc + 4
+fn exec_sll(state: &mut EmulatorState, rtype: RType) {
+    let rs1_value = state.get_reg(rtype.rs1());
+    let rs2_value = state.get_reg(rtype.rs2());
+    let rd_value = rs1_value.wrapping_shl(rs2_value as u32);
+    trace_rtype(state, "sll", rtype, rd_value);
     state.set_reg(rtype.rd(), rd_value);
     state.pc_next();
 }
@@ -528,8 +721,20 @@ fn exec_sllw(state: &mut EmulatorState, rtype: RType) {
 fn exec_sltu(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
     let rs2_value = state.get_reg(rtype.rs2());
-    let rd_value = if rs1_value < rs2_value { 1 } else { 0 };
+    let condition = rs1_value < rs2_value;
+    let rd_value = if condition { 1 } else { 0 };
     trace_rtype(state, "sltu", rtype, rd_value);
+    state.set_reg(rtype.rd(), rd_value);
+    state.pc_next();
+}
+
+// rd = rs1 | rs2
+// pc = pc + 4
+fn exec_or(state: &mut EmulatorState, rtype: RType) {
+    let rs1_value = state.get_reg(rtype.rs1());
+    let rs2_value = state.get_reg(rtype.rs2());
+    let rd_value = rs1_value | rs2_value;
+    trace_rtype(state, "or", rtype, rd_value);
     state.set_reg(rtype.rd(), rd_value);
     state.pc_next();
 }
@@ -808,12 +1013,39 @@ pub trait MyLittleEndian {
     fn read(bytes: &[u8]) -> Self;
 }
 
+impl MyLittleEndian for i8 {
+    fn write(bytes: &mut [u8], value: Self) {
+        bytes[0] = value as u8;
+    }
+    fn read(bytes: &[u8]) -> Self {
+        bytes[0] as i8
+    }
+}
+
 impl MyLittleEndian for u8 {
     fn write(bytes: &mut [u8], value: Self) {
         bytes[0] = value;
     }
     fn read(bytes: &[u8]) -> Self {
         bytes[0]
+    }
+}
+
+impl MyLittleEndian for i16 {
+    fn write(bytes: &mut [u8], value: Self) {
+        LittleEndian::write_i16(bytes, value);
+    }
+    fn read(bytes: &[u8]) -> Self {
+        LittleEndian::read_i16(bytes)
+    }
+}
+
+impl MyLittleEndian for u16 {
+    fn write(bytes: &mut [u8], value: Self) {
+        LittleEndian::write_u16(bytes, value);
+    }
+    fn read(bytes: &[u8]) -> Self {
+        LittleEndian::read_u16(bytes)
     }
 }
 
