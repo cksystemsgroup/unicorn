@@ -258,11 +258,8 @@ fn execute(state: &mut EmulatorState, instr: Instruction) {
         Instruction::Ori(itype) => exec_ori(state, itype),
         Instruction::Andi(itype) => exec_andi(state, itype),
         Instruction::Slli(itype) => exec_slli(state, itype),
-        Instruction::SrliSrai(itype) => match (itype.imm() >> 6) & 0b111111 {
-            0b000000 => exec_srli(state, itype),
-            0b010000 => exec_srai(state, itype),
-            _ => panic!("illegal SRLI/SRAI"),
-        },
+        Instruction::Srli(itype) => exec_srli(state, itype),
+        Instruction::Srai(itype) => exec_srai(state, itype),
         Instruction::Addiw(itype) => exec_addiw(state, itype),
         Instruction::Slliw(itype) => exec_slliw(state, itype),
         Instruction::Sraiw(itype) => exec_sraiw(state, itype),
@@ -1008,7 +1005,7 @@ fn trace_utype(state: &EmulatorState, mne: &str, utype: UType, rd_value: Emulato
     );
 }
 
-pub trait MyLittleEndian {
+trait MyLittleEndian {
     fn write(bytes: &mut [u8], value: Self);
     fn read(bytes: &[u8]) -> Self;
 }
