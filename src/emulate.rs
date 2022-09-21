@@ -149,24 +149,18 @@ impl EmulatorState {
         self.set_mem(word_address, word);
     }
 
+    fn copy_mem(&mut self, adr: EmulatorValue, src: &[u8]) {
+        src.iter()
+            .zip(adr..)
+            .for_each(|(b, a)| self.set_mem_typed::<u8>(a, *b));
+    }
+
     fn load_code_segment(&mut self, program: &Program) {
-        assert!(riscu::INSTRUCTION_SIZE == size_of::<u32>());
-        assert!(program.code.content.len() % size_of::<u32>() == 0);
-        for (i, buf) in program.code.content.chunks(size_of::<u32>()).enumerate() {
-            let adr = program.code.address + (i * size_of::<u32>()) as u64;
-            let val = LittleEndian::read_u32(buf);
-            self.set_mem_typed::<u32>(adr, val);
-        }
+        self.copy_mem(program.code.address, &program.code.content);
     }
 
     fn load_data_segment(&mut self, program: &Program) {
-        // TODO: If the below assert hits, switch to byte-wise copy.
-        assert!(program.data.content.len() % size_of::<u32>() == 0);
-        for (i, buf) in program.data.content.chunks(size_of::<u32>()).enumerate() {
-            let adr = program.data.address + (i * size_of::<u32>()) as u64;
-            let val = LittleEndian::read_u32(buf);
-            self.set_mem_typed::<u32>(adr, val);
-        }
+        self.copy_mem(program.data.address, &program.data.content);
     }
 
     fn load_stack_segment(&mut self, argv: &[String]) {
