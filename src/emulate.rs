@@ -270,6 +270,7 @@ fn execute(state: &mut EmulatorState, instr: Instruction) {
         Instruction::Addw(rtype) => exec_addw(state, rtype),
         Instruction::Subw(rtype) => exec_subw(state, rtype),
         Instruction::Sllw(rtype) => exec_sllw(state, rtype),
+        Instruction::Mulw(rtype) => exec_mulw(state, rtype),
         Instruction::Ecall(_itype) => exec_ecall(state),
         // TODO: Cover all needed instructions here.
         _ => unimplemented!("not implemented: {:?}", instr),
@@ -748,6 +749,17 @@ fn exec_mul(state: &mut EmulatorState, rtype: RType) {
     let rs2_value = state.get_reg(rtype.rs2());
     let rd_value = rs1_value.wrapping_mul(rs2_value);
     trace_rtype(state, "mul", rtype, rd_value);
+    state.set_reg(rtype.rd(), rd_value);
+    state.pc_next();
+}
+
+// rd = s64(rs1{32} * rs2{32})
+// pc = pc + 4
+fn exec_mulw(state: &mut EmulatorState, rtype: RType) {
+    let rs1_value = state.get_reg(rtype.rs1());
+    let rs2_value = state.get_reg(rtype.rs2());
+    let rd_value = (rs1_value as i32).wrapping_mul(rs2_value as i32) as u64;
+    trace_rtype(state, "mulw", rtype, rd_value);
     state.set_reg(rtype.rd(), rd_value);
     state.pc_next();
 }
