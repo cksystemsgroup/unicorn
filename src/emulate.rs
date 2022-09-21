@@ -2,7 +2,7 @@ use crate::engine::memory::VirtualMemory;
 use crate::engine::system::{prepare_unix_stack, SyscallId, NUMBER_OF_REGISTERS, PAGE_SIZE};
 use crate::util::next_multiple_of;
 use byteorder::{ByteOrder, LittleEndian};
-use log::{debug, info, trace};
+use log::{debug, info, trace, warn};
 use riscu::{types::*, Instruction, Program, Register};
 use std::cmp::min;
 use std::fs::File;
@@ -805,7 +805,8 @@ fn exec_ecall(state: &mut EmulatorState) {
     } else if a7_value == SyscallId::Brk as u64 {
         syscall_brk(state);
     } else {
-        unimplemented!("unknown system call: {}", a7_value);
+        warn!("unknown system call: {}", a7_value);
+        state.set_reg(Register::A0, u64::MAX);
     }
     state.pc_next();
 }
