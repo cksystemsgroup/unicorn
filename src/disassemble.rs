@@ -49,7 +49,7 @@ impl From<Disassembly> for DecodedProgram {
     }
 }
 
-impl<'a> fmt::Display for Disassembly {
+impl fmt::Display for Disassembly {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         enumarte_with(
             self.decoded.code.content.as_slice().iter(),

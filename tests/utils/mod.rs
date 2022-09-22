@@ -126,9 +126,9 @@ where
     time("dot-to-png", || {
         Command::new("dot")
             .arg("-Tpng")
-            .arg(source.as_ref().to_path_buf())
+            .arg(source.as_ref())
             .arg("-o")
-            .arg(output.to_path_buf())
+            .arg(&output)
             .output()
             .map_err(|_| "Cannot convert CFG to png file (is graphviz installed?)")
     })?;

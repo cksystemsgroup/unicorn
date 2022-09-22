@@ -714,7 +714,7 @@ impl<'a> BitBlasting<'a> {
             let temp_sum = self.bitwise_add(&temp_mul, &remainder, true);
             assert!(dividend.len() == temp_sum.len());
             for (left, right) in dividend.iter().zip(temp_sum.iter()) {
-                let gate = xnor_gate(None, None, &*left, &*right);
+                let gate = xnor_gate(None, None, left, right);
                 self.record_constraint(&gate, true);
             }
 

@@ -196,33 +196,25 @@ impl BTOR2Parser {
                             let left = self.process_node(nid_left);
                             let right = self.process_node(nid_right);
 
-                            let temp_node: Node;
-
-                            match operator_name.as_str() {
-                                "add" => {
-                                    temp_node = Node::Add { nid, left, right };
-                                }
-                                "sub" => {
-                                    temp_node = Node::Sub { nid, left, right };
-                                }
-                                "mul" => temp_node = Node::Mul { nid, left, right },
-                                "udiv" => temp_node = Node::Div { nid, left, right },
-                                "urem" => temp_node = Node::Rem { nid, left, right },
-                                "ult" => temp_node = Node::Ult { nid, left, right },
-                                "eq" => temp_node = Node::Eq { nid, left, right },
-                                "and" => temp_node = Node::And { nid, left, right },
-                                "next" => {
-                                    temp_node = Node::Next {
-                                        nid,
-                                        sort: get_nodetype(sort),
-                                        state: left,
-                                        next: right,
-                                    }
-                                }
+                            let temp_node = match operator_name.as_str() {
+                                "add" => Node::Add { nid, left, right },
+                                "sub" => Node::Sub { nid, left, right },
+                                "mul" => Node::Mul { nid, left, right },
+                                "udiv" => Node::Div { nid, left, right },
+                                "urem" => Node::Rem { nid, left, right },
+                                "ult" => Node::Ult { nid, left, right },
+                                "eq" => Node::Eq { nid, left, right },
+                                "and" => Node::And { nid, left, right },
+                                "next" => Node::Next {
+                                    nid,
+                                    sort: get_nodetype(sort),
+                                    state: left,
+                                    next: right,
+                                },
                                 _ => {
                                     panic!("This piece of code should be unreacheable");
                                 }
-                            }
+                            };
                             current_node = Some(NodeRef::from(temp_node));
                         }
                     }

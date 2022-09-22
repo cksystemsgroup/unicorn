@@ -131,7 +131,7 @@ impl From<Node> for NodeRef {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum NodeType {
     Bit,
     Word,

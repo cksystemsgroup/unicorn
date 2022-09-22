@@ -949,12 +949,11 @@ impl InputEvaluator {
 
         for (qubit_hash, coeff) in qubo.linear_coefficients.iter() {
             let qubit_value = self.get_qubit_value(*qubit_hash, qubo);
-            let final_value: f64;
-            if qubo.is_ising && !qubit_value {
-                final_value = -1.0;
+            let final_value = if qubo.is_ising && !qubit_value {
+                -1.0
             } else {
-                final_value = (qubit_value as u64) as f64;
-            }
+                (qubit_value as u64) as f64
+            };
             offset += (*coeff) * final_value;
         }
 

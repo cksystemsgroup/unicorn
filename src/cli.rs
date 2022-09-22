@@ -5,7 +5,7 @@ use clap::{
 use std::str::FromStr;
 use strum::{EnumString, EnumVariantNames, IntoStaticStr, VariantNames};
 
-#[derive(Debug, PartialEq, EnumString, EnumVariantNames, IntoStaticStr)]
+#[derive(Debug, PartialEq, Eq, EnumString, EnumVariantNames, IntoStaticStr)]
 #[strum(serialize_all = "kebab_case")]
 pub enum LogLevel {
     Trace,
