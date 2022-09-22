@@ -636,7 +636,7 @@ dependencies = [
 [[package]]
 name = "riscu"
 version = "0.5.0"
-source = "git+https://github.com/cksystemsgroup/riscu#52855fbb7f6d6cfea71f19efef41b1ea0528727e"
+source = "git+https://github.com/cksystemsgroup/riscu#433e977e55fbf498847b9e97bc94027bc05340b4"
 dependencies = [
  "byteorder",
  "goblin",

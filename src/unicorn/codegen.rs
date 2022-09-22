@@ -2,7 +2,7 @@ use crate::unicorn::emulate_loader::{name_to_pc_value, name_to_register};
 use crate::unicorn::{Model, Node, NodeRef, NodeType};
 use byteorder::{ByteOrder, LittleEndian};
 use log::{debug, info, trace, warn};
-use riscu::{types::*, DecodedProgram, Instruction, Program, ProgramSegment, Register};
+use riscu::{DecodedProgram, Instruction, Program, ProgramSegment, Register};
 use unicorn::disassemble::Disassembly;
 use unicorn::emulate::{EmulatorState, EmulatorValue};
 use unicorn::engine::system::NUMBER_OF_REGISTERS;
@@ -255,10 +255,10 @@ impl<'a> CodeGenerator<'a> {
         }
     }
 
-    fn patch_instruction(&mut self, pc: u64, instr: &Instruction) {
+    fn patch_instruction(&mut self, pc: u64, instr: Instruction) {
         let word_address = (pc / WORD_SIZE) * WORD_SIZE;
         let word_offset = pc as usize % riscu::WORD_SIZE;
-        let encoded_instr = encode_instruction(instr);
+        let encoded_instr: u32 = instr.into();
         trace!(
             "patching mem[{:#x}+{}] <- {:#010x} / {:?}",
             word_address,
@@ -278,7 +278,7 @@ impl<'a> CodeGenerator<'a> {
         let entry_pc = self.source_state.get_program_counter();
         let offset = u64::wrapping_sub(target_pc, entry_pc) as i32;
         let jump = Instruction::new_jal(Register::Zero, offset);
-        self.patch_instruction(entry_pc, &jump)
+        self.patch_instruction(entry_pc, jump)
     }
 
     fn patch_emulator_state(&mut self) {
@@ -286,29 +286,7 @@ impl<'a> CodeGenerator<'a> {
         for i in 0..self.code.len() {
             let instr = self.code[i];
             let pc = self.code_start + i as u64 * INSTRUCTION_SIZE;
-            self.patch_instruction(pc, &instr);
+            self.patch_instruction(pc, instr);
         }
-    }
-}
-
-// TODO: This should be moved into the `riscu` library.
-fn encode_instruction(instr: &Instruction) -> u32 {
-    match instr {
-        Instruction::Lui(UType(encoded)) => *encoded,
-        Instruction::Jal(JType(encoded)) => *encoded,
-        Instruction::Jalr(IType(encoded)) => *encoded,
-        Instruction::Beq(BType(encoded)) => *encoded,
-        Instruction::Ld(IType(encoded)) => *encoded,
-        Instruction::Sd(SType(encoded)) => *encoded,
-        Instruction::Addi(IType(encoded)) => *encoded,
-        Instruction::Add(RType(encoded)) => *encoded,
-        Instruction::Sub(RType(encoded)) => *encoded,
-        Instruction::Sltu(RType(encoded)) => *encoded,
-        Instruction::Mul(RType(encoded)) => *encoded,
-        Instruction::Divu(RType(encoded)) => *encoded,
-        Instruction::Remu(RType(encoded)) => *encoded,
-        Instruction::Ecall(IType(encoded)) => *encoded,
-        // TODO: Cover all needed instructions here.
-        _ => unimplemented!("not implemented: {:?}", instr),
     }
 }
