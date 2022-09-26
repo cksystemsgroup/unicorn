@@ -46,7 +46,7 @@ impl EmulatorState {
     pub fn bootstrap(&mut self, program: &Program, argv: &[String]) {
         let sp_value = self.memory.size() * riscu::WORD_SIZE;
         self.set_reg(Register::Sp, sp_value as u64);
-        self.program_counter = program.code.address;
+        self.program_counter = initial_program_counter(program);
         self.program_break = initial_program_break(program);
         self.load_code_segment(program);
         self.load_data_segment(program);
@@ -79,6 +79,10 @@ const INSTRUCTION_SIZE_MASK: u64 = riscu::INSTRUCTION_SIZE as u64 - 1;
 const WORD_SIZE_MASK: u64 = riscu::WORD_SIZE as u64 - 1;
 const MAX_FILENAME_LENGTH: usize = 128;
 const FIRST_REAL_FD: usize = 3;
+
+fn initial_program_counter(program: &Program) -> EmulatorValue {
+    program.instruction_range.start
+}
 
 fn initial_program_break(program: &Program) -> EmulatorValue {
     let data_size = program.data.content.len();
