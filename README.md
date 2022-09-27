@@ -1,6 +1,6 @@
 [![Unitary Fund](https://img.shields.io/badge/Supported%20By-UNITARY%20FUND-brightgreen.svg?style=for-the-badge)](http://unitary.fund)
 
-# Unicorn: A Compiler and Runtime System for Quantum Computing
+# Unicorn: A Bounded Model Checker Powered by Quantum Computing
 
 [![Build Status](https://img.shields.io/github/workflow/status/cksystemsgroup/unicorn/Test)](https://github.com/cksystemsgroup/unicorn/actions)
 ![Experimental Status](https://img.shields.io/badge/status-experimental-yellow.svg)
@@ -9,7 +9,9 @@
 [![Lines of Code](https://img.shields.io/tokei/lines/github/cksystemsgroup/unicorn)](https://github.com/cksystemsgroup/unicorn)
 [![License](https://img.shields.io/github/license/cksystemsgroup/unicorn)](https://github.com/cksystemsgroup/unicorn/blob/master/LICENSE)
 
-Unicorn compiles 64-bit RISC-V ELF binaries to quantum circuits and objective functions that run on quantum computers and quantum annealers, respectively, with a possibly exponential advantage.
+Bounded model checking involves solving a very computationally-expensive problem. This is why we created unicorn, and interface for the best classical and quantum algorithms to meet, and determine the input(s) that make programs run into specific machines states. 
+
+Unicorn compiles 64-bit RISC-V ELF binaries to quantum circuits and ISING-hamiltonians that can run on both gate-model and adiabatic-based quantum computers. Quantum circuits are done by QUARC, and the hamiltonians are built by QUBOT. QUARC is still on its way, and only a non-optimized prototype written in Python exists.
 
 Unicorn models RISC-V code execution with a bit-precise finite state machine over all RISC-V machine states using 64-bit bitvectors, one for each general-purpose 64-bit CPU register, 1-bit bitvectors, one for each possible program counter value, and an array of 64-bit bitvectors modeling 64-bit main memory.
 
