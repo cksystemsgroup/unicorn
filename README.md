@@ -9,7 +9,7 @@
 [![Lines of Code](https://img.shields.io/tokei/lines/github/cksystemsgroup/unicorn)](https://github.com/cksystemsgroup/unicorn)
 [![License](https://img.shields.io/github/license/cksystemsgroup/unicorn)](https://github.com/cksystemsgroup/unicorn/blob/master/LICENSE)
 
-Bounded model checking involves solving a very computationally-expensive problem. This is why we created unicorn, and interface for the best classical and quantum algorithms to meet, and determine the input(s) that make programs run into specific machines states. It executes real C programs symbollicaly!
+Symbolic execution and bounded model checking involves solving a very computationally-expensive problem. This is why we created unicorn, and interface for the best classical and quantum algorithms to meet, and determine the input(s) that make programs run into specific machines states. 
 
 Unicorn compiles 64-bit RISC-V ELF binaries to quantum circuits and ISING-hamiltonians that can run on both gate-model and adiabatic-based quantum computers. Quantum circuits are done by QUARC, and the hamiltonians are built by QUBOT. QUARC is still on its way, and only a non-optimized prototype written in Python exists.
 
