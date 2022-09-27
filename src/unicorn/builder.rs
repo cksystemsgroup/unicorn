@@ -1,7 +1,7 @@
 use crate::unicorn::{Model, Nid, Node, NodeRef, NodeType};
 use anyhow::{Context, Result};
 use byteorder::{ByteOrder, LittleEndian};
-use log::{debug, trace};
+use log::{debug, trace, warn};
 use riscu::{decode, types::*, Instruction, Program, Register};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -147,6 +147,11 @@ impl ModelBuilder {
     fn reg_flow_update(&mut self, reg: Register, node: NodeRef) {
         assert!(reg != Register::Zero);
         self.register_flow[reg as usize - 1] = node;
+    }
+
+    fn reg_flow_ite(&mut self, reg: Register, node: NodeRef) {
+        let ite_node = self.new_ite(self.pc_flag(), node, self.reg_flow(reg), NodeType::Word);
+        self.reg_flow_update(reg, ite_node);
     }
 
     fn add_node(&mut self, node_data: Node) -> NodeRef {
@@ -356,6 +361,11 @@ impl ModelBuilder {
             });
     }
 
+    fn model_unimplemented(&mut self, inst: Instruction) {
+        let bad_name = format!("unimplemented-pc-{:x} ; {:?}", self.pc, inst);
+        self.new_bad(self.pc_flag(), &bad_name);
+    }
+
     fn model_addi(&mut self, itype: IType) {
         if itype.rd() == Register::Zero {
             return;
@@ -369,25 +379,19 @@ impl ModelBuilder {
             let imm_node = self.new_const(imm);
             self.new_add(self.reg_node(itype.rs1()), imm_node)
         };
-        let ite_node = self.new_ite(
-            self.pc_flag(),
-            result_node,
-            self.reg_flow(itype.rd()),
-            NodeType::Word,
-        );
-        self.reg_flow_update(itype.rd(), ite_node);
+        self.reg_flow_ite(itype.rd(), result_node);
     }
 
     fn model_lui(&mut self, utype: UType) {
-        let imm_shifted = u64::from(utype.imm()) << 12;
+        let imm_shifted = ((utype.imm() as i32) << 12) as u64;
         let const_node = self.new_const(imm_shifted);
-        let ite_node = self.new_ite(
-            self.pc_flag(),
-            const_node,
-            self.reg_flow(utype.rd()),
-            NodeType::Word,
-        );
-        self.reg_flow_update(utype.rd(), ite_node);
+        self.reg_flow_ite(utype.rd(), const_node);
+    }
+
+    fn model_auipc(&mut self, utype: UType) {
+        let imm_shifted = ((utype.imm() as i32) << 12) as u64;
+        let const_node = self.new_const(imm_shifted + self.pc);
+        self.reg_flow_ite(utype.rd(), const_node);
     }
 
     fn model_address(&mut self, reg: Register, imm: u64) -> NodeRef {
@@ -408,13 +412,7 @@ impl ModelBuilder {
             NodeType::Word,
         );
         let read_node = self.new_read(address_node);
-        let ite_node = self.new_ite(
-            self.pc_flag(),
-            read_node,
-            self.reg_flow(itype.rd()),
-            NodeType::Word,
-        );
-        self.reg_flow_update(itype.rd(), ite_node);
+        self.reg_flow_ite(itype.rd(), read_node);
     }
 
     fn model_sd(&mut self, stype: SType) {
@@ -437,35 +435,17 @@ impl ModelBuilder {
 
     fn model_add(&mut self, rtype: RType) {
         let add_node = self.new_add(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
-        let ite_node = self.new_ite(
-            self.pc_flag(),
-            add_node,
-            self.reg_flow(rtype.rd()),
-            NodeType::Word,
-        );
-        self.reg_flow_update(rtype.rd(), ite_node);
+        self.reg_flow_ite(rtype.rd(), add_node);
     }
 
     fn model_sub(&mut self, rtype: RType) {
         let sub_node = self.new_sub(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
-        let ite_node = self.new_ite(
-            self.pc_flag(),
-            sub_node,
-            self.reg_flow(rtype.rd()),
-            NodeType::Word,
-        );
-        self.reg_flow_update(rtype.rd(), ite_node);
+        self.reg_flow_ite(rtype.rd(), sub_node);
     }
 
     fn model_mul(&mut self, rtype: RType) {
         let mul_node = self.new_mul(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
-        let ite_node = self.new_ite(
-            self.pc_flag(),
-            mul_node,
-            self.reg_flow(rtype.rd()),
-            NodeType::Word,
-        );
-        self.reg_flow_update(rtype.rd(), ite_node);
+        self.reg_flow_ite(rtype.rd(), mul_node);
     }
 
     fn model_divu(&mut self, rtype: RType) {
@@ -476,13 +456,7 @@ impl ModelBuilder {
             NodeType::Word,
         );
         let div_node = self.new_div(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
-        let ite_node = self.new_ite(
-            self.pc_flag(),
-            div_node,
-            self.reg_flow(rtype.rd()),
-            NodeType::Word,
-        );
-        self.reg_flow_update(rtype.rd(), ite_node);
+        self.reg_flow_ite(rtype.rd(), div_node);
     }
 
     fn model_remu(&mut self, rtype: RType) {
@@ -493,13 +467,7 @@ impl ModelBuilder {
             NodeType::Word,
         );
         let rem_node = self.new_rem(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
-        let ite_node = self.new_ite(
-            self.pc_flag(),
-            rem_node,
-            self.reg_flow(rtype.rd()),
-            NodeType::Word,
-        );
-        self.reg_flow_update(rtype.rd(), ite_node);
+        self.reg_flow_ite(rtype.rd(), rem_node);
     }
 
     fn model_sltu(&mut self, rtype: RType) {
@@ -509,25 +477,38 @@ impl ModelBuilder {
             from: NodeType::Bit,
             value: ult_node,
         });
-        let ite_node = self.new_ite(
-            self.pc_flag(),
-            ext_node,
-            self.reg_flow(rtype.rd()),
-            NodeType::Word,
-        );
-        self.reg_flow_update(rtype.rd(), ite_node);
+        self.reg_flow_ite(rtype.rd(), ext_node);
     }
 
-    fn model_beq(
+    fn model_branch<F>(
         &mut self,
         btype: BType,
         out_true: &mut Option<NodeRef>,
         out_false: &mut Option<NodeRef>,
-    ) {
-        let cond_true = self.new_eq(self.reg_node(btype.rs1()), self.reg_node(btype.rs2()));
+        f_new_cond: F,
+    ) where
+        F: FnOnce(&mut Self, NodeRef, NodeRef) -> NodeRef,
+    {
+        let cond_true = f_new_cond(self, self.reg_node(btype.rs1()), self.reg_node(btype.rs2()));
         let cond_false = self.new_not(cond_true.clone());
         out_true.replace(cond_true);
         out_false.replace(cond_false);
+    }
+
+    fn model_beq(&mut self, btype: BType, t: &mut Option<NodeRef>, f: &mut Option<NodeRef>) {
+        self.model_branch(btype, t, f, Self::new_eq)
+    }
+
+    fn model_bne(&mut self, btype: BType, t: &mut Option<NodeRef>, f: &mut Option<NodeRef>) {
+        self.model_branch(btype, t, f, Self::new_neq)
+    }
+
+    fn model_bltu(&mut self, btype: BType, t: &mut Option<NodeRef>, f: &mut Option<NodeRef>) {
+        self.model_branch(btype, t, f, Self::new_ult)
+    }
+
+    fn model_bgeu(&mut self, btype: BType, t: &mut Option<NodeRef>, f: &mut Option<NodeRef>) {
+        self.model_branch(btype, t, f, Self::new_ugte)
     }
 
     fn model_jal(&mut self, jtype: JType, out_link: &mut Option<NodeRef>) {
@@ -535,13 +516,7 @@ impl ModelBuilder {
             return;
         };
         let link_node = self.new_const(self.pc_add(INSTRUCTION_SIZE));
-        let ite_node = self.new_ite(
-            self.pc_flag(),
-            link_node.clone(),
-            self.reg_flow(jtype.rd()),
-            NodeType::Word,
-        );
-        self.reg_flow_update(jtype.rd(), ite_node);
+        self.reg_flow_ite(jtype.rd(), link_node.clone());
         out_link.replace(link_node);
     }
 
@@ -556,27 +531,60 @@ impl ModelBuilder {
     }
 
     fn translate_to_model(&mut self, inst: Instruction) {
-        let mut beq_true = None;
-        let mut beq_false = None;
+        let mut branch_true = None;
+        let mut branch_false = None;
         let mut jal_link = None;
 
         match inst {
-            Instruction::Addi(itype) => self.model_addi(itype),
             Instruction::Lui(utype) => self.model_lui(utype),
+            Instruction::Auipc(utype) => self.model_auipc(utype),
+            Instruction::Lb(_itype) => self.model_unimplemented(inst),
+            Instruction::Lh(_itype) => self.model_unimplemented(inst),
+            Instruction::Lw(_itype) => self.model_unimplemented(inst),
             Instruction::Ld(itype) => self.model_ld(itype),
+            Instruction::Lbu(_itype) => self.model_unimplemented(inst),
+            Instruction::Lhu(_itype) => self.model_unimplemented(inst),
+            Instruction::Sb(_stype) => self.model_unimplemented(inst),
+            Instruction::Sh(_stype) => self.model_unimplemented(inst),
+            Instruction::Sw(_stype) => self.model_unimplemented(inst),
             Instruction::Sd(stype) => self.model_sd(stype),
+            Instruction::Addi(itype) => self.model_addi(itype),
+            Instruction::Sltiu(_itype) => self.model_unimplemented(inst),
+            Instruction::Xori(_itype) => self.model_unimplemented(inst),
+            Instruction::Ori(_itype) => self.model_unimplemented(inst),
+            Instruction::Andi(_itype) => self.model_unimplemented(inst),
+            Instruction::Slli(_itype) => self.model_unimplemented(inst),
+            Instruction::Srli(_itype) => self.model_unimplemented(inst),
+            Instruction::Srai(_itype) => self.model_unimplemented(inst),
+            Instruction::Addiw(_itype) => self.model_unimplemented(inst),
+            Instruction::Slliw(_itype) => self.model_unimplemented(inst),
+            Instruction::Sraiw(_itype) => self.model_unimplemented(inst),
             Instruction::Add(rtype) => self.model_add(rtype),
             Instruction::Sub(rtype) => self.model_sub(rtype),
+            Instruction::Sll(_rtype) => self.model_unimplemented(inst),
+            Instruction::Sltu(rtype) => self.model_sltu(rtype),
+            Instruction::Sra(_rtype) => self.model_unimplemented(inst),
+            Instruction::Or(_rtype) => self.model_unimplemented(inst),
+            Instruction::And(_rtype) => self.model_unimplemented(inst),
             Instruction::Mul(rtype) => self.model_mul(rtype),
+            Instruction::Div(_rtype) => self.model_unimplemented(inst),
             Instruction::Divu(rtype) => self.model_divu(rtype),
             Instruction::Remu(rtype) => self.model_remu(rtype),
-            Instruction::Sltu(rtype) => self.model_sltu(rtype),
-            Instruction::Beq(btype) => self.model_beq(btype, &mut beq_true, &mut beq_false),
+            Instruction::Addw(_rtype) => self.model_unimplemented(inst),
+            Instruction::Subw(_rtype) => self.model_unimplemented(inst),
+            Instruction::Sllw(_rtype) => self.model_unimplemented(inst),
+            Instruction::Mulw(_rtype) => self.model_unimplemented(inst),
+            Instruction::Divw(_rtype) => self.model_unimplemented(inst),
+            Instruction::Beq(btype) => self.model_beq(btype, &mut branch_true, &mut branch_false),
+            Instruction::Bne(btype) => self.model_bne(btype, &mut branch_true, &mut branch_false),
+            Instruction::Blt(_btype) => self.model_unimplemented(inst),
+            Instruction::Bge(_btype) => self.model_unimplemented(inst),
+            Instruction::Bltu(btype) => self.model_bltu(btype, &mut branch_true, &mut branch_false),
+            Instruction::Bgeu(btype) => self.model_bgeu(btype, &mut branch_true, &mut branch_false),
             Instruction::Jal(jtype) => self.model_jal(jtype, &mut jal_link),
             Instruction::Jalr(_itype) => {} // TODO: Implement me!
             Instruction::Ecall(_) => self.model_ecall(),
-            // TODO: Cover all needed instructions here.
-            _ => unimplemented!("not implemented: {:?}", inst),
+            _ => todo!("{:?}", inst),
         }
 
         match inst {
@@ -587,19 +595,54 @@ impl ModelBuilder {
                 self.go_to_instruction(inst, self.pc, self.pc_add(INSTRUCTION_SIZE), None);
             }
             Instruction::Lui(_)
+            | Instruction::Auipc(_)
+            | Instruction::Lb(_)
+            | Instruction::Lh(_)
+            | Instruction::Lw(_)
             | Instruction::Ld(_)
+            | Instruction::Lbu(_)
+            | Instruction::Lhu(_)
+            | Instruction::Lwu(_)
+            | Instruction::Sb(_)
+            | Instruction::Sh(_)
+            | Instruction::Sw(_)
             | Instruction::Sd(_)
+            | Instruction::Sltiu(_)
+            | Instruction::Xori(_)
+            | Instruction::Ori(_)
+            | Instruction::Andi(_)
+            | Instruction::Slli(_)
+            | Instruction::Srli(_)
+            | Instruction::Srai(_)
+            | Instruction::Addiw(_)
+            | Instruction::Slliw(_)
+            | Instruction::Sraiw(_)
             | Instruction::Add(_)
             | Instruction::Sub(_)
+            | Instruction::Sll(_)
+            | Instruction::Sltu(_)
+            | Instruction::Sra(_)
+            | Instruction::Or(_)
+            | Instruction::And(_)
             | Instruction::Mul(_)
+            | Instruction::Div(_)
             | Instruction::Divu(_)
             | Instruction::Remu(_)
-            | Instruction::Sltu(_) => {
+            | Instruction::Addw(_)
+            | Instruction::Subw(_)
+            | Instruction::Sllw(_)
+            | Instruction::Mulw(_)
+            | Instruction::Divw(_) => {
                 self.go_to_instruction(inst, self.pc, self.pc_add(INSTRUCTION_SIZE), None);
             }
-            Instruction::Beq(btype) => {
-                self.go_to_instruction(inst, self.pc, self.pc_add(btype.imm() as u64), beq_true);
-                self.go_to_instruction(inst, self.pc, self.pc_add(INSTRUCTION_SIZE), beq_false);
+            Instruction::Beq(btype)
+            | Instruction::Bne(btype)
+            | Instruction::Blt(btype)
+            | Instruction::Bge(btype)
+            | Instruction::Bltu(btype)
+            | Instruction::Bgeu(btype) => {
+                self.go_to_instruction(inst, self.pc, self.pc_add(btype.imm() as u64), branch_true);
+                self.go_to_instruction(inst, self.pc, self.pc_add(INSTRUCTION_SIZE), branch_false);
             }
             Instruction::Jal(jtype) => {
                 if jtype.rd() != Register::Zero {
@@ -610,8 +653,15 @@ impl ModelBuilder {
                 self.go_to_instruction(inst, self.pc, self.pc_add(jtype.imm() as u64), None);
             }
             Instruction::Jalr(itype) => {
-                assert_eq!(itype.rd(), Register::Zero);
-                assert_eq!(itype.rs1(), Register::Ra);
+                if itype.rd() != Register::Zero {
+                    // TODO: Find a proper modeling for this.
+                    warn!("Detected JALR that also links: {:#x}: {:?}", self.pc, inst);
+                    self.model_unimplemented(inst);
+                } else if itype.rs1() != Register::Ra {
+                    // TODO: Find a proper modeling for this.
+                    warn!("Detected JALR dynamic dispatch: {:#x}: {:?}", self.pc, inst);
+                    self.model_unimplemented(inst);
+                }
                 assert_eq!(itype.imm(), 0);
                 self.call_return.insert(self.current_callee, self.pc);
                 self.current_callee = self.pc_add(INSTRUCTION_SIZE);
@@ -622,8 +672,7 @@ impl ModelBuilder {
                 }
                 self.go_to_instruction(inst, self.pc, self.pc_add(INSTRUCTION_SIZE), None);
             }
-            // TODO: Cover all needed instructions here.
-            _ => unimplemented!("not implemented: {:?}", inst),
+            _ => todo!("{:?}", inst),
         }
     }
 
@@ -753,10 +802,10 @@ impl ModelBuilder {
         assert_eq!(self.register_flow.len(), NUMBER_OF_REGISTERS - 1);
 
         self.new_comment("64-bit program counter encoded in Boolean flags".to_string());
-        self.pc = program.code.address;
-        for n in (0..program.code.content.len()).step_by(size_of::<u32>()) {
+        self.pc = program.instruction_range.start;
+        for n in program.instruction_range.clone().step_by(size_of::<u32>()) {
             self.current_nid = 10000000 + self.pc * 100;
-            let initial_value = if n == 0 {
+            let initial_value = if n == program.instruction_range.start {
                 self.one_bit.clone()
             } else {
                 self.zero_bit.clone()
@@ -782,10 +831,14 @@ impl ModelBuilder {
             };
             this.memory_node = this.new_write(address, value);
         }
+        if program.data.content.len() % size_of::<u64>() != 0 {
+            // TODO: Fix this by padding data segment content with zeroes.
+            warn!("Data segment size is not word-aligned, truncating");
+        }
         program
             .data
             .content
-            .chunks(size_of::<u64>())
+            .chunks_exact(size_of::<u64>())
             .map(LittleEndian::read_u64)
             .zip((data_start..data_end).step_by(size_of::<u64>()))
             .for_each(|(val, adr)| write_value_to_memory(self, val, adr));
@@ -802,11 +855,10 @@ impl ModelBuilder {
         self.memory_flow = self.memory_node.clone();
 
         self.new_comment("data flow".to_string());
-        self.pc = program.code.address;
+        self.pc = program.instruction_range.start;
         program
-            .code
-            .content
-            .chunks_exact(size_of::<u32>())
+            .instructions()
+            .chunks(size_of::<u32>())
             .map(LittleEndian::read_u32)
             .try_for_each(|raw| {
                 decode(raw).map(|inst| {
@@ -950,8 +1002,8 @@ impl ModelBuilder {
         self.new_next(self.kernel_mode.clone(), kernel_flow, NodeType::Bit);
 
         self.new_comment("control flow".to_string());
-        self.pc = program.code.address;
-        for _n in (0..program.code.content.len()).step_by(size_of::<u32>()) {
+        self.pc = program.instruction_range.start;
+        for _n in program.instruction_range.clone().step_by(size_of::<u32>()) {
             self.current_nid = 50000000 + self.pc * 100;
             let mut control_flow = self.zero_bit.clone();
             for in_edge in self.control_in.remove(&self.pc).unwrap_or_default() {
