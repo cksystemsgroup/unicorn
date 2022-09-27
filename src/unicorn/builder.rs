@@ -822,6 +822,20 @@ impl ModelBuilder {
         self.new_comment("64-bit virtual memory".to_string());
         self.current_nid = 20000000;
         self.memory_node = self.new_state(None, "memory-dump".to_string(), NodeType::Memory);
+        let dump_start = data_start & !(size_of::<u64>() as u64 - 1);
+        let dump_end = next_multiple_of(data_end, size_of::<u64>() as u64);
+        let mut dump_buffer = Vec::from(&program.data.content[..]);
+        if dump_start != data_start {
+            let padding = (data_start - dump_start) as usize;
+            debug!("Aligning data start: {:#010x}+{}", dump_start, padding);
+            dump_buffer = [vec![0; padding], dump_buffer].concat();
+        }
+        if dump_end != data_end {
+            let padding = (dump_end - data_end) as usize;
+            debug!("Aligning data end: {:#010x}-{}", dump_end, padding);
+            dump_buffer.extend(vec![0; padding]);
+        }
+        assert!(dump_buffer.len() % size_of::<u64>() == 0, "has been padded");
         fn write_value_to_memory(this: &mut ModelBuilder, val: u64, adr: u64) {
             let address = this.new_const(adr);
             let value = if val == 0 {
@@ -831,16 +845,10 @@ impl ModelBuilder {
             };
             this.memory_node = this.new_write(address, value);
         }
-        if program.data.content.len() % size_of::<u64>() != 0 {
-            // TODO: Fix this by padding data segment content with zeroes.
-            warn!("Data segment size is not word-aligned, truncating");
-        }
-        program
-            .data
-            .content
-            .chunks_exact(size_of::<u64>())
+        dump_buffer
+            .chunks(size_of::<u64>())
             .map(LittleEndian::read_u64)
-            .zip((data_start..data_end).step_by(size_of::<u64>()))
+            .zip((dump_start..dump_end).step_by(size_of::<u64>()))
             .for_each(|(val, adr)| write_value_to_memory(self, val, adr));
         initial_stack
             .into_iter()
