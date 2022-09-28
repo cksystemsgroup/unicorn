@@ -36,7 +36,6 @@ const INSTRUCTION_SIZE: u64 = riscu::INSTRUCTION_SIZE as u64;
 const PAGE_SIZE: u64 = unicorn::engine::system::PAGE_SIZE as u64;
 
 // TODO: Add implementation of all syscalls.
-// TODO: Add initialization of stack segment.
 // TODO: Fix initialization of `current_nid` based on binary size.
 // TODO(test): Test model by adding a poor-man's type-checker.
 // TODO(test): Test builder on existing samples automatically.
@@ -73,9 +72,16 @@ struct ModelBuilder {
 }
 
 struct InEdge {
-    from_instruction: Instruction,
+    from_instruction: FromInstruction,
     from_address: u64,
     condition: Option<NodeRef>,
+}
+
+enum FromInstruction {
+    Regular,      // fall-thru from regular instruction
+    Branch,       // target of conditional branch (e.g. beq, bne, ...)
+    FunctionCall, // return from function call (i.e. jalr)
+    SystemCall,   // return from system call (i.e. ecall)
 }
 
 impl ModelBuilder {
@@ -346,7 +352,7 @@ impl ModelBuilder {
 
     fn go_to_instruction(
         &mut self,
-        from_instruction: Instruction,
+        from_instruction: FromInstruction,
         from_address: u64,
         to_address: u64,
         condition: Option<NodeRef>,
@@ -577,8 +583,12 @@ impl ModelBuilder {
             Instruction::Divw(_rtype) => self.model_unimplemented(inst),
             Instruction::Beq(btype) => self.model_beq(btype, &mut branch_true, &mut branch_false),
             Instruction::Bne(btype) => self.model_bne(btype, &mut branch_true, &mut branch_false),
-            Instruction::Blt(_btype) => self.model_unimplemented(inst),
-            Instruction::Bge(_btype) => self.model_unimplemented(inst),
+            Instruction::Blt(_btype) | Instruction::Bge(_btype) => {
+                // TODO: Implement once we have signed comparisons.
+                branch_true.replace(self.zero_bit.clone());
+                branch_false.replace(self.zero_bit.clone());
+                self.model_unimplemented(inst)
+            }
             Instruction::Bltu(btype) => self.model_bltu(btype, &mut branch_true, &mut branch_false),
             Instruction::Bgeu(btype) => self.model_bgeu(btype, &mut branch_true, &mut branch_false),
             Instruction::Jal(jtype) => self.model_jal(jtype, &mut jal_link),
@@ -592,7 +602,12 @@ impl ModelBuilder {
                 if itype.rd() == Register::A7 && itype.rs1() == Register::Zero {
                     self.current_reg_a7 = itype.imm() as u64;
                 }
-                self.go_to_instruction(inst, self.pc, self.pc_add(INSTRUCTION_SIZE), None);
+                self.go_to_instruction(
+                    FromInstruction::Regular,
+                    self.pc,
+                    self.pc_add(INSTRUCTION_SIZE),
+                    None,
+                );
             }
             Instruction::Lui(_)
             | Instruction::Auipc(_)
@@ -633,7 +648,12 @@ impl ModelBuilder {
             | Instruction::Sllw(_)
             | Instruction::Mulw(_)
             | Instruction::Divw(_) => {
-                self.go_to_instruction(inst, self.pc, self.pc_add(INSTRUCTION_SIZE), None);
+                self.go_to_instruction(
+                    FromInstruction::Regular,
+                    self.pc,
+                    self.pc_add(INSTRUCTION_SIZE),
+                    None,
+                );
             }
             Instruction::Beq(btype)
             | Instruction::Bne(btype)
@@ -641,16 +661,38 @@ impl ModelBuilder {
             | Instruction::Bge(btype)
             | Instruction::Bltu(btype)
             | Instruction::Bgeu(btype) => {
-                self.go_to_instruction(inst, self.pc, self.pc_add(btype.imm() as u64), branch_true);
-                self.go_to_instruction(inst, self.pc, self.pc_add(INSTRUCTION_SIZE), branch_false);
+                assert!(branch_true.is_some(), "was set");
+                assert!(branch_false.is_some(), "was set");
+                self.go_to_instruction(
+                    FromInstruction::Branch,
+                    self.pc,
+                    self.pc_add(btype.imm() as u64),
+                    branch_true,
+                );
+                self.go_to_instruction(
+                    FromInstruction::Branch,
+                    self.pc,
+                    self.pc_add(INSTRUCTION_SIZE),
+                    branch_false,
+                );
             }
             Instruction::Jal(jtype) => {
                 if jtype.rd() != Register::Zero {
-                    let jalr = Instruction::Jalr(IType(0));
-                    let jalr_pc = self.pc_add(jtype.imm() as u64);
-                    self.go_to_instruction(jalr, jalr_pc, self.pc_add(INSTRUCTION_SIZE), jal_link);
+                    assert!(jal_link.is_some(), "was set");
+                    let function_pc = self.pc_add(jtype.imm() as u64);
+                    self.go_to_instruction(
+                        FromInstruction::FunctionCall,
+                        function_pc,
+                        self.pc_add(INSTRUCTION_SIZE),
+                        jal_link,
+                    );
                 }
-                self.go_to_instruction(inst, self.pc, self.pc_add(jtype.imm() as u64), None);
+                self.go_to_instruction(
+                    FromInstruction::Regular,
+                    self.pc,
+                    self.pc_add(jtype.imm() as u64),
+                    None,
+                );
             }
             Instruction::Jalr(itype) => {
                 if itype.rd() != Register::Zero {
@@ -670,13 +712,22 @@ impl ModelBuilder {
                 if self.current_reg_a7 == SyscallId::Exit as u64 {
                     self.current_callee = self.pc_add(INSTRUCTION_SIZE);
                 }
-                self.go_to_instruction(inst, self.pc, self.pc_add(INSTRUCTION_SIZE), None);
+                self.go_to_instruction(
+                    FromInstruction::SystemCall,
+                    self.pc,
+                    self.pc_add(INSTRUCTION_SIZE),
+                    None,
+                );
             }
             _ => todo!("{:?}", inst),
         }
     }
 
-    fn control_flow_from_beq(&mut self, edge: &InEdge, flow: NodeRef) -> NodeRef {
+    fn control_flow_from_regular(&mut self, edge: &InEdge, flow: NodeRef) -> NodeRef {
+        self.control_flow_from_any(self.pc_flags[&edge.from_address].clone(), flow)
+    }
+
+    fn control_flow_from_branch(&mut self, edge: &InEdge, flow: NodeRef) -> NodeRef {
         let and_node = self.new_and(
             self.pc_flags[&edge.from_address].clone(),
             edge.condition.as_ref().expect("must exist").clone(),
@@ -1016,13 +1067,18 @@ impl ModelBuilder {
             let mut control_flow = self.zero_bit.clone();
             for in_edge in self.control_in.remove(&self.pc).unwrap_or_default() {
                 control_flow = match in_edge.from_instruction {
-                    Instruction::Beq(_) => self.control_flow_from_beq(&in_edge, control_flow),
-                    Instruction::Jalr(_) => self.control_flow_from_jalr(&in_edge, control_flow),
-                    Instruction::Ecall(_) => self.control_flow_from_ecall(&in_edge, control_flow),
-                    _ => self.control_flow_from_any(
-                        self.pc_flags[&in_edge.from_address].clone(),
-                        control_flow,
-                    ),
+                    FromInstruction::Branch => {
+                        self.control_flow_from_branch(&in_edge, control_flow)
+                    }
+                    FromInstruction::FunctionCall => {
+                        self.control_flow_from_jalr(&in_edge, control_flow)
+                    }
+                    FromInstruction::SystemCall => {
+                        self.control_flow_from_ecall(&in_edge, control_flow)
+                    }
+                    FromInstruction::Regular => {
+                        self.control_flow_from_regular(&in_edge, control_flow)
+                    }
                 }
             }
             self.new_next(self.pc_flag(), control_flow, NodeType::Bit);
