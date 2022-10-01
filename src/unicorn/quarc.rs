@@ -15,7 +15,17 @@ use std::rc::Rc;
 pub type UnitaryRef = Rc<RefCell<Unitary>>;
 
 #[derive(Debug)]
-pub enum Unitary {}
+pub enum Unitary {
+    Not {
+        input: QubitRef
+    }
+}
+
+impl From<Unitary> for UnitaryRef {
+    fn from(unitary: Unitary) -> Self {
+        Rc::new(RefCell::new(unitary))
+    }
+}
 
 #[derive(Debug)]
 pub enum Qubit {
@@ -80,6 +90,14 @@ fn get_replacement_from_constant(sort: &NodeType, value_: u64) -> Vec<QubitRef> 
     }
     replacement
 }
+
+fn get_constant(gate_type: &QubitRef) -> Option<bool> {
+    match &*gate_type.borrow() {
+        Qubit::ConstFalse => Some(false),
+        Qubit::ConstTrue => Some(true),
+        _ => None,
+    }
+}
 // END some functions
 
 // Begin implementation
@@ -110,6 +128,21 @@ impl<'a> QuantumCircuit<'a> {
             model: model_,
             _word_size: word_size_,
             count_multiqubit_gates: 0,
+        }
+    }
+
+    fn not_gate(&mut self, a_qubit: &QubitRef) -> QubitRef {
+        let a = get_constant(a_qubit);
+    
+        if let Some(a_const) = a {
+            if a_const {
+                QubitRef::from(Qubit::ConstFalse)
+            } else {
+                QubitRef::from(Qubit::ConstTrue)
+            }
+        } else {
+            self.circuit_stack.push_back(UnitaryRef::from(Unitary::Not{input: a_qubit.clone()}));
+            a_qubit.clone()
         }
     }
 
@@ -179,8 +212,14 @@ impl<'a> QuantumCircuit<'a> {
                 assert!(replacement.len() == sort.bitsize());
                 self.record_mapping(node, replacement)
             }
-            Node::Not { value: _, .. } => {
-                unimplemented!()
+            Node::Not { value, .. } => {
+                let bitvector = self.visit(value);
+                let mut replacement: Vec<QubitRef> = Vec::new();
+                for bit in &bitvector {
+                    replacement.push(self.not_gate(bit));
+                }
+                assert!(replacement.len() == bitvector.len());
+                self.record_mapping(node, replacement)
             }
             Node::Bad { cond, .. } => {
                 let replacement = self.visit(cond);
