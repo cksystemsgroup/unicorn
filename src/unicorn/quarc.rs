@@ -18,8 +18,12 @@ pub type UnitaryRef = Rc<RefCell<Unitary>>;
 pub enum Unitary {}
 
 #[derive(Debug)]
-pub struct Qubit {
-    pub name: u64,
+pub enum Qubit {
+    ConstTrue,
+    ConstFalse,
+    QBit {
+        name: String
+    }
 }
 
 impl From<Qubit> for QubitRef {
