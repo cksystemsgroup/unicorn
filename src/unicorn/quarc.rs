@@ -360,6 +360,11 @@ impl<'a> QuantumCircuit<'a> {
             } => {
                 unimplemented!()
             }
+            Node::Next {state, next , ..} => {
+                let _  = self.process(state);
+                let replacement = self.process(next);
+                self.record_mapping(state, self.current_n, replacement)
+            }
             _ => {
                 panic!("Unknown BTOR2 node!");
             }
@@ -380,8 +385,7 @@ impl<'a> QuantumCircuit<'a> {
             self.current_n = i;
             for sequential in &self.model.sequentials {
                 if let Node::Next { .. } = &*sequential.borrow() {
-                    let replacement = self.process(sequential);
-                    self.record_mapping(sequential, self.current_n, replacement);
+                    let _  = self.process(sequential);
                     // TODO: flush memory, and reset ancillas
                 } else {
                     panic!("expecting 'Next' node here");
