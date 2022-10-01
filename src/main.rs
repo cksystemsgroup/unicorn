@@ -241,6 +241,57 @@ fn main() -> Result<()> {
 
             Ok(())
         }
+        Some(("quarc", args)) => {
+            let input = expect_arg::<PathBuf>(args, "input-file")?;
+            let input_is_btor2 = args.contains_id("from-btor2");
+            let _output = expect_optional_arg::<PathBuf>(args, "output-file")?;
+
+            let max_heap = *args.get_one::<u32>("max-heap").unwrap();
+            let max_stack = *args.get_one::<u32>("max-stack").unwrap();
+            let memory_size = ByteSize::mib(*args.get_one("memory").unwrap()).as_u64();
+
+            let has_concrete_inputs = args.contains_id("inputs");
+
+            let unroll = args.get_one::<usize>("unroll-model").cloned();
+            let solver = expect_arg::<SmtType>(args, "solver")?;
+
+            let mut model = if !input_is_btor2 {
+                let arg0 = expect_arg::<String>(args, "input-file")?;
+                let program = load_object_file(&input)?;
+                let argv = [vec![arg0], vec![]].concat();
+                generate_model(&program, memory_size, max_heap, max_stack, &argv)?
+            } else {
+                parse_btor2_file(&input)
+            };
+
+            if let Some(unroll_depth) = unroll {
+                model.lines.clear();
+                for n in 0..unroll_depth {
+                    unroll_model(&mut model, n);
+                }
+                prune_model(&mut model);
+                match solver {
+                    SmtType::Generic => optimize_model::<none_impl::NoneSolver>(&mut model),
+                    #[cfg(feature = "boolector")]
+                    SmtType::Boolector => {
+                        optimize_model::<boolector_impl::BoolectorSolver>(&mut model)
+                    }
+                    #[cfg(feature = "z3")]
+                    SmtType::Z3 => optimize_model::<z3solver_impl::Z3SolverWrapper>(&mut model),
+                }
+                renumber_model(&mut model);
+            } else {
+                panic!("must provide unroll depth")
+            }
+
+            if has_concrete_inputs {
+                let _inputs = expect_optional_arg::<String>(args, "inputs")?;
+                unimplemented!();
+            }
+
+            // TODO: implement QUARC
+            Ok(())
+        }
         Some(("dwave", args)) => {
             let input = args.get_one::<String>("input-file").unwrap();
             let runs = *args.get_one::<u32>("num-runs").unwrap();

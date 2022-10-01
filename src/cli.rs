@@ -296,6 +296,83 @@ pub fn args() -> Command<'static> {
                 )
         )
         .subcommand(
+            Command::new("quarc")
+            .about("Generate quantum circuits from a RISC-U ELF binary file ")
+            .arg(
+                Arg::new("input-file")
+                    .help("If --from-btor2 flag is not passed, then RISC-U ELF binary to be converted, else a BTOR2 file.")
+                    .takes_value(true)
+                    .value_name("FILE")
+                    .required(true),
+            )
+            .arg(
+                Arg::new("from-btor2")
+                    .help("Pass this flag if the input file is a BTOR2 file.")
+                    .short('f')
+                    .long("from-btor2")
+            )
+            .arg(
+                Arg::new("output-file")
+                    .help("Output path for the generated QUBO model")
+                    .short('o')
+                    .long("out")
+                    .takes_value(true)
+            )
+            .arg(
+                Arg::new("max-heap")
+                    .help("Number of machine-words usable as heap")
+                    .long("max-heap")
+                    .takes_value(true)
+                    .value_name("NUMBER")
+                    .default_value(DEFAULT_MAX_HEAP)
+                    .value_parser(value_parser!(u32)),
+            )
+            .arg(
+                Arg::new("max-stack")
+                    .help("Number of machine-words usable as stack")
+                    .long("max-stack")
+                    .takes_value(true)
+                    .value_name("NUMBER")
+                    .default_value(DEFAULT_MAX_STACK)
+                    .value_parser(value_parser!(u32)),
+            )
+            .arg(
+                Arg::new("memory")
+                    .help("Total size of memory in MiB [possible: 1 .. 1024]")
+                    .long("memory")
+                    .takes_value(true)
+                    .value_name("NUMBER")
+                    .default_value(DEFAULT_MEMORY_SIZE)
+                    .value_parser(value_parser_memory_size()),
+            )
+            .arg(
+                Arg::new("inputs")
+                    .help("Provide inputs to evaluate the model, separate by commas the values for a single instance, and with semicolon for various instances.")
+                    .short('i')
+                    .long("inputs")
+                    .takes_value(true)
+            )
+            .arg(
+                Arg::new("solver")
+                    .help("SMT solver used for optimization")
+                    .short('s')
+                    .long("solver")
+                    .takes_value(true)
+                    .value_name("SOLVER")
+                    .value_parser(value_parser_smt_type())
+                    .default_value(SmtType::Generic.into()),
+            )
+            .arg(
+                Arg::new("unroll-model")
+                    .help("Number of instructions to unroll from model")
+                    .short('u')
+                    .long("unroll")
+                    .takes_value(true)
+                    .value_name("NUMBER")
+                    .value_parser(value_parser!(usize)),
+            )
+        )
+        .subcommand(
             Command::new("dwave")
                 .about("Execute QUBO model on the quantum annealer")
                 .arg(
