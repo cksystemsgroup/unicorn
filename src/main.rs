@@ -254,7 +254,6 @@ fn main() -> Result<()> {
             let has_concrete_inputs = args.contains_id("inputs");
 
             let unroll = args.get_one::<usize>("unroll-model").cloned();
-            let solver = expect_arg::<SmtType>(args, "solver")?;
 
             let mut model = if !input_is_btor2 {
                 let arg0 = expect_arg::<String>(args, "input-file")?;
@@ -267,37 +266,24 @@ fn main() -> Result<()> {
 
             if let Some(unroll_depth) = unroll {
                 model.lines.clear();
-                for n in 0..unroll_depth {
-                    unroll_model(&mut model, n);
-                }
-                prune_model(&mut model);
-                match solver {
-                    SmtType::Generic => optimize_model::<none_impl::NoneSolver>(&mut model),
-                    #[cfg(feature = "boolector")]
-                    SmtType::Boolector => {
-                        optimize_model::<boolector_impl::BoolectorSolver>(&mut model)
+                if let Some(ref output_path) = output {
+                    let file = File::create(output_path)?;
+                    let qc = QuantumCircuit::new(&model, 64); // 64 is a paramater describing wordsize
+                                                              // TODO: make wordsize parameter customizable from command line
+                    let _ = qc.process_model(file, unroll_depth);
+                    if has_concrete_inputs {
+                        let _inputs = expect_optional_arg::<String>(args, "inputs")?;
+                        unimplemented!();
                     }
-                    #[cfg(feature = "z3")]
-                    SmtType::Z3 => optimize_model::<z3solver_impl::Z3SolverWrapper>(&mut model),
+                } else {
+                    panic!("Provide output path!")
                 }
-                renumber_model(&mut model);
+                // TODO: USE SMT-SOLVER no keep reducing model size
             } else {
                 panic!("must provide unroll depth")
             }
 
-            if has_concrete_inputs {
-                let _inputs = expect_optional_arg::<String>(args, "inputs")?;
-                unimplemented!();
-            }
-
-            if let Some(ref output_path) = output {
-                let file = File::create(output_path)?;
-                let qc = QuantumCircuit::new(&model, 64); // 64 is a paramater describing wordsize
-                                                          // TODO: make wordsize parameter customizable from command line
-                qc.process_model(file)
-            } else {
-                panic!("Provide output path!")
-            }
+            Ok(())
         }
         Some(("dwave", args)) => {
             let input = args.get_one::<String>("input-file").unwrap();
