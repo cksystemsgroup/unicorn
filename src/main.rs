@@ -25,6 +25,7 @@ use bytesize::ByteSize;
 use cli::{collect_arg_values, expect_arg, expect_optional_arg, LogLevel, SmtType};
 use env_logger::{Env, TimestampPrecision};
 use riscu::load_object_file;
+use self::unicorn::quarc::QuantumCircuit;
 use std::{
     env,
     fs::File,
@@ -289,7 +290,9 @@ fn main() -> Result<()> {
                 unimplemented!();
             }
 
-            // TODO: implement QUARC
+            let qc = QuantumCircuit::new(&model, 64); // 64 is a paramater describing wordsize
+            // TODO: make wordsize parameter customizable from command line
+            qc.process_model();
             Ok(())
         }
         Some(("dwave", args)) => {
