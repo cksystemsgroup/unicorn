@@ -1,4 +1,4 @@
-use crate::unicorn::{HashableNodeRef, Model, Node, NodeRef};
+use crate::unicorn::{HashableNodeRef, Model, Node, NodeRef, NodeType};
 use anyhow::Result;
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -21,9 +21,7 @@ pub enum Unitary {}
 pub enum Qubit {
     ConstTrue,
     ConstFalse,
-    QBit {
-        name: String
-    }
+    QBit { name: String },
 }
 
 impl From<Qubit> for QubitRef {
@@ -60,6 +58,29 @@ impl PartialEq for HashableQubitRef {
 }
 
 // END structs declaration
+
+// BEGIN some functions
+
+fn get_gate_from_constant_bit(bit: u64) -> QubitRef {
+    assert!((bit == 0) | (bit == 1));
+    if bit == 1 {
+        QubitRef::from(Qubit::ConstTrue)
+    } else {
+        QubitRef::from(Qubit::ConstFalse)
+    }
+}
+
+fn get_replacement_from_constant(sort: &NodeType, value_: u64) -> Vec<QubitRef> {
+    let total_bits = sort.bitsize();
+    let mut replacement: Vec<QubitRef> = Vec::new();
+    let mut value = value_;
+    for _ in 0..total_bits {
+        replacement.push(get_gate_from_constant_bit(value % 2));
+        value /= 2;
+    }
+    replacement
+}
+// END some functions
 
 // Begin implementation
 
@@ -113,44 +134,71 @@ impl<'a> QuantumCircuit<'a> {
 
     fn process(&mut self, node: &NodeRef) -> Vec<QubitRef> {
         match &*node.borrow() {
-            Node::Const {
-                sort: _, imm: _, ..
-            } => {
-                unimplemented!()
+            Node::Const { sort, imm, .. } => {
+                let replacement = get_replacement_from_constant(sort, *imm);
+                assert!(replacement.len() == sort.bitsize());
+                self.record_mapping(node, replacement)
             }
             Node::State {
                 init: None,
-                sort: _,
-                name: _,
+                sort,
+                name,
                 ..
             } => {
-                unimplemented!()
+                // this is an input
+                let mut replacement: Vec<QubitRef> = Vec::new();
+                let name = name.as_deref().unwrap_or("?");
+                for i in 0..sort.bitsize() {
+                    let name = format!("{}[bit={}]", name, i);
+                    replacement.push(QubitRef::from(Qubit::QBit { name }));
+                }
+                self.input_qubits.push((node.clone(), replacement.clone()));
+                assert!(replacement.len() == sort.bitsize());
+                self.record_mapping(node, replacement)
             }
-            Node::Input {
-                sort: _, name: _, ..
-            } => {
-                unimplemented!()
+            Node::Input { sort, name, .. } => {
+                let mut replacement: Vec<QubitRef> = Vec::new();
+                for i in 0..sort.bitsize() {
+                    let name = format!("{}[bit={}]", name, i);
+                    replacement.push(QubitRef::from(Qubit::QBit { name }));
+                }
+                self.input_qubits.push((node.clone(), replacement.clone()));
+                assert!(replacement.len() == sort.bitsize());
+                self.record_mapping(node, replacement)
             }
-            Node::State {
-                sort: _, init: _, ..
-            } => {
-                unimplemented!()
+            Node::State { sort, init, .. } => {
+                // This is a normal state
+                let mut replacement = Vec::new();
+                if let Some(value) = init {
+                    replacement = self.visit(value);
+                } else {
+                    for _ in 0..sort.bitsize() {
+                        replacement.push(QubitRef::from(Qubit::ConstFalse));
+                    }
+                }
+                assert!(replacement.len() == sort.bitsize());
+                self.record_mapping(node, replacement)
             }
             Node::Not { value: _, .. } => {
                 unimplemented!()
             }
-            Node::Bad { cond: _, .. } => {
-                unimplemented!()
+            Node::Bad { cond, .. } => {
+                let replacement = self.visit(cond);
+                assert!(replacement.len() == 1);
+                self.record_mapping(node, replacement)
             }
             Node::And {
                 left: _, right: _, ..
             } => {
                 unimplemented!()
             }
-            Node::Ext {
-                from: _, value: _, ..
-            } => {
-                unimplemented!()
+            Node::Ext { from, value, .. } => {
+                let mut replacement: Vec<QubitRef> = self.visit(value);
+                assert!(replacement.len() == from.bitsize());
+                for _ in 0..(64 - from.bitsize()) {
+                    replacement.push(QubitRef::from(Qubit::ConstFalse));
+                }
+                self.record_mapping(node, replacement)
             }
             Node::Eq {
                 left: _, right: _, ..
@@ -211,12 +259,12 @@ impl<'a> QuantumCircuit<'a> {
                 unimplemented!()
             }
             _ => {
-                panic!("this should not be happening!");
+                panic!("Unknown BTOR2 node!");
             }
         }
     }
 
-    pub fn process_model<W>(mut self, mut out: W) -> Result<()>
+    pub fn process_model<W>(mut self, out: W) -> Result<()>
     where
         W: Write,
     {
