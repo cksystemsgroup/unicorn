@@ -18,6 +18,7 @@ use crate::unicorn::solver::*;
 use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
 use crate::unicorn::write_model;
 
+use self::unicorn::quarc::QuantumCircuit;
 use ::unicorn::disassemble::disassemble;
 use ::unicorn::emulate::EmulatorState;
 use anyhow::{Context, Result};
@@ -25,7 +26,6 @@ use bytesize::ByteSize;
 use cli::{collect_arg_values, expect_arg, expect_optional_arg, LogLevel, SmtType};
 use env_logger::{Env, TimestampPrecision};
 use riscu::load_object_file;
-use self::unicorn::quarc::QuantumCircuit;
 use std::{
     env,
     fs::File,
@@ -245,7 +245,7 @@ fn main() -> Result<()> {
         Some(("quarc", args)) => {
             let input = expect_arg::<PathBuf>(args, "input-file")?;
             let input_is_btor2 = args.contains_id("from-btor2");
-            let _output = expect_optional_arg::<PathBuf>(args, "output-file")?;
+            let output = expect_optional_arg::<PathBuf>(args, "output-file")?;
 
             let max_heap = *args.get_one::<u32>("max-heap").unwrap();
             let max_stack = *args.get_one::<u32>("max-stack").unwrap();
@@ -290,10 +290,14 @@ fn main() -> Result<()> {
                 unimplemented!();
             }
 
-            let qc = QuantumCircuit::new(&model, 64); // 64 is a paramater describing wordsize
-            // TODO: make wordsize parameter customizable from command line
-            qc.process_model();
-            Ok(())
+            if let Some(ref output_path) = output {
+                let file = File::create(output_path)?;
+                let qc = QuantumCircuit::new(&model, 64); // 64 is a paramater describing wordsize
+                // TODO: make wordsize parameter customizable from command line
+                qc.process_model(file)
+            } else {
+                panic!("Provide output path!")
+            }
         }
         Some(("dwave", args)) => {
             let input = args.get_one::<String>("input-file").unwrap();

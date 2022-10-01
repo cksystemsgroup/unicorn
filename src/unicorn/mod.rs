@@ -19,10 +19,10 @@ pub mod dimacs_parser;
 pub mod emulate_loader;
 pub mod memory;
 pub mod optimize;
+pub mod quarc;
 pub mod qubot;
 pub mod solver;
 pub mod unroller;
-pub mod quarc;
 
 pub type Nid = u64;
 pub type NodeRef = Rc<RefCell<Node>>;

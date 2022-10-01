@@ -1,9 +1,11 @@
 use crate::unicorn::{HashableNodeRef, Model, Node, NodeRef};
+use anyhow::Result;
 use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
+use std::io::Write;
 use std::rc::Rc;
-use std::collections::VecDeque;
 
 //
 // Public Interface
@@ -13,9 +15,7 @@ use std::collections::VecDeque;
 pub type UnitaryRef = Rc<RefCell<Unitary>>;
 
 #[derive(Debug)]
-pub enum Unitary {
-
-}
+pub enum Unitary {}
 
 #[derive(Debug)]
 pub struct Qubit {
@@ -34,7 +34,6 @@ pub type QubitRef = Rc<RefCell<Qubit>>;
 pub struct HashableQubitRef {
     pub value: QubitRef,
 }
-
 
 impl Eq for HashableQubitRef {}
 
@@ -74,7 +73,7 @@ pub struct QuantumCircuit<'a> {
 }
 
 impl<'a> QuantumCircuit<'a> {
-    pub fn new (model_: &'a Model, word_size_: u64) -> Self{
+    pub fn new(model_: &'a Model, word_size_: u64) -> Self {
         Self {
             bad_state_qubits: Vec::new(),
             bad_state_nodes: Vec::new(),
@@ -85,7 +84,7 @@ impl<'a> QuantumCircuit<'a> {
             circuit_stack: VecDeque::new(),
             model: model_,
             _word_size: word_size_,
-            count_multiqubit_gates: 0
+            count_multiqubit_gates: 0,
         }
     }
 
@@ -110,7 +109,9 @@ impl<'a> QuantumCircuit<'a> {
 
     fn process(&mut self, node: &NodeRef) -> Vec<QubitRef> {
         match &*node.borrow() {
-            Node::Const { sort: _, imm: _, .. } => {
+            Node::Const {
+                sort: _, imm: _, ..
+            } => {
                 unimplemented!()
             }
             Node::State {
@@ -121,10 +122,14 @@ impl<'a> QuantumCircuit<'a> {
             } => {
                 unimplemented!()
             }
-            Node::Input { sort: _, name: _, .. } => {
+            Node::Input {
+                sort: _, name: _, ..
+            } => {
                 unimplemented!()
             }
-            Node::State { sort: _, init: _, .. } => {
+            Node::State {
+                sort: _, init: _, ..
+            } => {
                 unimplemented!()
             }
             Node::Not { value: _, .. } => {
@@ -133,40 +138,63 @@ impl<'a> QuantumCircuit<'a> {
             Node::Bad { cond: _, .. } => {
                 unimplemented!()
             }
-            Node::And { left: _, right: _, .. } => {
-                unimplemented!()
-            }
-            Node::Ext { from: _, value: _, .. } => {
-                unimplemented!()
-            }
-            Node::Eq { left: _, right: _, .. } => {
-                unimplemented!()
-            }
-            Node::Add { left: _, right: _, .. } => {
-                unimplemented!()
-            }
-            Node::Ite {
-                cond: _, left: _, right: _, ..
+            Node::And {
+                left: _, right: _, ..
             } => {
                 unimplemented!()
             }
-            Node::Sub { left: _, right: _, .. } => {
+            Node::Ext {
+                from: _, value: _, ..
+            } => {
                 unimplemented!()
             }
-            Node::Ult { left: _, right: _, .. } => {
+            Node::Eq {
+                left: _, right: _, ..
+            } => {
                 unimplemented!()
             }
-            Node::Mul { left: _, right: _, .. } => {
+            Node::Add {
+                left: _, right: _, ..
+            } => {
                 unimplemented!()
             }
-            Node::Div { left: _, right: _, .. } => {
+            Node::Ite {
+                cond: _,
+                left: _,
+                right: _,
+                ..
+            } => {
                 unimplemented!()
             }
-            Node::Rem { left: _, right: _, .. } => {
+            Node::Sub {
+                left: _, right: _, ..
+            } => {
+                unimplemented!()
+            }
+            Node::Ult {
+                left: _, right: _, ..
+            } => {
+                unimplemented!()
+            }
+            Node::Mul {
+                left: _, right: _, ..
+            } => {
+                unimplemented!()
+            }
+            Node::Div {
+                left: _, right: _, ..
+            } => {
+                unimplemented!()
+            }
+            Node::Rem {
+                left: _, right: _, ..
+            } => {
                 unimplemented!()
             }
             Node::Read {
-                memory: _, address: _, ..
+                memory: _,
+                address: _,
+                ..
             } => {
                 unimplemented!()
             }
@@ -184,12 +212,14 @@ impl<'a> QuantumCircuit<'a> {
         }
     }
 
-    pub fn process_model(mut self) {
-        assert!(self.bad_state_qubits.len() == 0);
-        assert!(self.bad_state_nodes.len() == 0);
-        assert!(self.input_qubits.len() == 0);
-        assert!(self.circuit_stack.len() == 0);
-        
+    pub fn process_model<W>(mut self, mut out: W) -> Result<()>
+    where
+        W: Write,
+    {
+        assert!(self.bad_state_qubits.is_empty());
+        assert!(self.bad_state_nodes.is_empty());
+        assert!(self.input_qubits.is_empty());
+        assert!(self.circuit_stack.is_empty());
 
         for node in &self.model.bad_states_initial {
             let bitblasted_bad_state = self.process(node);
@@ -197,6 +227,13 @@ impl<'a> QuantumCircuit<'a> {
             self.bad_state_qubits.push(bitblasted_bad_state[0].clone());
         }
 
+        self.write_model(out)
+    }
+
+    pub fn write_model<W>(self, mut _out: W) -> Result<()>
+    where
+        W: Write,
+    {
+        unimplemented!()
     }
 }
-
