@@ -293,7 +293,7 @@ fn main() -> Result<()> {
             if let Some(ref output_path) = output {
                 let file = File::create(output_path)?;
                 let qc = QuantumCircuit::new(&model, 64); // 64 is a paramater describing wordsize
-                // TODO: make wordsize parameter customizable from command line
+                                                          // TODO: make wordsize parameter customizable from command line
                 qc.process_model(file)
             } else {
                 panic!("Provide output path!")
