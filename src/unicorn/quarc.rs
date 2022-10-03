@@ -1,7 +1,6 @@
 use crate::unicorn::{HashableNodeRef, Model, Node, NodeRef, NodeType};
 use anyhow::Result;
 use std::cell::RefCell;
-use std::collections::VecDeque;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::io::Write;
@@ -118,7 +117,7 @@ pub struct QuantumCircuit<'a> {
     pub constraints: HashMap<HashableQubitRef, bool>, // this is for remainder and division, these are constraint based.
     pub input_qubits: Vec<(NodeRef, Vec<QubitRef>)>,
     pub mapping: HashMap<HashableNodeRef, HashMap<usize, Vec<QubitRef>>>, // maps a btor2 operator to its resulting bitvector of gates
-    pub circuit_stack: VecDeque<UnitaryRef>,
+    pub circuit_stack: Vec<UnitaryRef>,
     pub count_multiqubit_gates: u64,
     pub current_n: usize,
     pub current_state_nodes: HashMap<HashableNodeRef, usize>,
@@ -136,7 +135,7 @@ impl<'a> QuantumCircuit<'a> {
             all_qubits: HashSet::new(),
             input_qubits: Vec::new(),
             mapping: HashMap::new(),
-            circuit_stack: VecDeque::new(),
+            circuit_stack: Vec::new(),
             current_state_nodes: HashMap::new(),
             model: model_,
             word_size: word_size_,
@@ -156,7 +155,7 @@ impl<'a> QuantumCircuit<'a> {
                 QubitRef::from(Qubit::ConstTrue)
             }
         } else {
-            self.circuit_stack.push_back(UnitaryRef::from(Unitary::Not {
+            self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
                 input: a_qubit.clone(),
             }));
             a_qubit.clone()
@@ -299,7 +298,7 @@ impl<'a> QuantumCircuit<'a> {
                 }
             }
             Node::Bad { cond, .. } => {
-                self.circuit_stack.push_back(UnitaryRef::from(Unitary::Barrier));
+                self.circuit_stack.push(UnitaryRef::from(Unitary::Barrier));
                 let replacement = self.process(cond);
                 assert!(replacement.len() == 1);
                 if self.use_dynamic_memory {
@@ -384,7 +383,7 @@ impl<'a> QuantumCircuit<'a> {
             }
             Node::Next { state, next, .. } => {
                 let _ = self.process(state);
-                self.circuit_stack.push_back(UnitaryRef::from(Unitary::Barrier));
+                self.circuit_stack.push(UnitaryRef::from(Unitary::Barrier));
                 let replacement = self.process(next);
                 if self.use_dynamic_memory {
                     self.uncompute();
