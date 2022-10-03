@@ -216,6 +216,12 @@ pub fn args() -> Command<'static> {
                         .long("from-btor2")
                 )
                 .arg(
+                    Arg::new("dynamic-memory")
+                        .help("Pass this flag to compile a program with dynamic quantum memory")
+                        .short('d')
+                        .long("dynamic-memory")
+                )
+                .arg(
                     Arg::new("output-file")
                         .help("Output path for the generated QUBO model")
                         .short('o')

@@ -245,6 +245,7 @@ fn main() -> Result<()> {
         Some(("quarc", args)) => {
             let input = expect_arg::<PathBuf>(args, "input-file")?;
             let input_is_btor2 = args.contains_id("from-btor2");
+            let use_dynamic_memory = args.contains_id("dynamic-memory");
             let output = expect_optional_arg::<PathBuf>(args, "output-file")?;
 
             let max_heap = *args.get_one::<u32>("max-heap").unwrap();
@@ -268,8 +269,8 @@ fn main() -> Result<()> {
                 model.lines.clear();
                 if let Some(ref output_path) = output {
                     let file = File::create(output_path)?;
-                    let qc = QuantumCircuit::new(&model, 64); // 64 is a paramater describing wordsize
-                                                              // TODO: make wordsize parameter customizable from command line
+                    let qc = QuantumCircuit::new(&model, 64, use_dynamic_memory); // 64 is a paramater describing wordsize
+                                                                                  // TODO: make wordsize parameter customizable from command line
                     let _ = qc.process_model(file, unroll_depth);
                     if has_concrete_inputs {
                         let _inputs = expect_optional_arg::<String>(args, "inputs")?;

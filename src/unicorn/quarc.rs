@@ -113,10 +113,11 @@ pub struct QuantumCircuit<'a> {
     pub current_state_nodes: HashMap<HashableNodeRef, usize>,
     word_size: usize,
     model: &'a Model, // BTOR2 model
+    use_dynamic_memory: bool,
 }
 
 impl<'a> QuantumCircuit<'a> {
-    pub fn new(model_: &'a Model, word_size_: usize) -> Self {
+    pub fn new(model_: &'a Model, word_size_: usize, use_dynamic_memory_: bool) -> Self {
         Self {
             bad_state_qubits: Vec::new(),
             bad_state_nodes: Vec::new(),
@@ -130,6 +131,7 @@ impl<'a> QuantumCircuit<'a> {
             word_size: word_size_,
             count_multiqubit_gates: 0,
             current_n: 0,
+            use_dynamic_memory: use_dynamic_memory_,
         }
     }
 
@@ -188,6 +190,10 @@ impl<'a> QuantumCircuit<'a> {
                 }
             }
         }
+    }
+
+    fn uncompute(&mut self) {
+        println!("uncompute from dynamic memory");
     }
 
     fn record_mapping(
@@ -283,6 +289,9 @@ impl<'a> QuantumCircuit<'a> {
             Node::Bad { cond, .. } => {
                 let replacement = self.process(cond);
                 assert!(replacement.len() == 1);
+                if self.use_dynamic_memory {
+                    self.uncompute();
+                }
                 self.record_mapping(node, self.current_n, replacement)
             }
             Node::And {
@@ -363,6 +372,9 @@ impl<'a> QuantumCircuit<'a> {
             Node::Next { state, next, .. } => {
                 let _ = self.process(state);
                 let replacement = self.process(next);
+                if self.use_dynamic_memory {
+                    self.uncompute();
+                }
                 self.record_mapping(state, self.current_n, replacement)
             }
             _ => {
