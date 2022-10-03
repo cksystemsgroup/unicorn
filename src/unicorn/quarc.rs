@@ -15,16 +15,21 @@ pub type UnitaryRef = Rc<RefCell<Unitary>>;
 
 #[derive(Debug)]
 pub enum Unitary {
+    ConstTrue,
+    ConstFalse,
+    Input {
+        name: String,
+    },
     Not {
-        input: QubitRef,
+        input: UnitaryRef,
     },
     Cnot {
-        control: QubitRef,
-        target: QubitRef,
+        control: UnitaryRef,
+        target: UnitaryRef,
     },
     Mcx {
-        controls: Vec<QubitRef>,
-        target: QubitRef,
+        controls: Vec<UnitaryRef>,
+        target: UnitaryRef,
     },
     Barrier,
 }
@@ -36,40 +41,25 @@ impl From<Unitary> for UnitaryRef {
 }
 
 #[derive(Debug)]
-pub enum Qubit {
-    ConstTrue,
-    ConstFalse,
-    QBit { name: String },
+pub struct HashableUnitaryRef {
+    pub value: UnitaryRef,
 }
 
-impl From<Qubit> for QubitRef {
-    fn from(gate: Qubit) -> Self {
-        Rc::new(RefCell::new(gate))
-    }
-}
+impl Eq for HashableUnitaryRef {}
 
-pub type QubitRef = Rc<RefCell<Qubit>>;
-
-#[derive(Debug)]
-pub struct HashableQubitRef {
-    pub value: QubitRef,
-}
-
-impl Eq for HashableQubitRef {}
-
-impl From<QubitRef> for HashableQubitRef {
-    fn from(node: QubitRef) -> Self {
+impl From<UnitaryRef> for HashableUnitaryRef {
+    fn from(node: UnitaryRef) -> Self {
         Self { value: node }
     }
 }
 
-impl Hash for HashableQubitRef {
+impl Hash for HashableUnitaryRef {
     fn hash<H: Hasher>(&self, state: &mut H) {
         RefCell::as_ptr(&self.value).hash(state);
     }
 }
 
-impl PartialEq for HashableQubitRef {
+impl PartialEq for HashableUnitaryRef {
     fn eq(&self, other: &Self) -> bool {
         RefCell::as_ptr(&self.value) == RefCell::as_ptr(&other.value)
     }
@@ -79,18 +69,18 @@ impl PartialEq for HashableQubitRef {
 
 // BEGIN some functions
 
-fn get_gate_from_constant_bit(bit: u64) -> QubitRef {
+fn get_gate_from_constant_bit(bit: u64) -> UnitaryRef {
     assert!((bit == 0) | (bit == 1));
     if bit == 1 {
-        QubitRef::from(Qubit::ConstTrue)
+        UnitaryRef::from(Unitary::ConstTrue)
     } else {
-        QubitRef::from(Qubit::ConstFalse)
+        UnitaryRef::from(Unitary::ConstFalse)
     }
 }
 
-fn get_replacement_from_constant(sort: &NodeType, value_: u64) -> Vec<QubitRef> {
+fn get_replacement_from_constant(sort: &NodeType, value_: u64) -> Vec<UnitaryRef> {
     let total_bits = sort.bitsize();
-    let mut replacement: Vec<QubitRef> = Vec::new();
+    let mut replacement: Vec<UnitaryRef> = Vec::new();
     let mut value = value_;
     for _ in 0..total_bits {
         replacement.push(get_gate_from_constant_bit(value % 2));
@@ -99,10 +89,10 @@ fn get_replacement_from_constant(sort: &NodeType, value_: u64) -> Vec<QubitRef> 
     replacement
 }
 
-fn get_constant(gate_type: &QubitRef) -> Option<bool> {
+fn get_constant(gate_type: &UnitaryRef) -> Option<bool> {
     match &*gate_type.borrow() {
-        Qubit::ConstFalse => Some(false),
-        Qubit::ConstTrue => Some(true),
+        Unitary::ConstFalse => Some(false),
+        Unitary::ConstTrue => Some(true),
         _ => None,
     }
 }
@@ -111,12 +101,12 @@ fn get_constant(gate_type: &QubitRef) -> Option<bool> {
 // Begin implementation
 
 pub struct QuantumCircuit<'a> {
-    pub bad_state_qubits: Vec<QubitRef>,
+    pub bad_state_qubits: Vec<UnitaryRef>,
     pub bad_state_nodes: Vec<NodeRef>,
-    pub all_qubits: HashSet<QubitRef>,
-    pub constraints: HashMap<HashableQubitRef, bool>, // this is for remainder and division, these are constraint based.
-    pub input_qubits: Vec<(NodeRef, Vec<QubitRef>)>,
-    pub mapping: HashMap<HashableNodeRef, HashMap<usize, Vec<QubitRef>>>, // maps a btor2 operator to its resulting bitvector of gates
+    pub all_qubits: HashSet<UnitaryRef>,
+    pub constraints: HashMap<HashableUnitaryRef, bool>, // this is for remainder and division, these are constraint based.
+    pub input_qubits: Vec<(NodeRef, Vec<UnitaryRef>)>,
+    pub mapping: HashMap<HashableNodeRef, HashMap<usize, Vec<UnitaryRef>>>, // maps a btor2 operator to its resulting bitvector of gates
     pub circuit_stack: Vec<UnitaryRef>,
     pub count_multiqubit_gates: u64,
     pub current_n: usize,
@@ -145,14 +135,14 @@ impl<'a> QuantumCircuit<'a> {
         }
     }
 
-    fn not_gate(&mut self, a_qubit: &QubitRef) -> QubitRef {
+    fn not_gate(&mut self, a_qubit: &UnitaryRef) -> UnitaryRef {
         let a = get_constant(a_qubit);
 
         if let Some(a_const) = a {
             if a_const {
-                QubitRef::from(Qubit::ConstFalse)
+                UnitaryRef::from(Unitary::ConstFalse)
             } else {
-                QubitRef::from(Qubit::ConstTrue)
+                UnitaryRef::from(Unitary::ConstTrue)
             }
         } else {
             self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
@@ -162,7 +152,7 @@ impl<'a> QuantumCircuit<'a> {
         }
     }
 
-    fn get_last_qubitset(&mut self, node: &NodeRef) -> Option<Vec<QubitRef>> {
+    fn get_last_qubitset(&mut self, node: &NodeRef) -> Option<Vec<UnitaryRef>> {
         let key = HashableNodeRef::from(node.clone());
 
         if !self.mapping.contains_key(&key) {
@@ -211,8 +201,8 @@ impl<'a> QuantumCircuit<'a> {
         &mut self,
         node: &NodeRef,
         index: usize,
-        replacement: Vec<QubitRef>,
-    ) -> Vec<QubitRef> {
+        replacement: Vec<UnitaryRef>,
+    ) -> Vec<UnitaryRef> {
         let key = HashableNodeRef::from(node.clone());
 
         if !self.mapping.contains_key(&key) {
@@ -225,14 +215,14 @@ impl<'a> QuantumCircuit<'a> {
         replacement
     }
 
-    fn process_input(&mut self, sort: usize, node: &NodeRef, name: String) -> Vec<QubitRef> {
+    fn process_input(&mut self, sort: usize, node: &NodeRef, name: String) -> Vec<UnitaryRef> {
         if let Some(replacement) = self.get_last_qubitset(node) {
             replacement
         } else {
-            let mut replacement: Vec<QubitRef> = Vec::new();
+            let mut replacement: Vec<UnitaryRef> = Vec::new();
             for i in 0..sort {
                 let name = format!("{}[bit={}]", name, i);
-                replacement.push(QubitRef::from(Qubit::QBit { name }));
+                replacement.push(UnitaryRef::from(Unitary::Input { name }));
             }
             self.input_qubits.push((node.clone(), replacement.clone()));
             assert!(replacement.len() == sort);
@@ -240,7 +230,7 @@ impl<'a> QuantumCircuit<'a> {
         }
     }
 
-    fn process(&mut self, node: &NodeRef) -> Vec<QubitRef> {
+    fn process(&mut self, node: &NodeRef) -> Vec<UnitaryRef> {
         match &*node.borrow() {
             Node::Const { sort, imm, .. } => {
                 if let Some(replacement) = self.get_last_qubitset(node) {
@@ -277,7 +267,7 @@ impl<'a> QuantumCircuit<'a> {
                         replacement = self.process(value);
                     } else {
                         for _ in 0..sort.bitsize() {
-                            replacement.push(QubitRef::from(Qubit::ConstFalse));
+                            replacement.push(UnitaryRef::from(Unitary::ConstFalse));
                         }
                     }
                     assert!(replacement.len() == sort.bitsize());
@@ -289,7 +279,7 @@ impl<'a> QuantumCircuit<'a> {
                     replacement
                 } else {
                     let bitvector = self.process(value);
-                    let mut replacement: Vec<QubitRef> = Vec::new();
+                    let mut replacement: Vec<UnitaryRef> = Vec::new();
                     for bit in &bitvector {
                         replacement.push(self.not_gate(bit));
                     }
@@ -315,10 +305,10 @@ impl<'a> QuantumCircuit<'a> {
                 if let Some(replacement) = self.get_last_qubitset(node) {
                     replacement
                 } else {
-                    let mut replacement: Vec<QubitRef> = self.process(value);
+                    let mut replacement: Vec<UnitaryRef> = self.process(value);
                     assert!(replacement.len() == from.bitsize());
                     for _ in 0..(self.word_size - from.bitsize()) {
-                        replacement.push(QubitRef::from(Qubit::ConstFalse));
+                        replacement.push(UnitaryRef::from(Unitary::ConstFalse));
                     }
                     self.record_mapping(node, self.current_n, replacement)
                 }
