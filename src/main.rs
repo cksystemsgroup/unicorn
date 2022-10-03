@@ -74,11 +74,11 @@ fn main() -> Result<()> {
             let memory_size = ByteSize::mib(*args.get_one("memory").unwrap()).as_u64();
             let has_concrete_inputs = is_beator && args.contains_id("inputs");
             let inputs = expect_optional_arg::<String>(args, "inputs")?;
-            let prune = !is_beator || args.contains_id("prune-model");
-            let input_is_btor2 = args.contains_id("from-btor2");
-            let input_is_dimacs = !is_beator && args.contains_id("from-dimacs");
-            let compile_model = is_beator && args.contains_id("compile");
-            let emulate_model = is_beator && args.contains_id("emulate");
+            let prune = !is_beator || args.get_flag("prune-model");
+            let input_is_btor2 = args.get_flag("from-btor2");
+            let input_is_dimacs = !is_beator && args.get_flag("from-dimacs");
+            let compile_model = is_beator && args.get_flag("compile");
+            let emulate_model = is_beator && args.get_flag("emulate");
             let arg0 = expect_arg::<String>(args, "input-file")?;
             let extras = collect_arg_values(args, "extras");
 
@@ -168,8 +168,8 @@ fn main() -> Result<()> {
             }
 
             if is_beator {
-                let bitblast = args.contains_id("bitblast");
-                let dimacs = args.contains_id("dimacs");
+                let bitblast = args.get_flag("bitblast");
+                let dimacs = args.get_flag("dimacs");
 
                 if bitblast {
                     let gate_model = bitblast_model(&model.unwrap(), true, 64);
@@ -192,7 +192,7 @@ fn main() -> Result<()> {
                     write_model(&model.unwrap(), stdout())?;
                 }
             } else {
-                let is_ising = args.contains_id("ising");
+                let is_ising = args.get_flag("ising");
 
                 let gate_model = if !input_is_dimacs {
                     bitblast_model(&model.unwrap(), true, 64)
