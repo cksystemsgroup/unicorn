@@ -360,8 +360,8 @@ impl<'a> QuantumCircuit<'a> {
             } => {
                 unimplemented!()
             }
-            Node::Next {state, next , ..} => {
-                let _  = self.process(state);
+            Node::Next { state, next, .. } => {
+                let _ = self.process(state);
                 let replacement = self.process(next);
                 self.record_mapping(state, self.current_n, replacement)
             }
@@ -385,7 +385,7 @@ impl<'a> QuantumCircuit<'a> {
             self.current_n = i;
             for sequential in &self.model.sequentials {
                 if let Node::Next { .. } = &*sequential.borrow() {
-                    let _  = self.process(sequential);
+                    let _ = self.process(sequential);
                     // TODO: flush memory, and reset ancillas
                 } else {
                     panic!("expecting 'Next' node here");
