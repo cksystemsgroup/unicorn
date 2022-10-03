@@ -204,6 +204,7 @@ impl<'a> QuantumCircuit<'a> {
     }
 
     fn uncompute(&mut self) {
+        // TODO: add swaps before uncomputing
         println!("uncompute from dynamic memory");
     }
 
