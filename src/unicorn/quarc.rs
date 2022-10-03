@@ -298,6 +298,7 @@ impl<'a> QuantumCircuit<'a> {
                 }
             }
             Node::Bad { cond, .. } => {
+                self.circuit_stack.push_back(UnitaryRef::from(Unitary::Barrier));
                 let replacement = self.process(cond);
                 assert!(replacement.len() == 1);
                 if self.use_dynamic_memory {
@@ -382,6 +383,7 @@ impl<'a> QuantumCircuit<'a> {
             }
             Node::Next { state, next, .. } => {
                 let _ = self.process(state);
+                self.circuit_stack.push_back(UnitaryRef::from(Unitary::Barrier));
                 let replacement = self.process(next);
                 if self.use_dynamic_memory {
                     self.uncompute();
