@@ -16,7 +16,18 @@ pub type UnitaryRef = Rc<RefCell<Unitary>>;
 
 #[derive(Debug)]
 pub enum Unitary {
-    Not { input: QubitRef },
+    Not {
+        input: QubitRef,
+    },
+    Cnot {
+        control: QubitRef,
+        target: QubitRef,
+    },
+    Mcx {
+        controls: Vec<QubitRef>,
+        target: QubitRef,
+    },
+    Barrier,
 }
 
 impl From<Unitary> for UnitaryRef {
