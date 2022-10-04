@@ -115,6 +115,7 @@ pub struct QuantumCircuit<'a> {
     pub bad_state_nodes: Vec<NodeRef>,
     pub all_qubits: HashSet<QubitRef>,
     pub constraints: HashMap<HashableQubitRef, bool>, // this is for remainder and division, these are constraint based.
+    pub dynamic_memory: HashMap<HashableNodeRef, Vec<QubitRef>>,
     pub input_qubits: Vec<(NodeRef, Vec<QubitRef>)>,
     pub mapping: HashMap<HashableNodeRef, HashMap<usize, Vec<QubitRef>>>, // maps a btor2 operator to its resulting bitvector of gates
     pub circuit_stack: Vec<UnitaryRef>,
@@ -137,6 +138,7 @@ impl<'a> QuantumCircuit<'a> {
             mapping: HashMap::new(),
             circuit_stack: Vec::new(),
             current_state_nodes: HashMap::new(),
+            dynamic_memory: HashMap::new(),
             model: model_,
             word_size: word_size_,
             count_multiqubit_gates: 0,
@@ -202,9 +204,71 @@ impl<'a> QuantumCircuit<'a> {
         }
     }
 
-    fn uncompute(&mut self) {
-        // TODO: add swaps before uncomputing
-        println!("uncompute from dynamic memory");
+    fn _get_memory(self, node: NodeRef) -> Vec<QubitRef> {
+        let key = HashableNodeRef::from(node);
+        if let Some(answer) = self.dynamic_memory.get(&key) {
+            answer.clone()
+        } else {
+            panic!("Trying to get unallocated memory")
+        }
+    }
+
+    fn uncompute(&mut self, current_replacement: Vec<QubitRef>) -> Vec<QubitRef> {
+        let mut new_replacement: Vec<QubitRef> = vec![];
+
+        // PERFORM SWAPS to start committing to memory
+        self.circuit_stack
+            .push(UnitaryRef::from(Unitary::Barrier {}));
+        for qubit in current_replacement {
+            match *qubit.borrow() {
+                Qubit::ConstTrue | Qubit::ConstFalse => {
+                    new_replacement.push(qubit.clone());
+                }
+                Qubit::QBit { .. } => self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot {
+                    control: qubit.clone(),
+                    target: QubitRef::from(Qubit::QBit {
+                        name: "random_name".to_string(),
+                    }),
+                })),
+            }
+        }
+        self.circuit_stack
+            .push(UnitaryRef::from(Unitary::Barrier {}));
+
+        // move to the part that we want to uncompute. I.e before the last 2 swaps
+        let mut i: i64 = self.circuit_stack.len() as i64;
+        let mut count_barriers = 0;
+
+        while count_barriers < 2 {
+            count_barriers += match *self.circuit_stack[i as usize].borrow() {
+                Unitary::Barrier => 1,
+                _ => 0,
+            };
+            i -= 1;
+        }
+        if i > -1 {
+            if let Unitary::Barrier = *self.circuit_stack[i as usize].borrow() {
+                panic!("barrier should not be here!")
+            }
+        }
+
+        // begin uncomputing
+        let mut is_end_loop = false;
+        while !is_end_loop {
+            let gate_ = match *self.circuit_stack[i as usize].borrow() {
+                Unitary::Barrier => None,
+                _ => Some(self.circuit_stack[i as usize].clone()),
+            };
+
+            if let Some(gate) = gate_ {
+                self.circuit_stack.push(gate);
+            } else {
+                is_end_loop = true;
+            }
+            i -= 1;
+        }
+
+        new_replacement
     }
 
     fn record_mapping(
@@ -302,9 +366,11 @@ impl<'a> QuantumCircuit<'a> {
                 let replacement = self.process(cond);
                 assert!(replacement.len() == 1);
                 if self.use_dynamic_memory {
-                    self.uncompute();
+                    let new_replacement = self.uncompute(replacement);
+                    self.record_mapping(node, self.current_n, new_replacement)
+                } else {
+                    self.record_mapping(node, self.current_n, replacement)
                 }
-                self.record_mapping(node, self.current_n, replacement)
             }
             Node::And {
                 left: _, right: _, ..
@@ -386,9 +452,11 @@ impl<'a> QuantumCircuit<'a> {
                 self.circuit_stack.push(UnitaryRef::from(Unitary::Barrier));
                 let replacement = self.process(next);
                 if self.use_dynamic_memory {
-                    self.uncompute();
+                    let new_replacement = self.uncompute(replacement);
+                    self.record_mapping(node, self.current_n, new_replacement)
+                } else {
+                    self.record_mapping(state, self.current_n, replacement)
                 }
-                self.record_mapping(state, self.current_n, replacement)
             }
             _ => {
                 panic!("Unknown BTOR2 node!");
