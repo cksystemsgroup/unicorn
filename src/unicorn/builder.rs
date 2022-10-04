@@ -43,11 +43,10 @@ struct ModelBuilder {
     lines: Vec<NodeRef>,
     sequentials: Vec<NodeRef>,
     bad_states: Vec<NodeRef>,
-    pc_flags: HashMap<u64, NodeRef>,
-    control_in: HashMap<u64, Vec<InEdge>>,
-    call_return: HashMap<u64, u64>,
-    current_reg_a7: u64,
-    current_callee: u64,
+    pc_flags: HashMap<u64, NodeRef>,       // maps PC -> PC-Flag
+    control_in: HashMap<u64, Vec<InEdge>>, // maps PC -> [InEdge]
+    dynamic_flags: Vec<NodeRef>,           // maps Register -> Dispatch-Flag
+    dynamic: Vec<Vec<DynDispatch>>,        // maps Register -> [DynDispatch]
     zero_bit: NodeRef,
     one_bit: NodeRef,
     zero_word: NodeRef,
@@ -77,11 +76,14 @@ struct InEdge {
     condition: Option<NodeRef>,
 }
 
+struct DynDispatch {
+    dispatch_address: u64,
+}
+
 enum FromInstruction {
-    Regular,      // fall-thru from regular instruction
-    Branch,       // target of conditional branch (e.g. beq, bne, ...)
-    FunctionCall, // return from function call (i.e. jalr)
-    SystemCall,   // return from system call (i.e. ecall)
+    Regular,    // fall-thru from regular instruction, or jump target (i.e. jal)
+    Branch,     // target of conditional branch (e.g. beq, bne, ...)
+    SystemCall, // return from system call (i.e. ecall)
 }
 
 impl ModelBuilder {
@@ -93,9 +95,8 @@ impl ModelBuilder {
             bad_states: Vec::new(),
             pc_flags: HashMap::new(),
             control_in: HashMap::new(),
-            call_return: HashMap::new(),
-            current_reg_a7: 0,
-            current_callee: 0,
+            dynamic_flags: Vec::with_capacity(NUMBER_OF_REGISTERS - 1),
+            dynamic: Vec::with_capacity(NUMBER_OF_REGISTERS - 1),
             zero_bit: dummy_node.clone(),
             one_bit: dummy_node.clone(),
             zero_word: dummy_node.clone(),
@@ -158,6 +159,23 @@ impl ModelBuilder {
     fn reg_flow_ite(&mut self, reg: Register, node: NodeRef) {
         let ite_node = self.new_ite(self.pc_flag(), node, self.reg_flow(reg), NodeType::Word);
         self.reg_flow_update(reg, ite_node);
+    }
+
+    fn dynamic_flag(&self, reg: Register) -> NodeRef {
+        assert!(reg != Register::Zero, "dispatch on zero");
+        self.dynamic_flags[reg as usize - 1].clone()
+    }
+
+    // Returns the list of registers on which dynamic dispatches are
+    // performed anywhere in the program. This is just an optimization,
+    // returning a list of all registers would be equally valid here.
+    fn dynamic_dispatches(&self) -> Vec<Register> {
+        self.dynamic
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| !v.is_empty())
+            .map(|(r, _)| Register::from(r as u32 + 1))
+            .collect()
     }
 
     fn add_node(&mut self, node_data: Node) -> NodeRef {
@@ -367,6 +385,12 @@ impl ModelBuilder {
             });
     }
 
+    fn go_to_anywhere(&mut self, from_address: u64, dispatch_register: Register) {
+        self.dynamic[dispatch_register as usize - 1].push(DynDispatch {
+            dispatch_address: from_address,
+        });
+    }
+
     fn model_unimplemented(&mut self, inst: Instruction) {
         let bad_name = format!("unimplemented-pc-{:x} ; {:?}", self.pc, inst);
         self.new_bad(self.pc_flag(), &bad_name);
@@ -517,13 +541,12 @@ impl ModelBuilder {
         self.model_branch(btype, t, f, Self::new_ugte)
     }
 
-    fn model_jal(&mut self, jtype: JType, out_link: &mut Option<NodeRef>) {
+    fn model_jal(&mut self, jtype: JType) {
         if jtype.rd() == Register::Zero {
             return;
         };
         let link_node = self.new_const(self.pc_add(INSTRUCTION_SIZE));
-        self.reg_flow_ite(jtype.rd(), link_node.clone());
-        out_link.replace(link_node);
+        self.reg_flow_ite(jtype.rd(), link_node);
     }
 
     fn model_ecall(&mut self) {
@@ -539,7 +562,6 @@ impl ModelBuilder {
     fn translate_to_model(&mut self, inst: Instruction) {
         let mut branch_true = None;
         let mut branch_false = None;
-        let mut jal_link = None;
 
         match inst {
             Instruction::Lui(utype) => self.model_lui(utype),
@@ -591,24 +613,13 @@ impl ModelBuilder {
             }
             Instruction::Bltu(btype) => self.model_bltu(btype, &mut branch_true, &mut branch_false),
             Instruction::Bgeu(btype) => self.model_bgeu(btype, &mut branch_true, &mut branch_false),
-            Instruction::Jal(jtype) => self.model_jal(jtype, &mut jal_link),
+            Instruction::Jal(jtype) => self.model_jal(jtype),
             Instruction::Jalr(_itype) => {} // TODO: Implement me!
             Instruction::Ecall(_) => self.model_ecall(),
             _ => todo!("{:?}", inst),
         }
 
         match inst {
-            Instruction::Addi(itype) => {
-                if itype.rd() == Register::A7 && itype.rs1() == Register::Zero {
-                    self.current_reg_a7 = itype.imm() as u64;
-                }
-                self.go_to_instruction(
-                    FromInstruction::Regular,
-                    self.pc,
-                    self.pc_add(INSTRUCTION_SIZE),
-                    None,
-                );
-            }
             Instruction::Lui(_)
             | Instruction::Auipc(_)
             | Instruction::Lb(_)
@@ -622,6 +633,7 @@ impl ModelBuilder {
             | Instruction::Sh(_)
             | Instruction::Sw(_)
             | Instruction::Sd(_)
+            | Instruction::Addi(_)
             | Instruction::Sltiu(_)
             | Instruction::Xori(_)
             | Instruction::Ori(_)
@@ -677,16 +689,6 @@ impl ModelBuilder {
                 );
             }
             Instruction::Jal(jtype) => {
-                if jtype.rd() != Register::Zero {
-                    assert!(jal_link.is_some(), "was set");
-                    let function_pc = self.pc_add(jtype.imm() as u64);
-                    self.go_to_instruction(
-                        FromInstruction::FunctionCall,
-                        function_pc,
-                        self.pc_add(INSTRUCTION_SIZE),
-                        jal_link,
-                    );
-                }
                 self.go_to_instruction(
                     FromInstruction::Regular,
                     self.pc,
@@ -699,19 +701,18 @@ impl ModelBuilder {
                     // TODO: Find a proper modeling for this.
                     warn!("Detected JALR that also links: {:#x}: {:?}", self.pc, inst);
                     self.model_unimplemented(inst);
-                } else if itype.rs1() != Register::Ra {
-                    // TODO: Find a proper modeling for this.
-                    warn!("Detected JALR dynamic dispatch: {:#x}: {:?}", self.pc, inst);
-                    self.model_unimplemented(inst);
+                    return;
                 }
-                assert_eq!(itype.imm(), 0);
-                self.call_return.insert(self.current_callee, self.pc);
-                self.current_callee = self.pc_add(INSTRUCTION_SIZE);
+                if itype.rs1() == Register::Zero {
+                    // TODO: Find a proper modeling for this.
+                    warn!("Detected JALR dispatch on zero: {:#x}: {:?}", self.pc, inst);
+                    self.model_unimplemented(inst);
+                    return;
+                }
+                assert_eq!(itype.imm(), 0, "dispatch with offset");
+                self.go_to_anywhere(self.pc, itype.rs1());
             }
             Instruction::Ecall(_) => {
-                if self.current_reg_a7 == SyscallId::Exit as u64 {
-                    self.current_callee = self.pc_add(INSTRUCTION_SIZE);
-                }
                 self.go_to_instruction(
                     FromInstruction::SystemCall,
                     self.pc,
@@ -735,24 +736,6 @@ impl ModelBuilder {
         self.control_flow_from_any(and_node, flow)
     }
 
-    fn control_flow_from_jalr(&mut self, edge: &InEdge, flow: NodeRef) -> NodeRef {
-        // TODO: Mask out LSB of $ra register here.
-        let eq_node = self.new_eq(
-            self.reg_node(Register::Ra),
-            edge.condition.as_ref().expect("must exist").clone(),
-        );
-        if !self.call_return.contains_key(&edge.from_address) {
-            // This happens for non-returning procedures, like `exit`.
-            debug!("No JALR returning to JAL at {:#x}, skipping", self.pc);
-            return flow;
-        }
-        let and_node = self.new_and(
-            self.pc_flags[&self.call_return[&edge.from_address]].clone(),
-            eq_node,
-        );
-        self.control_flow_from_any(and_node, flow)
-    }
-
     fn control_flow_from_ecall(&mut self, edge: &InEdge, flow: NodeRef) -> NodeRef {
         let state_node = self.new_state(
             Some(self.zero_bit.clone()),
@@ -767,6 +750,12 @@ impl ModelBuilder {
         );
         self.new_next(state_node.clone(), ite_node, NodeType::Bit);
         let and_node = self.new_and(state_node, self.kernel_not.clone());
+        self.control_flow_from_any(and_node, flow)
+    }
+
+    fn control_flow_from_jalr(&mut self, reg: Register, pc: NodeRef, flow: NodeRef) -> NodeRef {
+        let eq_node = self.new_eq(self.reg_node(reg), pc);
+        let and_node = self.new_and(self.dynamic_flag(reg), eq_node);
         self.control_flow_from_any(and_node, flow)
     }
 
@@ -851,6 +840,21 @@ impl ModelBuilder {
         }
         assert_eq!(self.register_nodes.len(), NUMBER_OF_REGISTERS);
         assert_eq!(self.register_flow.len(), NUMBER_OF_REGISTERS - 1);
+
+        self.new_comment("32 dynamic dispatch indicators as Boolean flags".to_string());
+        for r in 1..NUMBER_OF_REGISTERS {
+            let reg = Register::from(r as u32);
+            self.current_nid = 300 + 2 * r as u64;
+            let flag_node = self.new_state(
+                Some(self.zero_bit.clone()),
+                format!("dynamic-dispatch-on-{:?}", reg),
+                NodeType::Bit,
+            );
+            self.dynamic_flags.push(flag_node);
+            self.dynamic.push(vec![]);
+        }
+        assert_eq!(self.dynamic_flags.len(), NUMBER_OF_REGISTERS - 1);
+        assert_eq!(self.dynamic.len(), NUMBER_OF_REGISTERS - 1);
 
         self.new_comment("64-bit program counter encoded in Boolean flags".to_string());
         self.pc = program.instruction_range.start;
@@ -1062,6 +1066,8 @@ impl ModelBuilder {
 
         self.new_comment("control flow".to_string());
         self.pc = program.instruction_range.start;
+        let mut control_flow_update_nodes = HashMap::new();
+        let dynamic_dispatches = self.dynamic_dispatches();
         for _n in program.instruction_range.clone().step_by(size_of::<u32>()) {
             self.current_nid = 50000000 + self.pc * 100;
             let mut control_flow = self.zero_bit.clone();
@@ -1069,9 +1075,6 @@ impl ModelBuilder {
                 control_flow = match in_edge.from_instruction {
                     FromInstruction::Branch => {
                         self.control_flow_from_branch(&in_edge, control_flow)
-                    }
-                    FromInstruction::FunctionCall => {
-                        self.control_flow_from_jalr(&in_edge, control_flow)
                     }
                     FromInstruction::SystemCall => {
                         self.control_flow_from_ecall(&in_edge, control_flow)
@@ -1081,6 +1084,11 @@ impl ModelBuilder {
                     }
                 }
             }
+            let pc = self.new_const(self.pc);
+            for reg in dynamic_dispatches.iter().copied() {
+                control_flow = self.control_flow_from_jalr(reg, pc.clone(), control_flow);
+            }
+            control_flow_update_nodes.insert(self.pc, control_flow.clone());
             self.new_next(self.pc_flag(), control_flow, NodeType::Bit);
             self.pc = self.pc_add(INSTRUCTION_SIZE);
         }
@@ -1090,6 +1098,23 @@ impl ModelBuilder {
             self.current_nid = 60000000 + (r as u64);
             let reg = Register::from(r as u32);
             self.new_next(self.reg_node(reg), self.reg_flow(reg), NodeType::Word);
+        }
+
+        self.new_comment("updating dynamic dispatch flags".to_string());
+        for r in 1..NUMBER_OF_REGISTERS {
+            self.current_nid = 60000000 + (r as u64) * 10000;
+            let reg = Register::from(r as u32);
+            let mut control_flow = self.zero_bit.clone();
+            for dynamic in self.dynamic.remove(0) {
+                trace!(
+                    "dynamic dispatch on {:?} at pc={:#x}",
+                    reg,
+                    dynamic.dispatch_address
+                );
+                let activate = &control_flow_update_nodes[&dynamic.dispatch_address];
+                control_flow = self.control_flow_from_any(activate.clone(), control_flow);
+            }
+            self.new_next(self.dynamic_flag(reg), control_flow, NodeType::Bit);
         }
 
         self.new_comment("updating 64-bit virtual memory".to_string());
