@@ -275,6 +275,20 @@ impl ModelBuilder {
         self.new_not(ult_node)
     }
 
+    // We represent `slt(a, b)` as `ult(add(a, 2^63), add(b, 2^63))` instead.
+    fn new_slt(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
+        let bias = self.new_const(1 << 63);
+        let left_biased = self.new_add(left, bias.clone());
+        let right_biased = self.new_add(right, bias);
+        self.new_ult(left_biased, right_biased)
+    }
+
+    // We represent `sgte(a, b)` as `not(slt(a, b))` instead.
+    fn new_sgte(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
+        let slt_node = self.new_slt(left, right);
+        self.new_not(slt_node)
+    }
+
     fn new_ite(&mut self, cond: NodeRef, left: NodeRef, right: NodeRef, sort: NodeType) -> NodeRef {
         self.add_node(Node::Ite {
             nid: self.current_nid,
@@ -533,6 +547,14 @@ impl ModelBuilder {
         self.model_branch(btype, t, f, Self::new_neq)
     }
 
+    fn model_blt(&mut self, btype: BType, t: &mut Option<NodeRef>, f: &mut Option<NodeRef>) {
+        self.model_branch(btype, t, f, Self::new_slt)
+    }
+
+    fn model_bge(&mut self, btype: BType, t: &mut Option<NodeRef>, f: &mut Option<NodeRef>) {
+        self.model_branch(btype, t, f, Self::new_sgte)
+    }
+
     fn model_bltu(&mut self, btype: BType, t: &mut Option<NodeRef>, f: &mut Option<NodeRef>) {
         self.model_branch(btype, t, f, Self::new_ult)
     }
@@ -613,12 +635,8 @@ impl ModelBuilder {
             Instruction::Divw(_rtype) => self.model_unimplemented(inst),
             Instruction::Beq(btype) => self.model_beq(btype, &mut branch_true, &mut branch_false),
             Instruction::Bne(btype) => self.model_bne(btype, &mut branch_true, &mut branch_false),
-            Instruction::Blt(_btype) | Instruction::Bge(_btype) => {
-                // TODO: Implement once we have signed comparisons.
-                branch_true.replace(self.zero_bit.clone());
-                branch_false.replace(self.zero_bit.clone());
-                self.model_unimplemented(inst)
-            }
+            Instruction::Blt(btype) => self.model_blt(btype, &mut branch_true, &mut branch_false),
+            Instruction::Bge(btype) => self.model_bge(btype, &mut branch_true, &mut branch_false),
             Instruction::Bltu(btype) => self.model_bltu(btype, &mut branch_true, &mut branch_false),
             Instruction::Bgeu(btype) => self.model_bgeu(btype, &mut branch_true, &mut branch_false),
             Instruction::Jal(jtype) => self.model_jal(jtype),
