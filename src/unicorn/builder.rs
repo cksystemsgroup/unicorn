@@ -549,6 +549,14 @@ impl ModelBuilder {
         self.reg_flow_ite(jtype.rd(), link_node);
     }
 
+    fn model_jalr(&mut self, itype: IType) {
+        if itype.rd() == Register::Zero {
+            return;
+        };
+        let link_node = self.new_const(self.pc_add(INSTRUCTION_SIZE));
+        self.reg_flow_ite(itype.rd(), link_node);
+    }
+
     fn model_ecall(&mut self) {
         let ite_node = self.new_ite(
             self.pc_flag(),
@@ -614,7 +622,7 @@ impl ModelBuilder {
             Instruction::Bltu(btype) => self.model_bltu(btype, &mut branch_true, &mut branch_false),
             Instruction::Bgeu(btype) => self.model_bgeu(btype, &mut branch_true, &mut branch_false),
             Instruction::Jal(jtype) => self.model_jal(jtype),
-            Instruction::Jalr(_itype) => {} // TODO: Implement me!
+            Instruction::Jalr(itype) => self.model_jalr(itype),
             Instruction::Ecall(_) => self.model_ecall(),
             _ => todo!("{:?}", inst),
         }
@@ -697,12 +705,6 @@ impl ModelBuilder {
                 );
             }
             Instruction::Jalr(itype) => {
-                if itype.rd() != Register::Zero {
-                    // TODO: Find a proper modeling for this.
-                    warn!("Detected JALR that also links: {:#x}: {:?}", self.pc, inst);
-                    self.model_unimplemented(inst);
-                    return;
-                }
                 if itype.rs1() == Register::Zero {
                     // TODO: Find a proper modeling for this.
                     warn!("Detected JALR dispatch on zero: {:#x}: {:?}", self.pc, inst);
