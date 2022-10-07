@@ -96,8 +96,8 @@ fn get_qubit_from_bool(bit: bool) -> QubitRef {
     }
 }
 
-fn is_constant(gate_type: &QubitRef) -> bool {
-    matches!(&*gate_type.borrow(), Qubit::ConstFalse | Qubit::ConstTrue)
+fn is_constant(qubit_type: &QubitRef) -> bool {
+    matches!(&*qubit_type.borrow(), Qubit::ConstFalse | Qubit::ConstTrue)
 }
 
 fn get_replacement_from_constant(sort: &NodeType, value_: u64) -> Vec<QubitRef> {
@@ -162,7 +162,7 @@ pub struct QuantumCircuit<'a> {
     pub bad_state_nodes: Vec<NodeRef>,
     pub all_qubits: HashSet<QubitRef>,
     pub constraints: HashMap<HashableQubitRef, bool>, // this is for remainder and division, these are constraint based.
-    pub dynamic_memory: HashMap<HashableNodeRef, Vec<QubitRef>>,
+    pub ancillas: HashMap<HashableNodeRef, Vec<QubitRef>>,
     pub input_qubits: Vec<(NodeRef, Vec<QubitRef>)>,
     pub mapping: HashMap<HashableNodeRef, HashMap<usize, Vec<QubitRef>>>, // maps a btor2 operator to its resulting bitvector of gates
     pub circuit_stack: Vec<UnitaryRef>,
@@ -185,7 +185,7 @@ impl<'a> QuantumCircuit<'a> {
             mapping: HashMap::new(),
             circuit_stack: Vec::new(),
             current_state_nodes: HashMap::new(),
-            dynamic_memory: HashMap::new(),
+            ancillas: HashMap::new(),
             model: model_,
             word_size: word_size_,
             count_multiqubit_gates: 0,
@@ -252,6 +252,7 @@ impl<'a> QuantumCircuit<'a> {
     }
 
     fn get_current_timestep(&self, node: &NodeRef) -> Vec<QubitRef> {
+        // only used in dynamic memory mode
         let key = HashableNodeRef::from(node.clone());
         let replacements = self.mapping.get(&key).unwrap();
         let node_hash = HashableNodeRef::from(node.clone());
@@ -259,12 +260,18 @@ impl<'a> QuantumCircuit<'a> {
         replacements[&index].clone()
     }
 
-    fn _get_memory(self, node: NodeRef) -> Vec<QubitRef> {
-        let key = HashableNodeRef::from(node);
-        if let Some(answer) = self.dynamic_memory.get(&key) {
-            answer.clone()
+    fn get_ancillas(&mut self, node: &NodeRef, n: usize) -> Vec<QubitRef> {
+        let key = HashableNodeRef::from(node.clone());
+        if !self.ancillas.contains_key(&key) {
+            let mut replacement: Vec<QubitRef> = Vec::new();
+
+            for _ in 0..n {
+                replacement.push(QubitRef::from(Qubit::ConstFalse));
+            }
+            self.ancillas.insert(key, replacement.clone());
+            replacement
         } else {
-            panic!("Trying to get unallocated memory")
+            self.ancillas.get(&key).unwrap().clone()
         }
     }
 
@@ -437,8 +444,9 @@ impl<'a> QuantumCircuit<'a> {
                     let left_operand = self.process(left);
                     let right_operand = self.process(right);
                     let mut replacement: Vec<QubitRef> = vec![];
+                    let mut prev_replacement: Vec<QubitRef> = vec![];
                     if self.use_dynamic_memory {
-                        replacement = self.get_current_timestep(node);
+                        prev_replacement = self.get_current_timestep(node);
                     }
 
                     for (curr_index, (l_qubit, r_qubit)) in
@@ -448,18 +456,9 @@ impl<'a> QuantumCircuit<'a> {
                         let const_r = get_constant(r_qubit);
                         if are_both_constants(const_l, const_r) {
                             let val = const_l.unwrap() && const_r.unwrap();
-                            if !self.use_dynamic_memory {
-                                replacement.push(get_qubit_from_bool(val));
-                            } else if val {
-                                self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
-                                    input: replacement[curr_index].clone(),
-                                }));
-                                // when val is false, we assume that uncomputation has already set the replacement index to |0>
-                            }
+                            replacement.push(get_qubit_from_bool(val));
                         } else if are_there_false_constants(const_r, const_l) {
-                            if !self.use_dynamic_memory {
-                                replacement.push(QubitRef::from(Qubit::ConstFalse));
-                            }
+                            replacement.push(QubitRef::from(Qubit::ConstFalse));
                         } else if are_there_true_constants(const_l, const_r) {
                             let control: QubitRef;
                             if is_constant(l_qubit) {
@@ -470,8 +469,9 @@ impl<'a> QuantumCircuit<'a> {
                                 control = l_qubit.clone();
                             }
                             let target: QubitRef;
-                            if self.use_dynamic_memory {
-                                target = replacement[curr_index].clone();
+
+                            if self.use_dynamic_memory && !is_constant(&prev_replacement[curr_index]){
+                                target = prev_replacement[curr_index].clone();
                             } else {
                                 target = QubitRef::from(Qubit::QBit {
                                     name: "and".to_string(),
@@ -483,7 +483,7 @@ impl<'a> QuantumCircuit<'a> {
                         } else {
                             // there are no constants
                             let target: QubitRef;
-                            if self.use_dynamic_memory {
+                            if self.use_dynamic_memory && !is_constant(&prev_replacement[curr_index]){
                                 target = replacement[curr_index].clone();
                             } else {
                                 target = QubitRef::from(Qubit::QBit {
