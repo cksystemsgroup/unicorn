@@ -639,21 +639,6 @@ impl<'a> QuantumCircuit<'a> {
             } => {
                 unimplemented!()
             }
-            Node::Read {
-                memory: _,
-                address: _,
-                ..
-            } => {
-                unimplemented!()
-            }
-            Node::Write {
-                memory: _,
-                address: _,
-                value: _,
-                ..
-            } => {
-                unimplemented!()
-            }
             Node::Next { state, next, .. } => {
                 let _ = self.process(state);
                 self.circuit_stack.push(UnitaryRef::from(Unitary::Barrier));
@@ -665,6 +650,9 @@ impl<'a> QuantumCircuit<'a> {
                 } else {
                     self.record_mapping(state, self.current_n, replacement)
                 }
+            }
+            Node::Read { .. } | Node::Write { .. } => {
+                unimplemented!()
             }
             _ => {
                 panic!("Unknown BTOR2 node!");
