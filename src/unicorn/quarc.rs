@@ -163,7 +163,6 @@ pub struct QuantumCircuit<'a> {
     pub bad_state_nodes: Vec<NodeRef>,
     pub all_qubits: HashSet<QubitRef>,
     pub constraints: HashMap<HashableQubitRef, bool>, // this is for remainder and division, these are constraint based.
-    pub ancillas: HashMap<HashableNodeRef, Vec<QubitRef>>,
     pub input_qubits: Vec<(NodeRef, Vec<QubitRef>)>,
     pub mapping: HashMap<HashableNodeRef, HashMap<usize, Vec<QubitRef>>>, // maps a btor2 operator to its resulting bitvector of gates
     pub circuit_stack: Vec<UnitaryRef>,
@@ -190,7 +189,6 @@ impl<'a> QuantumCircuit<'a> {
             dm_index: 0,
             circuit_stack: Vec::new(),
             current_state_nodes: HashMap::new(),
-            ancillas: HashMap::new(),
             model: model_,
             word_size: word_size_,
             count_multiqubit_gates: 0,
@@ -253,21 +251,6 @@ impl<'a> QuantumCircuit<'a> {
                     }
                 }
             }
-        }
-    }
-
-    fn get_ancillas(&mut self, node: &NodeRef, n: usize) -> Vec<QubitRef> {
-        let key = HashableNodeRef::from(node.clone());
-        if let std::collections::hash_map::Entry::Vacant(_e) = self.ancillas.entry(key.clone()) {
-            let mut replacement: Vec<QubitRef> = Vec::new();
-
-            for _ in 0..n {
-                replacement.push(QubitRef::from(Qubit::ConstFalse));
-            }
-            self.ancillas.insert(key, replacement.clone());
-            replacement
-        } else {
-            self.ancillas.get(&key).unwrap().clone()
         }
     }
 
@@ -413,7 +396,6 @@ impl<'a> QuantumCircuit<'a> {
             }
             Node::State { sort, init, .. } => {
                 // This is a normal state
-
                 if let Some(replacement) = self.get_last_qubitset(node) {
                     replacement
                 } else {
@@ -525,9 +507,78 @@ impl<'a> QuantumCircuit<'a> {
                 }
             }
             Node::Eq {
-                left: _, right: _, ..
+                left, right, ..
             } => {
-                unimplemented!()
+                if let Some(replacement) = self.get_last_qubitset(node) {
+                    replacement
+                } else {
+                    let left_operand = self.process(left);
+                    let right_operand = self.process(right);
+                    let mut controls: Vec<QubitRef> = vec![];
+
+                    for (l_qubit, r_qubit) in left_operand.iter().zip(right_operand.iter()) {
+                        let const_l = get_constant(l_qubit);
+                        let const_r = get_constant(r_qubit);
+
+                        if are_both_constants(const_l, const_r) {
+                            if const_l.unwrap() != const_r.unwrap() {
+                                return self.record_mapping(node, self.current_n, vec![QubitRef::from(Qubit::ConstFalse)]);
+                            }
+                        } else if are_there_true_constants(const_l, const_r) {
+                            if is_constant(l_qubit) {
+                                controls.push(r_qubit.clone());
+                            } else {
+                                controls.push(l_qubit.clone());
+                            }
+                        } else if are_there_false_constants(const_l, const_r) {
+                            let control: QubitRef;
+                            if is_constant(l_qubit) {
+                                control = r_qubit.clone();
+                            } else {
+                                control = l_qubit.clone();
+                            }
+
+                            let target: QubitRef;
+                            if self.use_dynamic_memory {
+                                target = self.get_memory(1)[0].clone();
+                            } else{
+                                target = QubitRef::from(Qubit::QBit { name: "eq_ancilla".to_string() });
+                            }
+                            controls.push(target.clone());
+                            self.circuit_stack.push(UnitaryRef::from(Unitary::Not { input: control.clone() }));
+                            self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot { control: control.clone(), target }));
+                            self.circuit_stack.push(UnitaryRef::from(Unitary::Not { input: control }));
+                        } else {
+                            // no constants
+                            let target: QubitRef;
+                            if self.use_dynamic_memory {
+                                target = self.get_memory(1)[0].clone();
+                            } else{
+                                target = QubitRef::from(Qubit::QBit { name: "eq_ancilla".to_string() });
+                            }
+                            controls.push(target.clone());
+                            self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot { control: l_qubit.clone(), target: target.clone() }));
+                            self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot { control: r_qubit.clone(), target: target.clone() }));
+                            self.circuit_stack.push(UnitaryRef::from(Unitary::Not { input: target }));
+                        }
+                    }
+                    let replacement: Vec<QubitRef>;
+                    if controls.len() == 0 {
+                        replacement = vec![QubitRef::from(Qubit::ConstTrue)];
+                    } else {
+                        let target: QubitRef;
+                        if self.use_dynamic_memory {
+                            target = self.get_memory(1)[0].clone();
+                        } else{
+                            target = QubitRef::from(Qubit::QBit { name: "eq_ancilla".to_string() });
+                        }
+
+                        replacement = vec![target.clone()];
+                        self.circuit_stack.push(UnitaryRef::from(Unitary::Mcx { controls, target}));   
+                    }
+                    // TODO: there is uncomputing that can be done here
+                    self.record_mapping(node, self.current_n, replacement)
+                }
             }
             Node::Add {
                 left: _, right: _, ..
