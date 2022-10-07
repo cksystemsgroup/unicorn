@@ -88,6 +88,18 @@ fn get_gate_from_constant_bit(bit: u64) -> QubitRef {
     }
 }
 
+fn get_qubit_from_bool(bit: bool) -> QubitRef {
+    if bit {
+        QubitRef::from(Qubit::ConstTrue)
+    } else {
+        QubitRef::from(Qubit::ConstFalse)
+    }
+}
+
+fn is_constant(gate_type: &QubitRef) -> bool {
+    matches!(&*gate_type.borrow(), Qubit::ConstFalse | Qubit::ConstTrue)
+}
+
 fn get_replacement_from_constant(sort: &NodeType, value_: u64) -> Vec<QubitRef> {
     let total_bits = sort.bitsize();
     let mut replacement: Vec<QubitRef> = Vec::new();
@@ -105,6 +117,41 @@ fn get_constant(gate_type: &QubitRef) -> Option<bool> {
         Qubit::ConstTrue => Some(true),
         _ => None,
     }
+}
+
+fn are_both_constants(const1: Option<bool>, const2: Option<bool>) -> bool {
+    if let Some(_a) = const1 {
+        if let Some(_b) = const2 {
+            return true;
+        }
+    }
+    false
+}
+
+fn are_there_false_constants(const1: Option<bool>, const2: Option<bool>) -> bool {
+    if let Some(a) = const1 {
+        if !a {
+            return true;
+        }
+    }
+
+    if let Some(b) = const2 {
+        return !b;
+    }
+    false
+}
+
+fn are_there_true_constants(const1: Option<bool>, const2: Option<bool>) -> bool {
+    if let Some(a) = const1 {
+        if a {
+            return true;
+        }
+    }
+
+    if let Some(b) = const2 {
+        return b;
+    }
+    false
 }
 // END some functions
 
@@ -204,6 +251,14 @@ impl<'a> QuantumCircuit<'a> {
         }
     }
 
+    fn get_current_timestep(&self, node: &NodeRef) -> Vec<QubitRef> {
+        let key = HashableNodeRef::from(node.clone());
+        let replacements = self.mapping.get(&key).unwrap();
+        let node_hash = HashableNodeRef::from(node.clone());
+        let index = self.current_state_nodes[&node_hash];
+        replacements[&index].clone()
+    }
+
     fn _get_memory(self, node: NodeRef) -> Vec<QubitRef> {
         let key = HashableNodeRef::from(node);
         if let Some(answer) = self.dynamic_memory.get(&key) {
@@ -286,6 +341,9 @@ impl<'a> QuantumCircuit<'a> {
         let replacements = self.mapping.get_mut(&key).unwrap();
         assert!(!replacements.contains_key(&index));
         replacements.insert(index, replacement.clone());
+
+        self.current_state_nodes.insert(key, index);
+
         replacement
     }
 
@@ -372,10 +430,75 @@ impl<'a> QuantumCircuit<'a> {
                     self.record_mapping(node, self.current_n, replacement)
                 }
             }
-            Node::And {
-                left: _, right: _, ..
-            } => {
-                unimplemented!()
+            Node::And { left, right, .. } => {
+                if let Some(replacement) = self.get_last_qubitset(node) {
+                    replacement
+                } else {
+                    let left_operand = self.process(left);
+                    let right_operand = self.process(right);
+                    let mut replacement: Vec<QubitRef> = vec![];
+                    if self.use_dynamic_memory {
+                        replacement = self.get_current_timestep(node);
+                    }
+
+                    for (curr_index, (l_qubit, r_qubit)) in
+                        left_operand.iter().zip(right_operand.iter()).enumerate()
+                    {
+                        let const_l = get_constant(l_qubit);
+                        let const_r = get_constant(r_qubit);
+                        if are_both_constants(const_l, const_r) {
+                            let val = const_l.unwrap() && const_r.unwrap();
+                            if !self.use_dynamic_memory {
+                                replacement.push(get_qubit_from_bool(val));
+                            } else if val {
+                                self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
+                                    input: replacement[curr_index].clone(),
+                                }));
+                                // when val is false, we assume that uncomputation has already set the replacement index to |0>
+                            }
+                        } else if are_there_false_constants(const_r, const_l) {
+                            if !self.use_dynamic_memory {
+                                replacement.push(QubitRef::from(Qubit::ConstFalse));
+                            }
+                        } else if are_there_true_constants(const_l, const_r) {
+                            let control: QubitRef;
+                            if is_constant(l_qubit) {
+                                // l_qubit must be true
+                                control = r_qubit.clone();
+                            } else {
+                                // const_r must be true
+                                control = l_qubit.clone();
+                            }
+                            let target: QubitRef;
+                            if self.use_dynamic_memory {
+                                target = replacement[curr_index].clone();
+                            } else {
+                                target = QubitRef::from(Qubit::QBit {
+                                    name: "and".to_string(),
+                                });
+                            }
+
+                            self.circuit_stack
+                                .push(UnitaryRef::from(Unitary::Cnot { control, target }))
+                        } else {
+                            // there are no constants
+                            let target: QubitRef;
+                            if self.use_dynamic_memory {
+                                target = replacement[curr_index].clone();
+                            } else {
+                                target = QubitRef::from(Qubit::QBit {
+                                    name: "and".to_string(),
+                                });
+                            }
+
+                            self.circuit_stack.push(UnitaryRef::from(Unitary::Mcx {
+                                controls: vec![l_qubit.clone(), r_qubit.clone()],
+                                target,
+                            }))
+                        }
+                    }
+                    self.record_mapping(node, self.current_n, replacement)
+                }
             }
             Node::Ext { from, value, .. } => {
                 if let Some(replacement) = self.get_last_qubitset(node) {
