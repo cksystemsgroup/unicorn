@@ -237,9 +237,7 @@ impl<'a> QuantumCircuit<'a> {
                         Some(replacements[&index].clone())
                     }
                 }
-                Node::Next { .. } => {
-                    panic!("Trying to get last qubitset for Next, Sort, or Init is not possible");
-                }
+                Node::Next { .. } | Node::Bad { .. } => None,
                 _ => {
                     // Node::Input is included here?
                     let replacements = self.mapping.get(&key).unwrap();
@@ -369,16 +367,15 @@ impl<'a> QuantumCircuit<'a> {
     }
 
     fn process(&mut self, node: &NodeRef) -> Vec<QubitRef> {
+        if let Some(replacement) = self.get_last_qubitset(node) {
+            return replacement;
+        }
         match &*node.borrow() {
             Node::Const { sort, imm, .. } => {
-                if let Some(replacement) = self.get_last_qubitset(node) {
-                    replacement
-                } else {
-                    assert!(self.current_n == 0);
-                    let replacement = get_replacement_from_constant(sort, *imm);
-                    assert!(replacement.len() == sort.bitsize());
-                    self.record_mapping(node, self.current_n, replacement)
-                }
+                assert!(self.current_n == 0);
+                let replacement = get_replacement_from_constant(sort, *imm);
+                assert!(replacement.len() == sort.bitsize());
+                self.record_mapping(node, self.current_n, replacement)
             }
             Node::State {
                 init: None,
@@ -395,34 +392,26 @@ impl<'a> QuantumCircuit<'a> {
             }
             Node::State { sort, init, .. } => {
                 // This is a normal state
-                if let Some(replacement) = self.get_last_qubitset(node) {
-                    replacement
+                assert!(self.current_n == 0);
+                let mut replacement = Vec::new();
+                if let Some(value) = init {
+                    replacement = self.process(value);
                 } else {
-                    assert!(self.current_n == 0);
-                    let mut replacement = Vec::new();
-                    if let Some(value) = init {
-                        replacement = self.process(value);
-                    } else {
-                        for _ in 0..sort.bitsize() {
-                            replacement.push(QubitRef::from(Qubit::ConstFalse));
-                        }
+                    for _ in 0..sort.bitsize() {
+                        replacement.push(QubitRef::from(Qubit::ConstFalse));
                     }
-                    assert!(replacement.len() == sort.bitsize());
-                    self.record_mapping(node, self.current_n, replacement)
                 }
+                assert!(replacement.len() == sort.bitsize());
+                self.record_mapping(node, self.current_n, replacement)
             }
             Node::Not { value, .. } => {
-                if let Some(replacement) = self.get_last_qubitset(node) {
-                    replacement
-                } else {
-                    let bitvector = self.process(value);
-                    let mut replacement: Vec<QubitRef> = Vec::new();
-                    for bit in &bitvector {
-                        replacement.push(self.not_gate(bit));
-                    }
-                    assert!(replacement.len() == bitvector.len());
-                    self.record_mapping(node, self.current_n, replacement)
+                let bitvector = self.process(value);
+                let mut replacement: Vec<QubitRef> = Vec::new();
+                for bit in &bitvector {
+                    replacement.push(self.not_gate(bit));
                 }
+                assert!(replacement.len() == bitvector.len());
+                self.record_mapping(node, self.current_n, replacement)
             }
             Node::Bad { cond, .. } => {
                 self.circuit_stack.push(UnitaryRef::from(Unitary::Barrier));
@@ -437,153 +426,97 @@ impl<'a> QuantumCircuit<'a> {
                 }
             }
             Node::And { left, right, .. } => {
-                if let Some(replacement) = self.get_last_qubitset(node) {
-                    replacement
-                } else {
-                    let left_operand = self.process(left);
-                    let right_operand = self.process(right);
-                    let mut replacement: Vec<QubitRef> = vec![];
+                let left_operand = self.process(left);
+                let right_operand = self.process(right);
+                let mut replacement: Vec<QubitRef> = vec![];
 
-                    for (l_qubit, r_qubit) in left_operand.iter().zip(right_operand.iter()) {
-                        let const_l = get_constant(l_qubit);
-                        let const_r = get_constant(r_qubit);
-                        if are_both_constants(const_l, const_r) {
-                            let val = const_l.unwrap() && const_r.unwrap();
-                            replacement.push(get_qubit_from_bool(val));
-                        } else if are_there_false_constants(const_r, const_l) {
-                            replacement.push(QubitRef::from(Qubit::ConstFalse));
-                        } else if are_there_true_constants(const_l, const_r) {
-                            let control: QubitRef;
-                            if is_constant(l_qubit) {
-                                // l_qubit must be true
-                                control = r_qubit.clone();
-                            } else {
-                                // const_r must be true
-                                control = l_qubit.clone();
-                            }
-                            let target: QubitRef;
-
-                            if self.use_dynamic_memory {
-                                target = self.get_memory(1)[0].clone();
-                            } else {
-                                target = QubitRef::from(Qubit::QBit {
-                                    name: "and".to_string(),
-                                });
-                            }
-
-                            self.circuit_stack
-                                .push(UnitaryRef::from(Unitary::Cnot { control, target }))
+                for (l_qubit, r_qubit) in left_operand.iter().zip(right_operand.iter()) {
+                    let const_l = get_constant(l_qubit);
+                    let const_r = get_constant(r_qubit);
+                    if are_both_constants(const_l, const_r) {
+                        let val = const_l.unwrap() && const_r.unwrap();
+                        replacement.push(get_qubit_from_bool(val));
+                    } else if are_there_false_constants(const_r, const_l) {
+                        replacement.push(QubitRef::from(Qubit::ConstFalse));
+                    } else if are_there_true_constants(const_l, const_r) {
+                        let control: QubitRef;
+                        if is_constant(l_qubit) {
+                            // l_qubit must be true
+                            control = r_qubit.clone();
                         } else {
-                            // there are no constants
-                            let target: QubitRef;
-                            if self.use_dynamic_memory {
-                                target = self.get_memory(1)[0].clone();
-                            } else {
-                                target = QubitRef::from(Qubit::QBit {
-                                    name: "and".to_string(),
-                                });
-                            }
-
-                            self.circuit_stack.push(UnitaryRef::from(Unitary::Mcx {
-                                controls: vec![l_qubit.clone(), r_qubit.clone()],
-                                target,
-                            }))
+                            // const_r must be true
+                            control = l_qubit.clone();
                         }
+                        let target: QubitRef;
+
+                        if self.use_dynamic_memory {
+                            target = self.get_memory(1)[0].clone();
+                        } else {
+                            target = QubitRef::from(Qubit::QBit {
+                                name: "and".to_string(),
+                            });
+                        }
+
+                        self.circuit_stack
+                            .push(UnitaryRef::from(Unitary::Cnot { control, target }))
+                    } else {
+                        // there are no constants
+                        let target: QubitRef;
+                        if self.use_dynamic_memory {
+                            target = self.get_memory(1)[0].clone();
+                        } else {
+                            target = QubitRef::from(Qubit::QBit {
+                                name: "and".to_string(),
+                            });
+                        }
+
+                        self.circuit_stack.push(UnitaryRef::from(Unitary::Mcx {
+                            controls: vec![l_qubit.clone(), r_qubit.clone()],
+                            target,
+                        }))
                     }
-                    self.record_mapping(node, self.current_n, replacement)
                 }
+                self.record_mapping(node, self.current_n, replacement)
             }
             Node::Ext { from, value, .. } => {
-                if let Some(replacement) = self.get_last_qubitset(node) {
-                    replacement
-                } else {
-                    let mut replacement: Vec<QubitRef> = self.process(value);
-                    assert!(replacement.len() == from.bitsize());
-                    for _ in 0..(self.word_size - from.bitsize()) {
-                        replacement.push(QubitRef::from(Qubit::ConstFalse));
-                    }
-                    self.record_mapping(node, self.current_n, replacement)
+                let mut replacement: Vec<QubitRef> = self.process(value);
+                assert!(replacement.len() == from.bitsize());
+                for _ in 0..(self.word_size - from.bitsize()) {
+                    replacement.push(QubitRef::from(Qubit::ConstFalse));
                 }
+                self.record_mapping(node, self.current_n, replacement)
             }
             Node::Eq { left, right, .. } => {
-                if let Some(replacement) = self.get_last_qubitset(node) {
-                    replacement
-                } else {
-                    let left_operand = self.process(left);
-                    let right_operand = self.process(right);
-                    let mut controls: Vec<QubitRef> = vec![];
+                let left_operand = self.process(left);
+                let right_operand = self.process(right);
+                let mut controls: Vec<QubitRef> = vec![];
 
-                    for (l_qubit, r_qubit) in left_operand.iter().zip(right_operand.iter()) {
-                        let const_l = get_constant(l_qubit);
-                        let const_r = get_constant(r_qubit);
+                for (l_qubit, r_qubit) in left_operand.iter().zip(right_operand.iter()) {
+                    let const_l = get_constant(l_qubit);
+                    let const_r = get_constant(r_qubit);
 
-                        if are_both_constants(const_l, const_r) {
-                            if const_l.unwrap() != const_r.unwrap() {
-                                return self.record_mapping(
-                                    node,
-                                    self.current_n,
-                                    vec![QubitRef::from(Qubit::ConstFalse)],
-                                );
-                            }
-                        } else if are_there_true_constants(const_l, const_r) {
-                            if is_constant(l_qubit) {
-                                controls.push(r_qubit.clone());
-                            } else {
-                                controls.push(l_qubit.clone());
-                            }
-                        } else if are_there_false_constants(const_l, const_r) {
-                            let control: QubitRef;
-                            if is_constant(l_qubit) {
-                                control = r_qubit.clone();
-                            } else {
-                                control = l_qubit.clone();
-                            }
-
-                            let target: QubitRef;
-                            if self.use_dynamic_memory {
-                                target = self.get_memory(1)[0].clone();
-                            } else {
-                                target = QubitRef::from(Qubit::QBit {
-                                    name: "eq_ancilla".to_string(),
-                                });
-                            }
-                            controls.push(target.clone());
-                            self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
-                                input: control.clone(),
-                            }));
-                            self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot {
-                                control: control.clone(),
-                                target,
-                            }));
-                            self.circuit_stack
-                                .push(UnitaryRef::from(Unitary::Not { input: control }));
-                        } else {
-                            // no constants
-                            let target: QubitRef;
-                            if self.use_dynamic_memory {
-                                target = self.get_memory(1)[0].clone();
-                            } else {
-                                target = QubitRef::from(Qubit::QBit {
-                                    name: "eq_ancilla".to_string(),
-                                });
-                            }
-                            controls.push(target.clone());
-                            self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot {
-                                control: l_qubit.clone(),
-                                target: target.clone(),
-                            }));
-                            self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot {
-                                control: r_qubit.clone(),
-                                target: target.clone(),
-                            }));
-                            self.circuit_stack
-                                .push(UnitaryRef::from(Unitary::Not { input: target }));
+                    if are_both_constants(const_l, const_r) {
+                        if const_l.unwrap() != const_r.unwrap() {
+                            return self.record_mapping(
+                                node,
+                                self.current_n,
+                                vec![QubitRef::from(Qubit::ConstFalse)],
+                            );
                         }
-                    }
-                    let replacement: Vec<QubitRef>;
-                    if controls.is_empty() {
-                        replacement = vec![QubitRef::from(Qubit::ConstTrue)];
-                    } else {
+                    } else if are_there_true_constants(const_l, const_r) {
+                        if is_constant(l_qubit) {
+                            controls.push(r_qubit.clone());
+                        } else {
+                            controls.push(l_qubit.clone());
+                        }
+                    } else if are_there_false_constants(const_l, const_r) {
+                        let control: QubitRef;
+                        if is_constant(l_qubit) {
+                            control = r_qubit.clone();
+                        } else {
+                            control = l_qubit.clone();
+                        }
+
                         let target: QubitRef;
                         if self.use_dynamic_memory {
                             target = self.get_memory(1)[0].clone();
@@ -592,14 +525,58 @@ impl<'a> QuantumCircuit<'a> {
                                 name: "eq_ancilla".to_string(),
                             });
                         }
-
-                        replacement = vec![target.clone()];
+                        controls.push(target.clone());
+                        self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
+                            input: control.clone(),
+                        }));
+                        self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot {
+                            control: control.clone(),
+                            target,
+                        }));
                         self.circuit_stack
-                            .push(UnitaryRef::from(Unitary::Mcx { controls, target }));
+                            .push(UnitaryRef::from(Unitary::Not { input: control }));
+                    } else {
+                        // no constants
+                        let target: QubitRef;
+                        if self.use_dynamic_memory {
+                            target = self.get_memory(1)[0].clone();
+                        } else {
+                            target = QubitRef::from(Qubit::QBit {
+                                name: "eq_ancilla".to_string(),
+                            });
+                        }
+                        controls.push(target.clone());
+                        self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot {
+                            control: l_qubit.clone(),
+                            target: target.clone(),
+                        }));
+                        self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot {
+                            control: r_qubit.clone(),
+                            target: target.clone(),
+                        }));
+                        self.circuit_stack
+                            .push(UnitaryRef::from(Unitary::Not { input: target }));
                     }
-                    // TODO: there is uncomputing that can be done here
-                    self.record_mapping(node, self.current_n, replacement)
                 }
+                let replacement: Vec<QubitRef>;
+                if controls.is_empty() {
+                    replacement = vec![QubitRef::from(Qubit::ConstTrue)];
+                } else {
+                    let target: QubitRef;
+                    if self.use_dynamic_memory {
+                        target = self.get_memory(1)[0].clone();
+                    } else {
+                        target = QubitRef::from(Qubit::QBit {
+                            name: "eq_ancilla".to_string(),
+                        });
+                    }
+
+                    replacement = vec![target.clone()];
+                    self.circuit_stack
+                        .push(UnitaryRef::from(Unitary::Mcx { controls, target }));
+                }
+                // TODO: there is uncomputing that can be done here
+                self.record_mapping(node, self.current_n, replacement)
             }
             Node::Add {
                 left: _, right: _, ..
@@ -607,12 +584,113 @@ impl<'a> QuantumCircuit<'a> {
                 unimplemented!()
             }
             Node::Ite {
-                cond: _,
-                left: _,
-                right: _,
-                ..
+                cond, left, right, ..
             } => {
-                unimplemented!()
+                let cond_operand = self.process(cond);
+
+                assert!(cond_operand.len() == 1);
+                let mut replacement: Vec<QubitRef>;
+                if let Some(cond_val) = get_constant(&cond_operand[0]) {
+                    if cond_val {
+                        replacement = self.process(left);
+                    } else {
+                        replacement = self.process(right);
+                    }
+                } else {
+                    replacement = Vec::new();
+                    let left_operand = self.process(left);
+                    let right_operand = self.process(right);
+
+                    for (l_qubit, r_qubit) in left_operand.iter().zip(right_operand.iter()) {
+                        let const_l = get_constant(l_qubit);
+                        let const_r = get_constant(r_qubit);
+
+                        if are_both_constants(const_l, const_r) {
+                            if const_l.unwrap() == const_r.unwrap() {
+                                replacement.push(l_qubit.clone());
+                            } else if const_l.unwrap() {
+                                replacement.push(cond_operand[0].clone());
+                            } else {
+                                let target: QubitRef;
+
+                                if self.use_dynamic_memory {
+                                    target = self.get_memory(1)[0].clone();
+                                } else {
+                                    target = QubitRef::from(Qubit::QBit {
+                                        name: "ancilla_ite".to_string(),
+                                    });
+                                }
+                                // TODO: Maybe is not necesary to request memory here for target?
+                                replacement.push(target.clone());
+                                self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot {
+                                    control: cond_operand[0].clone(),
+                                    target,
+                                }));
+                                self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
+                                    input: cond_operand[0].clone(),
+                                }));
+                            }
+                        } else if are_there_false_constants(const_l, const_r) {
+                            let target: QubitRef;
+
+                            if self.use_dynamic_memory {
+                                target = self.get_memory(1)[0].clone();
+                            } else {
+                                target = QubitRef::from(Qubit::QBit {
+                                    name: "ancilla_ite".to_string(),
+                                });
+                            }
+
+                            if is_constant(l_qubit) {
+                                self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
+                                    input: cond_operand[0].clone(),
+                                }));
+                                self.circuit_stack.push(UnitaryRef::from(Unitary::Mcx {
+                                    controls: vec![cond_operand[0].clone(), r_qubit.clone()],
+                                    target,
+                                }));
+                                self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
+                                    input: cond_operand[0].clone(),
+                                }));
+                            } else {
+                                self.circuit_stack.push(UnitaryRef::from(Unitary::Mcx {
+                                    controls: vec![cond_operand[0].clone(), l_qubit.clone()],
+                                    target,
+                                }));
+                            }
+                        } else {
+                            // TODO: Optimize when there is only one constant and its true?
+
+                            // no constants
+                            let target: QubitRef;
+                            if self.use_dynamic_memory {
+                                target = self.get_memory(1)[0].clone();
+                            } else {
+                                target = QubitRef::from(Qubit::QBit {
+                                    name: "ancilla_ite".to_string(),
+                                });
+                            }
+
+                            self.circuit_stack.push(UnitaryRef::from(Unitary::Mcx {
+                                controls: vec![cond_operand[0].clone(), l_qubit.clone()],
+                                target: target.clone(),
+                            }));
+
+                            self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
+                                input: cond_operand[0].clone(),
+                            }));
+                            self.circuit_stack.push(UnitaryRef::from(Unitary::Mcx {
+                                controls: vec![cond_operand[0].clone(), r_qubit.clone()],
+                                target,
+                            }));
+                            self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
+                                input: cond_operand[0].clone(),
+                            }));
+                        }
+                    }
+                }
+
+                self.record_mapping(node, self.current_n, replacement)
             }
             Node::Sub {
                 left: _, right: _, ..
