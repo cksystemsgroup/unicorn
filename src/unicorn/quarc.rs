@@ -4,7 +4,6 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::io::Write;
-use std::mem::replace;
 use std::rc::Rc;
 
 //
@@ -506,9 +505,7 @@ impl<'a> QuantumCircuit<'a> {
                     self.record_mapping(node, self.current_n, replacement)
                 }
             }
-            Node::Eq {
-                left, right, ..
-            } => {
+            Node::Eq { left, right, .. } => {
                 if let Some(replacement) = self.get_last_qubitset(node) {
                     replacement
                 } else {
@@ -522,7 +519,11 @@ impl<'a> QuantumCircuit<'a> {
 
                         if are_both_constants(const_l, const_r) {
                             if const_l.unwrap() != const_r.unwrap() {
-                                return self.record_mapping(node, self.current_n, vec![QubitRef::from(Qubit::ConstFalse)]);
+                                return self.record_mapping(
+                                    node,
+                                    self.current_n,
+                                    vec![QubitRef::from(Qubit::ConstFalse)],
+                                );
                             }
                         } else if are_there_true_constants(const_l, const_r) {
                             if is_constant(l_qubit) {
@@ -541,40 +542,60 @@ impl<'a> QuantumCircuit<'a> {
                             let target: QubitRef;
                             if self.use_dynamic_memory {
                                 target = self.get_memory(1)[0].clone();
-                            } else{
-                                target = QubitRef::from(Qubit::QBit { name: "eq_ancilla".to_string() });
+                            } else {
+                                target = QubitRef::from(Qubit::QBit {
+                                    name: "eq_ancilla".to_string(),
+                                });
                             }
                             controls.push(target.clone());
-                            self.circuit_stack.push(UnitaryRef::from(Unitary::Not { input: control.clone() }));
-                            self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot { control: control.clone(), target }));
-                            self.circuit_stack.push(UnitaryRef::from(Unitary::Not { input: control }));
+                            self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
+                                input: control.clone(),
+                            }));
+                            self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot {
+                                control: control.clone(),
+                                target,
+                            }));
+                            self.circuit_stack
+                                .push(UnitaryRef::from(Unitary::Not { input: control }));
                         } else {
                             // no constants
                             let target: QubitRef;
                             if self.use_dynamic_memory {
                                 target = self.get_memory(1)[0].clone();
-                            } else{
-                                target = QubitRef::from(Qubit::QBit { name: "eq_ancilla".to_string() });
+                            } else {
+                                target = QubitRef::from(Qubit::QBit {
+                                    name: "eq_ancilla".to_string(),
+                                });
                             }
                             controls.push(target.clone());
-                            self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot { control: l_qubit.clone(), target: target.clone() }));
-                            self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot { control: r_qubit.clone(), target: target.clone() }));
-                            self.circuit_stack.push(UnitaryRef::from(Unitary::Not { input: target }));
+                            self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot {
+                                control: l_qubit.clone(),
+                                target: target.clone(),
+                            }));
+                            self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot {
+                                control: r_qubit.clone(),
+                                target: target.clone(),
+                            }));
+                            self.circuit_stack
+                                .push(UnitaryRef::from(Unitary::Not { input: target }));
                         }
                     }
                     let replacement: Vec<QubitRef>;
-                    if controls.len() == 0 {
+                    if controls.is_empty() {
                         replacement = vec![QubitRef::from(Qubit::ConstTrue)];
                     } else {
                         let target: QubitRef;
                         if self.use_dynamic_memory {
                             target = self.get_memory(1)[0].clone();
-                        } else{
-                            target = QubitRef::from(Qubit::QBit { name: "eq_ancilla".to_string() });
+                        } else {
+                            target = QubitRef::from(Qubit::QBit {
+                                name: "eq_ancilla".to_string(),
+                            });
                         }
 
                         replacement = vec![target.clone()];
-                        self.circuit_stack.push(UnitaryRef::from(Unitary::Mcx { controls, target}));   
+                        self.circuit_stack
+                            .push(UnitaryRef::from(Unitary::Mcx { controls, target }));
                     }
                     // TODO: there is uncomputing that can be done here
                     self.record_mapping(node, self.current_n, replacement)
