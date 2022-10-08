@@ -10,6 +10,7 @@ use std::rc::Rc;
 // Public Interface
 //
 
+// TODO: MAYBE CX gates are not needed. (We can just push the control qubit to the result)
 // BEGIN structs declaration
 pub type UnitaryRef = Rc<RefCell<Unitary>>;
 
@@ -128,31 +129,55 @@ fn are_both_constants(const1: Option<bool>, const2: Option<bool>) -> bool {
     false
 }
 
-fn are_there_false_constants(const1: Option<bool>, const2: Option<bool>) -> bool {
-    if let Some(a) = const1 {
-        if !a {
+fn are_there_false_constants(consts: Vec<Option<bool>>) -> bool {
+    for c in consts.into_iter().flatten() {
+        if !c {
             return true;
         }
-    }
-
-    if let Some(b) = const2 {
-        return !b;
     }
     false
 }
 
-fn are_there_true_constants(const1: Option<bool>, const2: Option<bool>) -> bool {
-    if let Some(a) = const1 {
-        if a {
+fn are_there_true_constants(consts: Vec<Option<bool>>) -> bool {
+    for c in consts.into_iter().flatten() {
+        if c {
             return true;
         }
     }
-
-    if let Some(b) = const2 {
-        return b;
-    }
     false
 }
+
+fn prepare_controls_for_mcx(
+    controls: Vec<QubitRef>,
+    target: QubitRef,
+) -> (Option<bool>, Vec<QubitRef>) {
+    let mut is_used: HashSet<HashableQubitRef> = HashSet::new();
+    let target_key = HashableQubitRef::from(target);
+    is_used.insert(target_key);
+
+    let mut result: Vec<QubitRef> = Vec::new();
+    for q in controls {
+        if !is_constant(&q) {
+            let key = HashableQubitRef::from(q.clone());
+            if !is_used.contains(&key) {
+                is_used.insert(key);
+                result.push(q);
+            }
+        } else {
+            let val = get_constant(&q);
+            if are_there_false_constants(vec![val]) {
+                return (Some(false), vec![]);
+            }
+        }
+    }
+
+    if result.is_empty() {
+        (Some(true), result)
+    } else {
+        (None, result)
+    }
+}
+
 // END some functions
 
 // Begin implementation
@@ -366,6 +391,43 @@ impl<'a> QuantumCircuit<'a> {
         replacement
     }
 
+    fn add_one_qubitset(
+        &mut self,
+        qubitset: Vec<QubitRef>,
+        target_set: Vec<QubitRef>,
+    ) -> Vec<QubitRef> {
+        let mut result: Vec<QubitRef> = vec![];
+
+        let sort = qubitset.len();
+
+        for index in 0..sort {
+            for i in index..sort {
+                let mut tmp_controls = target_set[index..((sort - 1 - i) + index)].to_vec();
+                tmp_controls.push(qubitset[index].clone());
+                let mut target = target_set[sort - 1 - i + index].clone();
+                let (mcx_res, controls) = prepare_controls_for_mcx(tmp_controls, target.clone());
+
+                if let Some(mcx_val) = mcx_res {
+                    if mcx_val {
+                        result.push(QubitRef::from(Qubit::ConstTrue));
+                    } else {
+                        result.push(QubitRef::from(Qubit::ConstFalse));
+                    }
+                } else {
+                    if is_constant(&target) {
+                        target = self.get_memory(1)[0].clone();
+                    }
+                    result.push(target.clone());
+                    self.circuit_stack
+                        .push(UnitaryRef::from(Unitary::Mcx { controls, target }))
+                }
+            }
+        }
+
+        assert!(result.len() == sort);
+        result
+    }
+
     fn process(&mut self, node: &NodeRef) -> Vec<QubitRef> {
         if let Some(replacement) = self.get_last_qubitset(node) {
             return replacement;
@@ -436,9 +498,9 @@ impl<'a> QuantumCircuit<'a> {
                     if are_both_constants(const_l, const_r) {
                         let val = const_l.unwrap() && const_r.unwrap();
                         replacement.push(get_qubit_from_bool(val));
-                    } else if are_there_false_constants(const_r, const_l) {
+                    } else if are_there_false_constants(vec![const_r, const_l]) {
                         replacement.push(QubitRef::from(Qubit::ConstFalse));
-                    } else if are_there_true_constants(const_l, const_r) {
+                    } else if are_there_true_constants(vec![const_l, const_r]) {
                         let control: QubitRef;
                         if is_constant(l_qubit) {
                             // l_qubit must be true
@@ -503,13 +565,13 @@ impl<'a> QuantumCircuit<'a> {
                                 vec![QubitRef::from(Qubit::ConstFalse)],
                             );
                         }
-                    } else if are_there_true_constants(const_l, const_r) {
+                    } else if are_there_true_constants(vec![const_l, const_r]) {
                         if is_constant(l_qubit) {
                             controls.push(r_qubit.clone());
                         } else {
                             controls.push(l_qubit.clone());
                         }
-                    } else if are_there_false_constants(const_l, const_r) {
+                    } else if are_there_false_constants(vec![const_l, const_r]) {
                         let control: QubitRef;
                         if is_constant(l_qubit) {
                             control = r_qubit.clone();
@@ -578,10 +640,20 @@ impl<'a> QuantumCircuit<'a> {
                 // TODO: there is uncomputing that can be done here
                 self.record_mapping(node, self.current_n, replacement)
             }
-            Node::Add {
-                left: _, right: _, ..
-            } => {
-                unimplemented!()
+            Node::Add { left, right, .. } => {
+                let left_operand = self.process(left);
+                let right_operand = self.process(right);
+
+                let mut replacement: Vec<QubitRef> = vec![];
+
+                for _ in 0..left_operand.len() {
+                    replacement.push(QubitRef::from(Qubit::ConstFalse));
+                }
+
+                replacement = self.add_one_qubitset(left_operand, replacement);
+                replacement = self.add_one_qubitset(right_operand, replacement);
+
+                self.record_mapping(node, self.current_n, replacement)
             }
             Node::Ite {
                 cond, left, right, ..
@@ -630,7 +702,7 @@ impl<'a> QuantumCircuit<'a> {
                                     input: cond_operand[0].clone(),
                                 }));
                             }
-                        } else if are_there_false_constants(const_l, const_r) {
+                        } else if are_there_false_constants(vec![const_l, const_r]) {
                             let target: QubitRef;
 
                             if self.use_dynamic_memory {
