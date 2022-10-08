@@ -393,7 +393,7 @@ impl<'a> QuantumCircuit<'a> {
 
     fn add_one_qubitset(
         &mut self,
-        qubitset: &Vec<QubitRef>,
+        qubitset: &[QubitRef],
         target_set: Vec<QubitRef>,
     ) -> Vec<QubitRef> {
         let mut result: Vec<QubitRef> = vec![];
@@ -428,7 +428,7 @@ impl<'a> QuantumCircuit<'a> {
         result
     }
 
-    fn add(&mut self, left_operand: &Vec<QubitRef>, right_operand: &Vec<QubitRef>) -> Vec<QubitRef> {
+    fn add(&mut self, left_operand: &[QubitRef], right_operand: &[QubitRef]) -> Vec<QubitRef> {
         let mut replacement: Vec<QubitRef> = vec![];
 
         for _ in 0..left_operand.len() {
@@ -441,7 +441,7 @@ impl<'a> QuantumCircuit<'a> {
         replacement
     }
 
-    fn sub(&mut self, left_operand: &Vec<QubitRef>, right_operand: &Vec<QubitRef>) -> Vec<QubitRef> {
+    fn sub(&mut self, left_operand: &[QubitRef], right_operand: &[QubitRef]) -> Vec<QubitRef> {
         let (to_uncompute, negated_right) = self.twos_complement(right_operand);
 
         let replacement = self.add(left_operand, &negated_right);
@@ -453,12 +453,12 @@ impl<'a> QuantumCircuit<'a> {
         replacement
     }
 
-    fn twos_complement(&mut self, qubitset: &Vec<QubitRef>) -> (Vec<UnitaryRef>, Vec<QubitRef>) {
+    fn twos_complement(&mut self, qubitset: &[QubitRef]) -> (Vec<UnitaryRef>, Vec<QubitRef>) {
         let mut gates_to_uncompute: Vec<UnitaryRef> = Vec::new();
         let mut result1: Vec<QubitRef> = Vec::new();
 
-        for qubit in qubitset.clone() {
-            if let Some(val) = get_constant(&qubit) {
+        for qubit in qubitset {
+            if let Some(val) = get_constant(qubit) {
                 if val {
                     result1.push(QubitRef::from(Qubit::ConstTrue));
                 } else {
@@ -469,8 +469,9 @@ impl<'a> QuantumCircuit<'a> {
                 gates_to_uncompute.push(UnitaryRef::from(Unitary::Not {
                     input: qubit.clone(),
                 }));
-                self.circuit_stack
-                    .push(UnitaryRef::from(Unitary::Not { input: qubit }));
+                self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
+                    input: qubit.clone(),
+                }));
             }
         }
 
@@ -590,7 +591,7 @@ impl<'a> QuantumCircuit<'a> {
         replacement
     }
 
-    fn eq(&mut self, left_operand: &Vec<QubitRef>, right_operand: &Vec<QubitRef>)  -> Vec<QubitRef> {
+    fn eq(&mut self, left_operand: &[QubitRef], right_operand: &[QubitRef]) -> Vec<QubitRef> {
         let mut controls: Vec<QubitRef> = vec![];
 
         for (l_qubit, r_qubit) in left_operand.iter().zip(right_operand.iter()) {
@@ -599,9 +600,7 @@ impl<'a> QuantumCircuit<'a> {
 
             if are_both_constants(const_l, const_r) {
                 if const_l.unwrap() != const_r.unwrap() {
-                    
                     return vec![QubitRef::from(Qubit::ConstFalse)];
-                    
                 }
             } else if are_there_true_constants(vec![const_l, const_r]) {
                 if is_constant(l_qubit) {
@@ -679,7 +678,6 @@ impl<'a> QuantumCircuit<'a> {
         replacement
     }
 
-
     fn insert_into_contrants(&mut self, qubit: &QubitRef, value: bool) {
         let key = HashableQubitRef::from(qubit.clone());
         assert!(!self.constraints.contains_key(&key));
@@ -705,7 +703,7 @@ impl<'a> QuantumCircuit<'a> {
                 name: "div_r".to_string(),
             }));
         }
-        
+
         let res_mul = self.mul(c.clone(), right_operand);
         let res_sum = self.add(&res_mul, &r);
 
@@ -714,9 +712,9 @@ impl<'a> QuantumCircuit<'a> {
         assert!(res_eq.len() == 1);
 
         self.insert_into_contrants(&res_eq[0], true);
-        self.insert_into_contrants(&res_mul[sort-1], false);
-        self.insert_into_contrants(&res_sum[sort-1], false);
-        
+        self.insert_into_contrants(&res_mul[sort - 1], false);
+        self.insert_into_contrants(&res_sum[sort - 1], false);
+
         (c, r)
     }
 
@@ -843,7 +841,7 @@ impl<'a> QuantumCircuit<'a> {
             Node::Eq { left, right, .. } => {
                 let left_operand = self.process(left);
                 let right_operand = self.process(right);
-                
+
                 let replacement = self.eq(&left_operand, &right_operand);
                 self.record_mapping(node, self.current_n, replacement)
             }
