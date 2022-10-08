@@ -393,7 +393,7 @@ impl<'a> QuantumCircuit<'a> {
 
     fn add_one_qubitset(
         &mut self,
-        qubitset: Vec<QubitRef>,
+        qubitset: &Vec<QubitRef>,
         target_set: Vec<QubitRef>,
     ) -> Vec<QubitRef> {
         let mut result: Vec<QubitRef> = vec![];
@@ -428,7 +428,7 @@ impl<'a> QuantumCircuit<'a> {
         result
     }
 
-    fn add(&mut self, left_operand: Vec<QubitRef>, right_operand: Vec<QubitRef>) -> Vec<QubitRef> {
+    fn add(&mut self, left_operand: &Vec<QubitRef>, right_operand: &Vec<QubitRef>) -> Vec<QubitRef> {
         let mut replacement: Vec<QubitRef> = vec![];
 
         for _ in 0..left_operand.len() {
@@ -441,10 +441,10 @@ impl<'a> QuantumCircuit<'a> {
         replacement
     }
 
-    fn sub(&mut self, left_operand: Vec<QubitRef>, right_operand: Vec<QubitRef>) -> Vec<QubitRef> {
+    fn sub(&mut self, left_operand: &Vec<QubitRef>, right_operand: &Vec<QubitRef>) -> Vec<QubitRef> {
         let (to_uncompute, negated_right) = self.twos_complement(right_operand);
 
-        let replacement = self.add(left_operand, negated_right);
+        let replacement = self.add(left_operand, &negated_right);
 
         // uncompute twos complement
         for gate in to_uncompute.iter().rev() {
@@ -453,7 +453,7 @@ impl<'a> QuantumCircuit<'a> {
         replacement
     }
 
-    fn twos_complement(&mut self, qubitset: Vec<QubitRef>) -> (Vec<UnitaryRef>, Vec<QubitRef>) {
+    fn twos_complement(&mut self, qubitset: &Vec<QubitRef>) -> (Vec<UnitaryRef>, Vec<QubitRef>) {
         let mut gates_to_uncompute: Vec<UnitaryRef> = Vec::new();
         let mut result1: Vec<QubitRef> = Vec::new();
 
@@ -577,7 +577,7 @@ impl<'a> QuantumCircuit<'a> {
             let (used_memory, gates_to_uncompute, result) =
                 self.multiply_word_by_bit(right_operand.clone(), bit.clone(), index);
 
-            replacement = self.add_one_qubitset(result, replacement);
+            replacement = self.add_one_qubitset(&result, replacement);
 
             // uncompute ancillas
             for gate in gates_to_uncompute.iter().rev() {
@@ -588,6 +588,136 @@ impl<'a> QuantumCircuit<'a> {
         }
 
         replacement
+    }
+
+    fn eq(&mut self, left_operand: &Vec<QubitRef>, right_operand: &Vec<QubitRef>)  -> Vec<QubitRef> {
+        let mut controls: Vec<QubitRef> = vec![];
+
+        for (l_qubit, r_qubit) in left_operand.iter().zip(right_operand.iter()) {
+            let const_l = get_constant(l_qubit);
+            let const_r = get_constant(r_qubit);
+
+            if are_both_constants(const_l, const_r) {
+                if const_l.unwrap() != const_r.unwrap() {
+                    
+                    return vec![QubitRef::from(Qubit::ConstFalse)];
+                    
+                }
+            } else if are_there_true_constants(vec![const_l, const_r]) {
+                if is_constant(l_qubit) {
+                    controls.push(r_qubit.clone());
+                } else {
+                    controls.push(l_qubit.clone());
+                }
+            } else if are_there_false_constants(vec![const_l, const_r]) {
+                let control: QubitRef;
+                if is_constant(l_qubit) {
+                    control = r_qubit.clone();
+                } else {
+                    control = l_qubit.clone();
+                }
+
+                let target: QubitRef;
+                if self.use_dynamic_memory {
+                    target = self.get_memory(1)[0].clone();
+                } else {
+                    target = QubitRef::from(Qubit::QBit {
+                        name: "eq_ancilla".to_string(),
+                    });
+                }
+                controls.push(target.clone());
+                self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
+                    input: control.clone(),
+                }));
+                self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot {
+                    control: control.clone(),
+                    target,
+                }));
+                self.circuit_stack
+                    .push(UnitaryRef::from(Unitary::Not { input: control }));
+            } else {
+                // no constants
+                let target: QubitRef;
+                if self.use_dynamic_memory {
+                    target = self.get_memory(1)[0].clone();
+                } else {
+                    target = QubitRef::from(Qubit::QBit {
+                        name: "eq_ancilla".to_string(),
+                    });
+                }
+                controls.push(target.clone());
+                self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot {
+                    control: l_qubit.clone(),
+                    target: target.clone(),
+                }));
+                self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot {
+                    control: r_qubit.clone(),
+                    target: target.clone(),
+                }));
+                self.circuit_stack
+                    .push(UnitaryRef::from(Unitary::Not { input: target }));
+            }
+        }
+        let replacement: Vec<QubitRef>;
+        if controls.is_empty() {
+            replacement = vec![QubitRef::from(Qubit::ConstTrue)];
+        } else {
+            let target: QubitRef;
+            if self.use_dynamic_memory {
+                target = self.get_memory(1)[0].clone();
+            } else {
+                target = QubitRef::from(Qubit::QBit {
+                    name: "eq_ancilla".to_string(),
+                });
+            }
+
+            replacement = vec![target.clone()];
+            self.circuit_stack
+                .push(UnitaryRef::from(Unitary::Mcx { controls, target }));
+        }
+        // TODO: there is uncomputing that can be done here
+        replacement
+    }
+
+
+    fn insert_into_contrants(&mut self, qubit: &QubitRef, value: bool) {
+        let key = HashableQubitRef::from(qubit.clone());
+        assert!(!self.constraints.contains_key(&key));
+        self.constraints.insert(key, value);
+    }
+
+    fn div(&mut self, left: &NodeRef, right: &NodeRef) -> (Vec<QubitRef>, Vec<QubitRef>) {
+        let mut left_operand = self.process(left);
+        let mut right_operand = self.process(right);
+        let mut c: Vec<QubitRef> = Vec::new();
+        let mut r: Vec<QubitRef> = Vec::new();
+
+        left_operand.push(QubitRef::from(Qubit::ConstFalse));
+        right_operand.push(QubitRef::from(Qubit::ConstFalse));
+
+        let sort = left_operand.len();
+
+        while c.len() < sort {
+            c.push(QubitRef::from(Qubit::QBit {
+                name: "div_c".to_string(),
+            }));
+            r.push(QubitRef::from(Qubit::QBit {
+                name: "div_r".to_string(),
+            }));
+        }
+        
+        let res_mul = self.mul(c.clone(), right_operand);
+        let res_sum = self.add(&res_mul, &r);
+
+        let res_eq = self.eq(&res_sum, &left_operand);
+
+        assert!(res_eq.len() == 1);
+
+        self.insert_into_contrants(&res_eq[0], true);
+        self.insert_into_contrants(&res_mul[sort-1], false);
+        self.insert_into_contrants(&res_sum[sort-1], false);
+        
+        (c, r)
     }
 
     fn process(&mut self, node: &NodeRef) -> Vec<QubitRef> {
@@ -713,100 +843,15 @@ impl<'a> QuantumCircuit<'a> {
             Node::Eq { left, right, .. } => {
                 let left_operand = self.process(left);
                 let right_operand = self.process(right);
-                let mut controls: Vec<QubitRef> = vec![];
-
-                for (l_qubit, r_qubit) in left_operand.iter().zip(right_operand.iter()) {
-                    let const_l = get_constant(l_qubit);
-                    let const_r = get_constant(r_qubit);
-
-                    if are_both_constants(const_l, const_r) {
-                        if const_l.unwrap() != const_r.unwrap() {
-                            return self.record_mapping(
-                                node,
-                                self.current_n,
-                                vec![QubitRef::from(Qubit::ConstFalse)],
-                            );
-                        }
-                    } else if are_there_true_constants(vec![const_l, const_r]) {
-                        if is_constant(l_qubit) {
-                            controls.push(r_qubit.clone());
-                        } else {
-                            controls.push(l_qubit.clone());
-                        }
-                    } else if are_there_false_constants(vec![const_l, const_r]) {
-                        let control: QubitRef;
-                        if is_constant(l_qubit) {
-                            control = r_qubit.clone();
-                        } else {
-                            control = l_qubit.clone();
-                        }
-
-                        let target: QubitRef;
-                        if self.use_dynamic_memory {
-                            target = self.get_memory(1)[0].clone();
-                        } else {
-                            target = QubitRef::from(Qubit::QBit {
-                                name: "eq_ancilla".to_string(),
-                            });
-                        }
-                        controls.push(target.clone());
-                        self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
-                            input: control.clone(),
-                        }));
-                        self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot {
-                            control: control.clone(),
-                            target,
-                        }));
-                        self.circuit_stack
-                            .push(UnitaryRef::from(Unitary::Not { input: control }));
-                    } else {
-                        // no constants
-                        let target: QubitRef;
-                        if self.use_dynamic_memory {
-                            target = self.get_memory(1)[0].clone();
-                        } else {
-                            target = QubitRef::from(Qubit::QBit {
-                                name: "eq_ancilla".to_string(),
-                            });
-                        }
-                        controls.push(target.clone());
-                        self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot {
-                            control: l_qubit.clone(),
-                            target: target.clone(),
-                        }));
-                        self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot {
-                            control: r_qubit.clone(),
-                            target: target.clone(),
-                        }));
-                        self.circuit_stack
-                            .push(UnitaryRef::from(Unitary::Not { input: target }));
-                    }
-                }
-                let replacement: Vec<QubitRef>;
-                if controls.is_empty() {
-                    replacement = vec![QubitRef::from(Qubit::ConstTrue)];
-                } else {
-                    let target: QubitRef;
-                    if self.use_dynamic_memory {
-                        target = self.get_memory(1)[0].clone();
-                    } else {
-                        target = QubitRef::from(Qubit::QBit {
-                            name: "eq_ancilla".to_string(),
-                        });
-                    }
-
-                    replacement = vec![target.clone()];
-                    self.circuit_stack
-                        .push(UnitaryRef::from(Unitary::Mcx { controls, target }));
-                }
-                // TODO: there is uncomputing that can be done here
+                
+                let replacement = self.eq(&left_operand, &right_operand);
                 self.record_mapping(node, self.current_n, replacement)
             }
             Node::Add { left, right, .. } => {
                 let left_operand = self.process(left);
                 let right_operand = self.process(right);
 
-                let replacement = self.add(left_operand, right_operand);
+                let replacement = self.add(&left_operand, &right_operand);
 
                 self.record_mapping(node, self.current_n, replacement)
             }
@@ -923,7 +968,7 @@ impl<'a> QuantumCircuit<'a> {
                 let left_operand = self.process(left);
                 let right_operand = self.process(right);
 
-                let replacement = self.sub(left_operand, right_operand);
+                let replacement = self.sub(&left_operand, &right_operand);
 
                 self.record_mapping(node, self.current_n, replacement)
             }
@@ -934,7 +979,7 @@ impl<'a> QuantumCircuit<'a> {
                 left_operand.push(QubitRef::from(Qubit::ConstFalse));
                 right_operand.push(QubitRef::from(Qubit::ConstFalse));
 
-                let result = self.sub(left_operand, right_operand);
+                let result = self.sub(&left_operand, &right_operand);
 
                 self.record_mapping(node, self.current_n, vec![result.last().unwrap().clone()])
             }
@@ -946,15 +991,13 @@ impl<'a> QuantumCircuit<'a> {
 
                 self.record_mapping(node, self.current_n, replacement)
             }
-            Node::Div {
-                left: _, right: _, ..
-            } => {
-                unimplemented!()
+            Node::Div { left, right, .. } => {
+                let (replacement, _) = self.div(left, right);
+                self.record_mapping(node, self.current_n, replacement)
             }
-            Node::Rem {
-                left: _, right: _, ..
-            } => {
-                unimplemented!()
+            Node::Rem { left, right, .. } => {
+                let (_, replacement) = self.div(left, right);
+                self.record_mapping(node, self.current_n, replacement)
             }
             Node::Next { state, next, .. } => {
                 let _ = self.process(state);
