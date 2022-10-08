@@ -428,6 +428,90 @@ impl<'a> QuantumCircuit<'a> {
         result
     }
 
+    fn add(&mut self, left_operand: Vec<QubitRef>, right_operand: Vec<QubitRef>) -> Vec<QubitRef> {
+        let mut replacement: Vec<QubitRef> = vec![];
+
+        for _ in 0..left_operand.len() {
+            replacement.push(QubitRef::from(Qubit::ConstFalse));
+        }
+
+        replacement = self.add_one_qubitset(left_operand, replacement);
+        replacement = self.add_one_qubitset(right_operand, replacement);
+
+        replacement
+    }
+
+    fn sub(&mut self, left_operand: Vec<QubitRef>, right_operand: Vec<QubitRef>) -> Vec<QubitRef> {
+        let (to_uncompute, negated_right) = self.twos_complement(right_operand);
+
+        let replacement = self.add(left_operand, negated_right);
+
+        // uncompute twos complement
+        for gate in to_uncompute.iter().rev() {
+            self.circuit_stack.push(gate.clone());
+        }
+        replacement
+    }
+
+    fn twos_complement(&mut self, qubitset: Vec<QubitRef>) -> (Vec<UnitaryRef>, Vec<QubitRef>) {
+        let mut gates_to_uncompute: Vec<UnitaryRef> = Vec::new();
+        let mut result1: Vec<QubitRef> = Vec::new();
+
+        for qubit in qubitset.clone() {
+            if let Some(val) = get_constant(&qubit) {
+                if val {
+                    result1.push(QubitRef::from(Qubit::ConstTrue));
+                } else {
+                    result1.push(QubitRef::from(Qubit::ConstFalse));
+                }
+            } else {
+                result1.push(qubit.clone());
+                gates_to_uncompute.push(UnitaryRef::from(Unitary::Not {
+                    input: qubit.clone(),
+                }));
+                self.circuit_stack
+                    .push(UnitaryRef::from(Unitary::Not { input: qubit }));
+            }
+        }
+
+        let sort = qubitset.len();
+        let mut result2: Vec<QubitRef> = Vec::new();
+        for i in 0..sort - 1 {
+            let target = result1[sort - i - 1].clone();
+            let tmp_controls = result1[..(sort - i - 1)].to_vec();
+            let (mcx_res, controls) = prepare_controls_for_mcx(tmp_controls, target.clone());
+
+            if let Some(mcx_val) = mcx_res {
+                result2.push(get_qubit_from_bool(mcx_val));
+            } else {
+                result2.push(target.clone());
+                gates_to_uncompute.push(UnitaryRef::from(Unitary::Mcx {
+                    controls: controls.clone(),
+                    target: target.clone(),
+                }));
+                self.circuit_stack
+                    .push(UnitaryRef::from(Unitary::Mcx { controls, target }));
+            }
+        }
+        result2.push(result1[sort - 1].clone());
+
+        assert!(result2.len() == result1.len());
+        assert!(result2.len() == qubitset.len());
+
+        if let Some(val) = get_constant(&result2[0]) {
+            result2[0] = get_qubit_from_bool(!val);
+        } else {
+            gates_to_uncompute.push(UnitaryRef::from(Unitary::Not {
+                input: result2[0].clone(),
+            }));
+            self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
+                input: result2[0].clone(),
+            }));
+        }
+
+        (gates_to_uncompute, result2)
+    }
+
     fn process(&mut self, node: &NodeRef) -> Vec<QubitRef> {
         if let Some(replacement) = self.get_last_qubitset(node) {
             return replacement;
@@ -644,14 +728,7 @@ impl<'a> QuantumCircuit<'a> {
                 let left_operand = self.process(left);
                 let right_operand = self.process(right);
 
-                let mut replacement: Vec<QubitRef> = vec![];
-
-                for _ in 0..left_operand.len() {
-                    replacement.push(QubitRef::from(Qubit::ConstFalse));
-                }
-
-                replacement = self.add_one_qubitset(left_operand, replacement);
-                replacement = self.add_one_qubitset(right_operand, replacement);
+                let replacement = self.add(left_operand, right_operand);
 
                 self.record_mapping(node, self.current_n, replacement)
             }
@@ -764,10 +841,13 @@ impl<'a> QuantumCircuit<'a> {
 
                 self.record_mapping(node, self.current_n, replacement)
             }
-            Node::Sub {
-                left: _, right: _, ..
-            } => {
-                unimplemented!()
+            Node::Sub { left, right, .. } => {
+                let left_operand = self.process(left);
+                let right_operand = self.process(right);
+
+                let replacement = self.sub(left_operand, right_operand);
+
+                self.record_mapping(node, self.current_n, replacement)
             }
             Node::Ult {
                 left: _, right: _, ..
