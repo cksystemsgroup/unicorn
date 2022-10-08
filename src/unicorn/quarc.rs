@@ -850,9 +850,17 @@ impl<'a> QuantumCircuit<'a> {
                 self.record_mapping(node, self.current_n, replacement)
             }
             Node::Ult {
-                left: _, right: _, ..
+                left, right, ..
             } => {
-                unimplemented!()
+                let mut left_operand = self.process(left);
+                let mut right_operand = self.process(right);
+
+                left_operand.push(QubitRef::from(Qubit::ConstFalse));
+                right_operand.push(QubitRef::from(Qubit::ConstFalse));
+
+                let result = self.sub(left_operand, right_operand);
+
+                self.record_mapping(node, self.current_n, vec![result.last().unwrap().clone()])
             }
             Node::Mul {
                 left: _, right: _, ..
