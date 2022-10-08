@@ -512,6 +512,84 @@ impl<'a> QuantumCircuit<'a> {
         (gates_to_uncompute, result2)
     }
 
+    fn multiply_word_by_bit(
+        &mut self,
+        word: Vec<QubitRef>,
+        bit: QubitRef,
+        shift: usize,
+    ) -> (usize, Vec<UnitaryRef>, Vec<QubitRef>) {
+        let mut gates_to_uncompute: Vec<UnitaryRef> = Vec::new();
+        let mut result: Vec<QubitRef> = Vec::new();
+        let mut used_memory = 0;
+
+        if let Some(val) = get_constant(&bit) {
+            if val {
+                (used_memory, gates_to_uncompute, word)
+            } else {
+                while result.len() < word.len() {
+                    result.push(QubitRef::from(Qubit::ConstFalse));
+                }
+                (used_memory, gates_to_uncompute, result)
+            }
+        } else {
+            let mut i = 0;
+            let mut s = 0;
+
+            while result.len() < word.len() {
+                if s < shift {
+                    result.push(QubitRef::from(Qubit::ConstFalse));
+                    s += 1;
+                } else {
+                    if let Some(val) = get_constant(&word[i]) {
+                        if val {
+                            result.push(bit.clone());
+                        } else {
+                            result.push(QubitRef::from(Qubit::ConstFalse));
+                        }
+                    } else {
+                        used_memory += 1;
+                        let target = self.get_memory(1)[0].clone();
+                        gates_to_uncompute.push(UnitaryRef::from(Unitary::Mcx {
+                            controls: vec![word[i].clone(), bit.clone()],
+                            target: target.clone(),
+                        }));
+                        self.circuit_stack.push(UnitaryRef::from(Unitary::Mcx {
+                            controls: vec![word[i].clone(), bit.clone()],
+                            target,
+                        }));
+                    }
+                    i += 1;
+                }
+            }
+            assert!(result.len() == word.len());
+            (used_memory, gates_to_uncompute, result)
+        }
+    }
+
+    fn mul(&mut self, left_operand: Vec<QubitRef>, right_operand: Vec<QubitRef>) -> Vec<QubitRef> {
+        let mut replacement: Vec<QubitRef> = Vec::new();
+
+        for _ in 0..left_operand.len() {
+            replacement.push(QubitRef::from(Qubit::ConstFalse));
+        }
+
+        for (index, bit) in left_operand.iter().enumerate() {
+            let (used_memory, gates_to_uncompute, result) =
+                self.multiply_word_by_bit(right_operand.clone(), bit.clone(), index);
+
+            replacement = self.add_one_qubitset(result, replacement);
+
+            // uncompute ancillas
+            for gate in gates_to_uncompute.iter().rev() {
+                self.circuit_stack.push(gate.clone());
+            }
+
+            self.dm_index -= used_memory;
+        }
+
+        replacement
+    }
+
     fn process(&mut self, node: &NodeRef) -> Vec<QubitRef> {
         if let Some(replacement) = self.get_last_qubitset(node) {
             return replacement;
@@ -849,9 +927,7 @@ impl<'a> QuantumCircuit<'a> {
 
                 self.record_mapping(node, self.current_n, replacement)
             }
-            Node::Ult {
-                left, right, ..
-            } => {
+            Node::Ult { left, right, .. } => {
                 let mut left_operand = self.process(left);
                 let mut right_operand = self.process(right);
 
@@ -862,10 +938,13 @@ impl<'a> QuantumCircuit<'a> {
 
                 self.record_mapping(node, self.current_n, vec![result.last().unwrap().clone()])
             }
-            Node::Mul {
-                left: _, right: _, ..
-            } => {
-                unimplemented!()
+            Node::Mul { left, right, .. } => {
+                let left_operand = self.process(left);
+                let right_operand = self.process(right);
+
+                let replacement = self.mul(left_operand, right_operand);
+
+                self.record_mapping(node, self.current_n, replacement)
             }
             Node::Div {
                 left: _, right: _, ..
