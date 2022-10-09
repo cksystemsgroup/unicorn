@@ -269,9 +269,10 @@ fn main() -> Result<()> {
                 model.lines.clear();
                 if let Some(ref output_path) = output {
                     let file = File::create(output_path)?;
-                    let qc = QuantumCircuit::new(&model, 64, use_dynamic_memory); // 64 is a paramater describing wordsize
+                    let mut qc = QuantumCircuit::new(&model, 64, use_dynamic_memory); // 64 is a paramater describing wordsize
                                                                                   // TODO: make wordsize parameter customizable from command line
-                    let _ = qc.process_model(file, unroll_depth);
+                    let _ = qc.process_model(unroll_depth);
+                    let _ = qc.write_model(file);
                     if has_concrete_inputs {
                         let _inputs = expect_optional_arg::<String>(args, "inputs")?;
                         unimplemented!();
