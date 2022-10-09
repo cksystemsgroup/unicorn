@@ -1,4 +1,4 @@
-use crate::unicorn::{HashableNodeRef, Model, Node, NodeRef, NodeType, get_nid};
+use crate::unicorn::{get_nid, HashableNodeRef, Model, Node, NodeRef, NodeType};
 use anyhow::Result;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -219,7 +219,7 @@ impl<'a> QuantumCircuit<'a> {
             count_multiqubit_gates: 0,
             current_n: 0,
             use_dynamic_memory: use_dynamic_memory_,
-            output_oracle: None
+            output_oracle: None,
         }
     }
 
@@ -282,13 +282,20 @@ impl<'a> QuantumCircuit<'a> {
         // assume all values are Qubit::Qbit
         assert!(self.bad_state_qubits.len() > 1);
 
-        self.circuit_stack.push(UnitaryRef::from(Unitary::Not { input: target.clone() }));
+        self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
+            input: target.clone(),
+        }));
         for qubit in self.bad_state_qubits.clone() {
-            self.circuit_stack.push(UnitaryRef::from(Unitary::Not { input: qubit }));
+            self.circuit_stack
+                .push(UnitaryRef::from(Unitary::Not { input: qubit }));
         }
-        self.circuit_stack.push(UnitaryRef::from(Unitary::Mcx { controls: self.bad_state_qubits.clone(), target }));
+        self.circuit_stack.push(UnitaryRef::from(Unitary::Mcx {
+            controls: self.bad_state_qubits.clone(),
+            target,
+        }));
         for qubit in self.bad_state_qubits.clone() {
-            self.circuit_stack.push(UnitaryRef::from(Unitary::Not { input: qubit }));
+            self.circuit_stack
+                .push(UnitaryRef::from(Unitary::Not { input: qubit }));
         }
     }
 
@@ -696,8 +703,12 @@ impl<'a> QuantumCircuit<'a> {
 
     fn insert_into_contrants(&mut self, qubit: &QubitRef, value: bool) {
         let key = HashableQubitRef::from(qubit.clone());
-        assert!(!self.constraints.contains_key(&key));
-        self.constraints.insert(key, value);
+        if let std::collections::hash_map::Entry::Vacant(e) = self.constraints.entry(key) {
+            e.insert(value);
+        } else {
+            let key = HashableQubitRef::from(qubit.clone());
+            assert!(value == *self.constraints.get(&key).unwrap());
+        }
     }
 
     fn div(&mut self, left: &NodeRef, right: &NodeRef) -> (Vec<QubitRef>, Vec<QubitRef>) {
@@ -1034,14 +1045,15 @@ impl<'a> QuantumCircuit<'a> {
         }
     }
 
-    pub fn process_model(&mut self, unroll_depth: usize) -> Result<()>
-    {
+    pub fn process_model(&mut self, unroll_depth: usize) -> Result<()> {
         assert!(self.bad_state_qubits.is_empty());
         assert!(self.bad_state_nodes.is_empty());
         assert!(self.input_qubits.is_empty());
         assert!(self.circuit_stack.is_empty());
         assert!(self.word_size == 64 || self.word_size == 32);
-        let mut result_ored_bad_states: QubitRef = QubitRef::from(Qubit::QBit { name: "result_ored".to_string() });
+        let mut result_ored_bad_states: QubitRef = QubitRef::from(Qubit::QBit {
+            name: "result_ored".to_string(),
+        });
 
         for i in 0..unroll_depth {
             self.current_n = i;
@@ -1053,65 +1065,67 @@ impl<'a> QuantumCircuit<'a> {
                 }
             }
 
-            
             for bad_state in &self.model.bad_states_sequential {
                 let bitblasted_bad_state = self.process(bad_state);
                 assert!(bitblasted_bad_state.len() == 1);
                 if let Some(val) = get_constant(&bitblasted_bad_state[0]) {
                     if val {
-                        println!("Bad state found at state transition {} ({})", i, get_nid(bad_state));
+                        println!(
+                            "Bad state found at state transition {} ({})",
+                            i,
+                            get_nid(bad_state)
+                        );
                         result_ored_bad_states = QubitRef::from(Qubit::ConstTrue);
                     }
                 } else {
                     self.bad_state_qubits.push(bitblasted_bad_state[0].clone());
                 }
-                
             }
         }
 
-
-        if !is_constant(&result_ored_bad_states) { 
+        if !is_constant(&result_ored_bad_states) {
             if self.bad_state_qubits.is_empty() {
                 result_ored_bad_states = QubitRef::from(Qubit::ConstFalse);
                 self.output_oracle = Some(QubitRef::from(Qubit::ConstFalse));
+            } else if self.bad_state_qubits.len() == 1 {
+                result_ored_bad_states = self.bad_state_qubits[0].clone();
             } else {
-                if self.bad_state_qubits.len() == 1 {
-                    result_ored_bad_states = self.bad_state_qubits[0].clone();
-                } else {
-                    self.or_bad_state_qubits(result_ored_bad_states.clone());
-                }
+                self.or_bad_state_qubits(result_ored_bad_states.clone());
             }
         }
 
-        if self.constraints.len() == 0 {
+        if self.constraints.is_empty() {
             self.output_oracle = Some(result_ored_bad_states);
-        } else {
-            if let None = self.output_oracle {
-                let mut tmp_controls: Vec<QubitRef> = vec![];
+        } else if self.output_oracle.is_none() {
+            let mut tmp_controls: Vec<QubitRef> = vec![];
 
-                if let Some(val_ored_bad_states) = get_constant(&result_ored_bad_states) {
-                    assert!(val_ored_bad_states);
-                } else {
-                    tmp_controls.push(result_ored_bad_states);
-                }
-                for (key, value) in self.constraints.iter() {
-                    let qubit = &key.value;
-                    tmp_controls.push(qubit.clone());
-                    if !value {
-                        self.circuit_stack.push(UnitaryRef::from(Unitary::Not { input: qubit.clone()}));
-                    }
-                }
-                let target = QubitRef::from(Qubit::QBit { name: "oracle_out".to_string() });
-                let (val_oracle, controls) = prepare_controls_for_mcx(tmp_controls, target.clone() );
-                if let Some(value) = val_oracle {
-                    println!("This oracle will always evaluate to {}", value);
-                } else {
-                    self.circuit_stack.push(UnitaryRef::from(Unitary::Mcx { controls, target: target.clone()}));
-                    self.output_oracle = Some(target);
-                }
-                
+            if let Some(val_ored_bad_states) = get_constant(&result_ored_bad_states) {
+                assert!(val_ored_bad_states);
+            } else {
+                tmp_controls.push(result_ored_bad_states);
             }
-            
+            for (key, value) in self.constraints.iter() {
+                let qubit = &key.value;
+                tmp_controls.push(qubit.clone());
+                if !value {
+                    self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
+                        input: qubit.clone(),
+                    }));
+                }
+            }
+            let target = QubitRef::from(Qubit::QBit {
+                name: "oracle_out".to_string(),
+            });
+            let (val_oracle, controls) = prepare_controls_for_mcx(tmp_controls, target.clone());
+            if let Some(value) = val_oracle {
+                println!("This oracle will always evaluate to {}", value);
+            } else {
+                self.circuit_stack.push(UnitaryRef::from(Unitary::Mcx {
+                    controls,
+                    target: target.clone(),
+                }));
+                self.output_oracle = Some(target);
+            }
         }
         Ok(())
     }

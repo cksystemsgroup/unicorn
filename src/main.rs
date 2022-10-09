@@ -270,7 +270,7 @@ fn main() -> Result<()> {
                 if let Some(ref output_path) = output {
                     let file = File::create(output_path)?;
                     let mut qc = QuantumCircuit::new(&model, 64, use_dynamic_memory); // 64 is a paramater describing wordsize
-                                                                                  // TODO: make wordsize parameter customizable from command line
+                                                                                      // TODO: make wordsize parameter customizable from command line
                     let _ = qc.process_model(unroll_depth);
                     let _ = qc.write_model(file);
                     if has_concrete_inputs {
