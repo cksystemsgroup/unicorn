@@ -453,6 +453,7 @@ impl<'a> QuantumCircuit<'a> {
     }
 
     fn add(&mut self, left_operand: &[QubitRef], right_operand: &[QubitRef]) -> Vec<QubitRef> {
+        assert!(left_operand.len() == right_operand.len());
         let mut replacement: Vec<QubitRef> = vec![];
 
         for _ in 0..left_operand.len() {
@@ -461,11 +462,12 @@ impl<'a> QuantumCircuit<'a> {
 
         replacement = self.add_one_qubitset(left_operand, replacement);
         replacement = self.add_one_qubitset(right_operand, replacement);
-
+        assert!(replacement.len() == left_operand.len());
         replacement
     }
 
     fn sub(&mut self, left_operand: &[QubitRef], right_operand: &[QubitRef]) -> Vec<QubitRef> {
+        assert!(left_operand.len() == right_operand.len());
         let (to_uncompute, negated_right) = self.twos_complement(right_operand);
 
         let replacement = self.add(left_operand, &negated_right);
@@ -474,6 +476,8 @@ impl<'a> QuantumCircuit<'a> {
         for gate in to_uncompute.iter().rev() {
             self.circuit_stack.push(gate.clone());
         }
+
+        assert!(replacement.len() == left_operand.len());
         replacement
     }
 
@@ -498,7 +502,7 @@ impl<'a> QuantumCircuit<'a> {
                 }));
             }
         }
-
+        assert!(result1.len() == qubitset.len());
         let sort = qubitset.len();
         let mut result2: Vec<QubitRef> = Vec::new();
         for i in 0..sort - 1 {
@@ -519,10 +523,10 @@ impl<'a> QuantumCircuit<'a> {
             }
         }
         result2.push(result1[sort - 1].clone());
-
         assert!(result2.len() == result1.len());
         assert!(result2.len() == qubitset.len());
 
+        // apply not gate to LSB qubit
         if let Some(val) = get_constant(&result2[0]) {
             result2[0] = get_qubit_from_bool(!val);
         } else {
@@ -539,7 +543,7 @@ impl<'a> QuantumCircuit<'a> {
 
     fn multiply_word_by_bit(
         &mut self,
-        word: Vec<QubitRef>,
+        word: &[QubitRef],
         bit: QubitRef,
         shift: usize,
     ) -> (usize, Vec<UnitaryRef>, Vec<QubitRef>) {
@@ -549,7 +553,7 @@ impl<'a> QuantumCircuit<'a> {
 
         if let Some(val) = get_constant(&bit) {
             if val {
-                (used_memory, gates_to_uncompute, word)
+                (used_memory, gates_to_uncompute, word.to_vec())
             } else {
                 while result.len() < word.len() {
                     result.push(QubitRef::from(Qubit::ConstFalse));
@@ -591,7 +595,8 @@ impl<'a> QuantumCircuit<'a> {
         }
     }
 
-    fn mul(&mut self, left_operand: Vec<QubitRef>, right_operand: Vec<QubitRef>) -> Vec<QubitRef> {
+    fn mul(&mut self, left_operand: &[QubitRef], right_operand: &[QubitRef]) -> Vec<QubitRef> {
+        assert!(left_operand.len() == right_operand.len());
         let mut replacement: Vec<QubitRef> = Vec::new();
 
         for _ in 0..left_operand.len() {
@@ -600,7 +605,7 @@ impl<'a> QuantumCircuit<'a> {
 
         for (index, bit) in left_operand.iter().enumerate() {
             let (used_memory, gates_to_uncompute, result) =
-                self.multiply_word_by_bit(right_operand.clone(), bit.clone(), index);
+                self.multiply_word_by_bit(right_operand, bit.clone(), index);
 
             replacement = self.add_one_qubitset(&result, replacement);
 
@@ -611,11 +616,12 @@ impl<'a> QuantumCircuit<'a> {
 
             self.dm_index -= used_memory;
         }
-
+        assert!(replacement.len() == left_operand.len());
         replacement
     }
 
     fn eq(&mut self, left_operand: &[QubitRef], right_operand: &[QubitRef]) -> Vec<QubitRef> {
+        assert!(left_operand.len() == right_operand.len());
         let mut controls: Vec<QubitRef> = vec![];
 
         for (l_qubit, r_qubit) in left_operand.iter().zip(right_operand.iter()) {
@@ -706,6 +712,7 @@ impl<'a> QuantumCircuit<'a> {
                 .push(UnitaryRef::from(Unitary::Mcx { controls, target }));
         }
         // TODO: there is uncomputing that can be done here
+        assert!(replacement.len() == 1);
         replacement
     }
 
@@ -722,6 +729,8 @@ impl<'a> QuantumCircuit<'a> {
     fn div(&mut self, left: &NodeRef, right: &NodeRef) -> (Vec<QubitRef>, Vec<QubitRef>) {
         let mut left_operand = self.process(left);
         let mut right_operand = self.process(right);
+
+        assert!(left_operand.len() == right_operand.len());
         let mut c: Vec<QubitRef> = Vec::new();
         let mut r: Vec<QubitRef> = Vec::new();
 
@@ -739,7 +748,7 @@ impl<'a> QuantumCircuit<'a> {
             }));
         }
 
-        let res_mul = self.mul(c.clone(), right_operand);
+        let res_mul = self.mul(&c, &right_operand);
         let res_sum = self.add(&res_mul, &r);
 
         let res_eq = self.eq(&res_sum, &left_operand);
@@ -749,7 +758,8 @@ impl<'a> QuantumCircuit<'a> {
         self.insert_into_contrants(&res_eq[0], true);
         self.insert_into_contrants(&res_mul[sort - 1], false);
         self.insert_into_contrants(&res_sum[sort - 1], false);
-
+        assert!(c.len() == r.len());
+        assert!(c.len() == right_operand.len());
         (c, r)
     }
 
@@ -1026,7 +1036,7 @@ impl<'a> QuantumCircuit<'a> {
                 let left_operand = self.process(left);
                 let right_operand = self.process(right);
 
-                let replacement = self.mul(left_operand, right_operand);
+                let replacement = self.mul(&left_operand, &right_operand);
 
                 self.record_mapping(node, self.current_n, replacement)
             }
