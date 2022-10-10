@@ -49,6 +49,10 @@ struct ConstantFolder<'a, S> {
     concrete_inputs: &'a mut Vec<u64>,
 }
 
+fn ones(sort: &NodeType) -> u64 {
+    u64::MAX >> (64 - sort.bitsize())
+}
+
 fn get_constant(node: &NodeRef) -> Option<u64> {
     if let Node::Const { imm, .. } = &*node.borrow() {
         Some(*imm)
@@ -63,6 +67,14 @@ fn is_const_true(node: &NodeRef) -> bool {
 
 fn is_const_false(node: &NodeRef) -> bool {
     get_constant(node) == Some(0)
+}
+
+fn is_const_zeroes(node: &NodeRef, _sort: &NodeType) -> bool {
+    get_constant(node) == Some(0)
+}
+
+fn is_const_ones(node: &NodeRef, sort: &NodeType) -> bool {
+    get_constant(node) == Some(ones(sort))
 }
 
 fn new_const_with_type(imm: u64, sort: NodeType) -> NodeRef {
@@ -114,7 +126,7 @@ impl<'a, S: Solver> ConstantFolder<'a, S> {
         }
     }
 
-    fn fold_arithmetic_binary<F>(
+    fn fold_any_binary<F>(
         &self,
         left: &NodeRef,
         right: &NodeRef,
@@ -181,23 +193,23 @@ impl<'a, S: Solver> ConstantFolder<'a, S> {
     }
 
     fn fold_add(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
-        self.fold_arithmetic_binary(left, right, u64::wrapping_add, "ADD")
+        self.fold_any_binary(left, right, u64::wrapping_add, "ADD")
     }
 
     fn fold_sub(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
-        self.fold_arithmetic_binary(left, right, u64::wrapping_sub, "SUB")
+        self.fold_any_binary(left, right, u64::wrapping_sub, "SUB")
     }
 
     fn fold_mul(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
-        self.fold_arithmetic_binary(left, right, u64::wrapping_mul, "MUL")
+        self.fold_any_binary(left, right, u64::wrapping_mul, "MUL")
     }
 
     fn fold_div(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
-        self.fold_arithmetic_binary(left, right, Self::btor_u64_div, "DIV")
+        self.fold_any_binary(left, right, Self::btor_u64_div, "DIV")
     }
 
     fn fold_rem(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
-        self.fold_arithmetic_binary(left, right, Self::btor_u64_rem, "REM")
+        self.fold_any_binary(left, right, Self::btor_u64_rem, "REM")
     }
 
     fn fold_ult(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
@@ -262,46 +274,53 @@ impl<'a, S: Solver> ConstantFolder<'a, S> {
         self.solve_boolean_binary(node, left, right, "EQ")
     }
 
-    fn fold_and(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
-        if is_const_false(left) {
-            trace!("Folding AND({:?}[F],_) -> F", RefCell::as_ptr(left));
-            return Some(self.const_false.clone());
-        }
-        if is_const_false(right) {
-            trace!("Folding AND(_,{:?}[F]) -> F", RefCell::as_ptr(right));
-            return Some(self.const_false.clone());
-        }
-        if is_const_true(left) && is_const_true(right) {
-            trace!(
-                "Folding AND({:?}[T],{:?}[T]) -> T",
-                RefCell::as_ptr(left),
-                RefCell::as_ptr(right)
-            );
-            return Some(self.const_true.clone());
-        }
-        if is_const_true(left) {
-            trace!("Strength-reducing AND(T,x) -> x");
-            return Some(right.clone());
-        }
-        if is_const_true(right) {
-            trace!("Strength-reducing AND(x,T) -> x");
+    fn fold_and(&self, left: &NodeRef, right: &NodeRef, sort: &NodeType) -> Option<NodeRef> {
+        if is_const_zeroes(left, sort) {
+            trace!("Folding AND(zeroes,_) -> zeroes");
             return Some(left.clone());
         }
-        None
+        if is_const_zeroes(right, sort) {
+            trace!("Folding AND(_,zeroes) -> zeroes");
+            return Some(right.clone());
+        }
+        if is_const_ones(left, sort) {
+            trace!("Strength-reducing AND(ones,x) -> x");
+            return Some(right.clone());
+        }
+        if is_const_ones(right, sort) {
+            trace!("Strength-reducing AND(x,ones) -> x");
+            return Some(left.clone());
+        }
+        self.fold_any_binary(left, right, |a, b| a & b, "AND")
     }
 
-    fn solve_and(&mut self, node: &NodeRef, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
+    fn solve_and_bit(
+        &mut self,
+        node: &NodeRef,
+        left: &NodeRef,
+        right: &NodeRef,
+    ) -> Option<NodeRef> {
         self.solve_boolean_binary(node, left, right, "AND")
     }
 
-    fn fold_not(&self, value: &NodeRef) -> Option<NodeRef> {
-        if is_const_true(value) {
-            trace!("Folding NOT({:?}[T]) -> F", RefCell::as_ptr(value));
-            return Some(self.const_false.clone());
-        }
-        if is_const_false(value) {
-            trace!("Folding NOT({:?}[F]) -> T", RefCell::as_ptr(value));
-            return Some(self.const_true.clone());
+    fn fold_not(&self, value: &NodeRef, sort: &NodeType) -> Option<NodeRef> {
+        if let Some(value_imm) = get_constant(value) {
+            // TODO: The following two special-case checks are just a
+            // work-around to canonicalize `true` and `false` constants.
+            if *sort == NodeType::Bit && value_imm == 0 {
+                return Some(self.const_true.clone());
+            }
+            if *sort == NodeType::Bit && value_imm == 1 {
+                return Some(self.const_false.clone());
+            }
+            let result_imm = !value_imm & ones(sort);
+            trace!(
+                "Folding NOT({:?}[{}]) -> {}",
+                RefCell::as_ptr(value),
+                value_imm,
+                result_imm
+            );
+            return Some(new_const_with_type(result_imm, sort.clone()));
         }
         None
     }
@@ -482,14 +501,14 @@ impl<'a, S: Solver> ConstantFolder<'a, S> {
                 if let Some(n) = self.visit(right) { *right = n }
                 self.fold_eq(left, right)
             }
-            Node::And { ref mut left, ref mut right, .. } => {
+            Node::And { ref sort, ref mut left, ref mut right, .. } => {
                 if let Some(n) = self.visit(left) { *left = n }
                 if let Some(n) = self.visit(right) { *right = n }
-                self.fold_and(left, right)
+                self.fold_and(left, right, sort)
             }
-            Node::Not { ref mut value, .. } => {
+            Node::Not { ref sort, ref mut value, .. } => {
                 if let Some(n) = self.visit(value) { *value = n }
-                self.fold_not(value)
+                self.fold_not(value, sort)
             }
             Node::State { init: None, ref sort, ref name, .. } => {
                 self.specialize_to_concrete_input(sort.clone(), name)
@@ -521,8 +540,8 @@ impl<'a, S: Solver> ConstantFolder<'a, S> {
             Node::Eq { left, right, .. } => {
                 self.solve_eq(node, left, right)
             }
-            Node::And { left, right, .. } => {
-                self.solve_and(node, left, right)
+            Node::And { sort: NodeType::Bit, left, right, .. } => {
+                self.solve_and_bit(node, left, right)
             }
             Node::Ite { sort: NodeType::Bit, cond, left, right, .. } => {
                 self.solve_ite_bit(node, cond, left, right)

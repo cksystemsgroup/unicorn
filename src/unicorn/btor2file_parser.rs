@@ -156,7 +156,11 @@ impl BTOR2Parser {
                 "not" => {
                     if let Ok(nid_value) = line[3].parse::<Nid>() {
                         let value = self.process_node(nid_value);
-                        current_node = Some(NodeRef::from(Node::Not { nid, value }))
+                        current_node = Some(NodeRef::from(Node::Not {
+                            nid,
+                            sort: get_nodetype(sort),
+                            value,
+                        }))
                     }
                 }
                 "bad" => {
@@ -204,7 +208,12 @@ impl BTOR2Parser {
                                 "urem" => Node::Rem { nid, left, right },
                                 "ult" => Node::Ult { nid, left, right },
                                 "eq" => Node::Eq { nid, left, right },
-                                "and" => Node::And { nid, left, right },
+                                "and" => Node::And {
+                                    nid,
+                                    sort: get_nodetype(sort),
+                                    left,
+                                    right,
+                                },
                                 "next" => Node::Next {
                                     nid,
                                     sort: get_nodetype(sort),

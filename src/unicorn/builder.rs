@@ -266,13 +266,13 @@ impl ModelBuilder {
     // We represent `ulte(a, b)` as `not(ult(b, a))` instead.
     fn new_ulte(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
         let ult_node = self.new_ult(right, left);
-        self.new_not(ult_node)
+        self.new_not_bit(ult_node)
     }
 
     // We represent `ugte(a, b)` as `not(ult(a, b))` instead.
     fn new_ugte(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
         let ult_node = self.new_ult(left, right);
-        self.new_not(ult_node)
+        self.new_not_bit(ult_node)
     }
 
     // We represent `slt(a, b)` as `ult(add(a, 2^63), add(b, 2^63))` instead.
@@ -286,7 +286,7 @@ impl ModelBuilder {
     // We represent `sgte(a, b)` as `not(slt(a, b))` instead.
     fn new_sgte(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
         let slt_node = self.new_slt(left, right);
-        self.new_not(slt_node)
+        self.new_not_bit(slt_node)
     }
 
     fn new_ite(&mut self, cond: NodeRef, left: NodeRef, right: NodeRef, sort: NodeType) -> NodeRef {
@@ -310,20 +310,54 @@ impl ModelBuilder {
     // We represent `neq(a, b)` as `not(eq(a, b))` instead.
     fn new_neq(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
         let eq_node = self.new_eq(left, right);
-        self.new_not(eq_node)
+        self.new_not_bit(eq_node)
     }
 
-    fn new_and(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
+    fn new_and_bit(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
         self.add_node(Node::And {
             nid: self.current_nid,
+            sort: NodeType::Bit,
             left,
             right,
         })
     }
 
-    fn new_not(&mut self, value: NodeRef) -> NodeRef {
+    fn new_and_word(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
+        self.add_node(Node::And {
+            nid: self.current_nid,
+            sort: NodeType::Word,
+            left,
+            right,
+        })
+    }
+
+    // We represent `or(a, b)` as `not(and(not(a), not(b)))` instead.
+    fn new_or(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
+        let not_left_node = self.new_not_word(left);
+        let not_right_node = self.new_not_word(right);
+        let and_node = self.new_and_word(not_left_node, not_right_node);
+        self.new_not_word(and_node)
+    }
+
+    // We represent `xor(a, b)` as `sub(or(a, b), and(a, b))` instead.
+    fn new_xor(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
+        let or_node = self.new_or(left.clone(), right.clone());
+        let and_node = self.new_and_word(left, right);
+        self.new_sub(or_node, and_node)
+    }
+
+    fn new_not_bit(&mut self, value: NodeRef) -> NodeRef {
         self.add_node(Node::Not {
             nid: self.current_nid,
+            sort: NodeType::Bit,
+            value,
+        })
+    }
+
+    fn new_not_word(&mut self, value: NodeRef) -> NodeRef {
+        self.add_node(Node::Not {
+            nid: self.current_nid,
+            sort: NodeType::Word,
             value,
         })
     }
@@ -450,6 +484,24 @@ impl ModelBuilder {
         self.reg_flow_ite(itype.rd(), result_node);
     }
 
+    fn model_xori(&mut self, itype: IType) {
+        let imm_node = self.new_const(itype.imm() as u64);
+        let xor_node = self.new_xor(self.reg_node(itype.rs1()), imm_node);
+        self.reg_flow_ite(itype.rd(), xor_node);
+    }
+
+    fn model_ori(&mut self, itype: IType) {
+        let imm_node = self.new_const(itype.imm() as u64);
+        let or_node = self.new_or(self.reg_node(itype.rs1()), imm_node);
+        self.reg_flow_ite(itype.rd(), or_node);
+    }
+
+    fn model_andi(&mut self, itype: IType) {
+        let imm_node = self.new_const(itype.imm() as u64);
+        let and_node = self.new_and_word(self.reg_node(itype.rs1()), imm_node);
+        self.reg_flow_ite(itype.rd(), and_node);
+    }
+
     fn model_slli(&mut self, itype: IType) {
         let imm_truncated = itype.imm() as u32;
         let sra_node = self.new_sll(self.reg_node(itype.rs1()), imm_truncated);
@@ -529,6 +581,16 @@ impl ModelBuilder {
         self.reg_flow_ite(rtype.rd(), sub_node);
     }
 
+    fn model_or(&mut self, rtype: RType) {
+        let or_node = self.new_or(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
+        self.reg_flow_ite(rtype.rd(), or_node);
+    }
+
+    fn model_and(&mut self, rtype: RType) {
+        let and_node = self.new_and_word(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
+        self.reg_flow_ite(rtype.rd(), and_node);
+    }
+
     fn model_mul(&mut self, rtype: RType) {
         let mul_node = self.new_mul(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
         self.reg_flow_ite(rtype.rd(), mul_node);
@@ -576,7 +638,7 @@ impl ModelBuilder {
         F: FnOnce(&mut Self, NodeRef, NodeRef) -> NodeRef,
     {
         let cond_true = f_new_cond(self, self.reg_node(btype.rs1()), self.reg_node(btype.rs2()));
-        let cond_false = self.new_not(cond_true.clone());
+        let cond_false = self.new_not_bit(cond_true.clone());
         out_true.replace(cond_true);
         out_false.replace(cond_false);
     }
@@ -650,9 +712,9 @@ impl ModelBuilder {
             Instruction::Sd(stype) => self.model_sd(stype),
             Instruction::Addi(itype) => self.model_addi(itype),
             Instruction::Sltiu(_itype) => self.model_unimplemented(inst),
-            Instruction::Xori(_itype) => self.model_unimplemented(inst),
-            Instruction::Ori(_itype) => self.model_unimplemented(inst),
-            Instruction::Andi(_itype) => self.model_unimplemented(inst),
+            Instruction::Xori(itype) => self.model_xori(itype),
+            Instruction::Ori(itype) => self.model_ori(itype),
+            Instruction::Andi(itype) => self.model_andi(itype),
             Instruction::Slli(itype) => self.model_slli(itype),
             Instruction::Srli(itype) => self.model_srli(itype),
             Instruction::Srai(itype) => self.model_srai(itype),
@@ -664,8 +726,8 @@ impl ModelBuilder {
             Instruction::Sll(_rtype) => self.model_unimplemented(inst),
             Instruction::Sltu(rtype) => self.model_sltu(rtype),
             Instruction::Sra(_rtype) => self.model_unimplemented(inst),
-            Instruction::Or(_rtype) => self.model_unimplemented(inst),
-            Instruction::And(_rtype) => self.model_unimplemented(inst),
+            Instruction::Or(rtype) => self.model_or(rtype),
+            Instruction::And(rtype) => self.model_and(rtype),
             Instruction::Mul(rtype) => self.model_mul(rtype),
             Instruction::Div(_rtype) => self.model_unimplemented(inst),
             Instruction::Divu(rtype) => self.model_divu(rtype),
@@ -791,7 +853,7 @@ impl ModelBuilder {
     }
 
     fn control_flow_from_branch(&mut self, edge: &InEdge, flow: NodeRef) -> NodeRef {
-        let and_node = self.new_and(
+        let and_node = self.new_and_bit(
             self.pc_flags[&edge.from_address].clone(),
             edge.condition.as_ref().expect("must exist").clone(),
         );
@@ -811,13 +873,13 @@ impl ModelBuilder {
             NodeType::Bit,
         );
         self.new_next(state_node.clone(), ite_node, NodeType::Bit);
-        let and_node = self.new_and(state_node, self.kernel_not.clone());
+        let and_node = self.new_and_bit(state_node, self.kernel_not.clone());
         self.control_flow_from_any(and_node, flow)
     }
 
     fn control_flow_from_jalr(&mut self, reg: Register, pc: NodeRef, flow: NodeRef) -> NodeRef {
         let eq_node = self.new_eq(self.reg_node(reg), pc);
-        let and_node = self.new_and(self.dynamic_flag(reg), eq_node);
+        let and_node = self.new_and_bit(self.dynamic_flag(reg), eq_node);
         self.control_flow_from_any(and_node, flow)
     }
 
@@ -881,7 +943,7 @@ impl ModelBuilder {
             "kernel-mode".to_string(),
             NodeType::Bit,
         );
-        self.kernel_not = self.new_not(self.kernel_mode.clone());
+        self.kernel_not = self.new_not_bit(self.kernel_mode.clone());
 
         self.new_comment("32 64-bit general-purpose registers".to_string());
         self.current_nid = 200;
@@ -1009,7 +1071,7 @@ impl ModelBuilder {
         let is_brk = self.new_eq(self.reg_node(Register::A7), num_brk);
 
         self.current_nid = 41000000;
-        let active_exit = self.new_and(self.ecall_flow.clone(), is_exit.clone());
+        let active_exit = self.new_and_bit(self.ecall_flow.clone(), is_exit.clone());
         kernel_flow = self.new_ite(
             kernel_flow,
             is_exit.clone(),
@@ -1018,7 +1080,7 @@ impl ModelBuilder {
         );
 
         self.current_nid = 42000000;
-        let active_read = self.new_and(self.ecall_flow.clone(), is_read.clone());
+        let active_read = self.new_and_bit(self.ecall_flow.clone(), is_read.clone());
         kernel_flow = self.new_ite(
             active_read.clone(),
             self.one_bit.clone(),
@@ -1067,10 +1129,10 @@ impl ModelBuilder {
         let read_address = self.new_add(self.reg_node(Register::A1), self.reg_node(Register::A0));
         let read_store = self.new_write(read_address, read_ite_8);
         let read_more = self.new_ult(self.reg_node(Register::A0), self.reg_node(Register::A2));
-        let read_more = self.new_and(is_read.clone(), read_more);
-        let read_not_done = self.new_and(self.kernel_mode.clone(), read_more);
+        let read_more = self.new_and_bit(is_read.clone(), read_more);
+        let read_not_done = self.new_and_bit(self.kernel_mode.clone(), read_more);
         let read_not_zero = self.new_ugt(read_bytes.clone(), self.zero_word.clone());
-        let read_do_store = self.new_and(read_not_done.clone(), read_not_zero);
+        let read_do_store = self.new_and_bit(read_not_done.clone(), read_not_zero);
         let read_ite_mem = self.new_ite(
             read_do_store,
             read_store,
@@ -1094,18 +1156,18 @@ impl ModelBuilder {
         );
 
         self.current_nid = 45000000;
-        let active_brk = self.new_and(self.ecall_flow.clone(), is_brk.clone());
+        let active_brk = self.new_and_bit(self.ecall_flow.clone(), is_brk.clone());
         let brk_init = self.new_const(self.heap_range.start);
         let brk_bump = self.new_state(Some(brk_init), "bump-pointer".to_string(), NodeType::Word);
         let brk_lower = self.new_ulte(brk_bump.clone(), self.reg_node(Register::A0));
         let brk_upper = self.new_ult(self.reg_node(Register::A0), self.reg_node(Register::Sp));
-        let brk_bound = self.new_and(brk_lower, brk_upper);
+        let brk_bound = self.new_and_bit(brk_lower, brk_upper);
         // TODO: let brk_three_lsb = self.new_const(0b111); // TODO: Make work for 32-bit system
         // TODO: let brk_mask = self.new_and(self.reg_node(Register::A0), brk_three_lsb);
         let brk_mask = self.zero_word.clone();
         let brk_aligned = self.new_eq(brk_mask, self.zero_word.clone());
-        let brk_valid1 = self.new_and(brk_bound, brk_aligned);
-        let brk_valid2 = self.new_and(active_brk.clone(), brk_valid1.clone());
+        let brk_valid1 = self.new_and_bit(brk_bound, brk_aligned);
+        let brk_valid2 = self.new_and_bit(active_brk.clone(), brk_valid1.clone());
         let brk_bump_ite = self.new_ite(
             brk_valid2,
             self.reg_node(Register::A0),
@@ -1113,8 +1175,8 @@ impl ModelBuilder {
             NodeType::Word,
         );
         self.new_next(brk_bump.clone(), brk_bump_ite, NodeType::Word);
-        let brk_invalid1 = self.new_not(brk_valid1);
-        let brk_invalid2 = self.new_and(active_brk, brk_invalid1);
+        let brk_invalid1 = self.new_not_bit(brk_valid1);
+        let brk_invalid2 = self.new_and_bit(active_brk, brk_invalid1);
         let brk_a0_ite = self.new_ite(
             brk_invalid2,
             brk_bump.clone(),
@@ -1189,21 +1251,21 @@ impl ModelBuilder {
 
         self.new_comment("checking syscall id".to_string());
         self.current_nid = 80000000;
-        let not_openat = self.new_not(is_openat);
-        let not_read = self.new_not(is_read);
-        let not_write = self.new_not(is_write);
-        let not_exit = self.new_not(is_exit);
-        let not_brk = self.new_not(is_brk);
-        let check_syscall_and1 = self.new_and(not_openat, not_read);
-        let check_syscall_and2 = self.new_and(check_syscall_and1, not_write);
-        let check_syscall_and3 = self.new_and(check_syscall_and2, not_exit);
-        let check_syscall_and4 = self.new_and(check_syscall_and3, not_brk);
-        let check_syscall = self.new_and(self.ecall_flow.clone(), check_syscall_and4);
+        let not_openat = self.new_not_bit(is_openat);
+        let not_read = self.new_not_bit(is_read);
+        let not_write = self.new_not_bit(is_write);
+        let not_exit = self.new_not_bit(is_exit);
+        let not_brk = self.new_not_bit(is_brk);
+        let check_syscall_and1 = self.new_and_bit(not_openat, not_read);
+        let check_syscall_and2 = self.new_and_bit(check_syscall_and1, not_write);
+        let check_syscall_and3 = self.new_and_bit(check_syscall_and2, not_exit);
+        let check_syscall_and4 = self.new_and_bit(check_syscall_and3, not_brk);
+        let check_syscall = self.new_and_bit(self.ecall_flow.clone(), check_syscall_and4);
         self.new_bad(check_syscall, "invalid-syscall-id");
 
         self.new_comment("checking exit code".to_string());
         let check_exit_code = self.new_neq(self.reg_node(Register::A0), self.zero_word.clone());
-        let check_exit = self.new_and(active_exit, check_exit_code);
+        let check_exit = self.new_and_bit(active_exit, check_exit_code);
         self.new_bad(check_exit, "non-zero-exit-code");
 
         self.new_comment("checking division and remainder by zero".to_string());
@@ -1223,19 +1285,19 @@ impl ModelBuilder {
         self.new_bad(below_data, "memory-access-below-data");
         let above_data = self.new_ugte(self.access_flow.clone(), data_end);
         let below_heap = self.new_ult(self.access_flow.clone(), heap_start);
-        let check_between1 = self.new_and(above_data, below_heap);
+        let check_between1 = self.new_and_bit(above_data, below_heap);
         self.new_bad(check_between1, "memory-access-between-data-and-heap");
         let above_max_heap = self.new_ugte(self.access_flow.clone(), heap_max_end);
         let below_dyn_heap = self.new_ult(self.access_flow.clone(), brk_bump.clone());
-        let check_between2 = self.new_and(above_max_heap, below_dyn_heap);
+        let check_between2 = self.new_and_bit(above_max_heap, below_dyn_heap);
         self.new_bad(check_between2, "memory-access-between-max-and-dyn-heap");
         let above_dyn_heap = self.new_ugte(self.access_flow.clone(), brk_bump);
         let below_dyn_stack = self.new_ult(self.access_flow.clone(), self.reg_node(Register::Sp));
-        let check_between3 = self.new_and(above_dyn_heap, below_dyn_stack);
+        let check_between3 = self.new_and_bit(above_dyn_heap, below_dyn_stack);
         self.new_bad(check_between3, "memory-access-between-heap-and-stack");
         let above_dyn_stack = self.new_ugte(self.access_flow.clone(), self.reg_node(Register::Sp));
         let below_max_stack = self.new_ult(self.access_flow.clone(), stack_max_start);
-        let check_between4 = self.new_and(above_dyn_stack, below_max_stack);
+        let check_between4 = self.new_and_bit(above_dyn_stack, below_max_stack);
         self.new_bad(check_between4, "memory-access-between-dyn-and-max-stack");
         let above_stack = self.new_ugt(self.access_flow.clone(), stack_end_inclusive);
         self.new_bad(above_stack, "memory-access-above-stack");

@@ -93,11 +93,13 @@ pub enum Node {
     },
     And {
         nid: Nid,
+        sort: NodeType,
         left: NodeRef,
         right: NodeRef,
     },
     Not {
         nid: Nid,
+        sort: NodeType,
         value: NodeRef,
     },
     State {
@@ -228,10 +230,10 @@ where
                 writeln!(out, "{} ite {} {} {} {}", nid, get_sort(sort), get_nid(cond), get_nid(left), get_nid(right))?,
             Node::Eq { nid, left, right } =>
                 writeln!(out, "{} eq 1 {} {}", nid, get_nid(left), get_nid(right))?,
-            Node::And { nid, left, right } =>
-                writeln!(out, "{} and 1 {} {}", nid, get_nid(left), get_nid(right))?,
-            Node::Not { nid, value } =>
-                writeln!(out, "{} not 1 {}", nid, get_nid(value))?,
+            Node::And { nid, sort, left, right } =>
+                writeln!(out, "{} and {} {} {}", nid, get_sort(sort), get_nid(left), get_nid(right))?,
+            Node::Not { nid, sort, value } =>
+                writeln!(out, "{} not {} {}", nid, get_sort(sort), get_nid(value))?,
             Node::State { nid, sort, init, name } => {
                 writeln!(out, "{} state {} {}", nid, get_sort(sort), name.as_deref().unwrap_or("?"))?;
                 if let Some(value) = init {

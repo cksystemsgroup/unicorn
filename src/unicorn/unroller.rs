@@ -298,16 +298,18 @@ impl ModelUnroller {
                     right: self.unroll(right),
                 }))
             }
-            Node::And { left, right, .. } => {
+            Node::And { sort, left, right, .. } => {
                 Rc::new(RefCell::new(Node::And {
                     nid: 0,
+                    sort: sort.clone(),
                     left: self.unroll(left),
                     right: self.unroll(right),
                 }))
             }
-            Node::Not { value, .. } => {
+            Node::Not { sort, value, .. } => {
                 Rc::new(RefCell::new(Node::Not {
                     nid: 0,
+                    sort: sort.clone(),
                     value: self.unroll(value),
                 }))
             }
