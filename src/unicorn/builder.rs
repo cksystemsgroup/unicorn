@@ -328,6 +328,30 @@ impl ModelBuilder {
         })
     }
 
+    // We represent `sll(a, n)` as `mul(a, 2^n)` instead.
+    fn new_sll(&mut self, value: NodeRef, shift: u32) -> NodeRef {
+        assert!(shift < 64, "shift immediate within bounds");
+        let const_node = self.new_const(1 << shift);
+        self.new_mul(value, const_node)
+    }
+
+    // We represent `srl(a, n)` as `div(a, 2^n)` instead.
+    fn new_srl(&mut self, value: NodeRef, shift: u32) -> NodeRef {
+        assert!(shift < 64, "shift immediate within bounds");
+        let const_node = self.new_const(1 << shift);
+        self.new_div(value, const_node)
+    }
+
+    // We represent `sra(a, n)` as `sub(srl(add(a, 2^63), n), srl(2^63, n))` instead.
+    fn new_sra(&mut self, value: NodeRef, shift: u32) -> NodeRef {
+        assert!(shift < 64, "shift immediate within bounds");
+        let const_node = self.new_const(1 << 63);
+        let add_node = self.new_add(value, const_node);
+        let srl_node = self.new_srl(add_node, shift);
+        let bias = self.new_const((1 << 63) >> shift);
+        self.new_sub(srl_node, bias)
+    }
+
     fn new_state(&mut self, init: Option<NodeRef>, name: String, sort: NodeType) -> NodeRef {
         let nid_increase = if init.is_some() { 1 } else { 0 };
         let state_node = self.add_node(Node::State {
@@ -424,6 +448,24 @@ impl ModelBuilder {
             self.new_add(self.reg_node(itype.rs1()), imm_node)
         };
         self.reg_flow_ite(itype.rd(), result_node);
+    }
+
+    fn model_slli(&mut self, itype: IType) {
+        let imm_truncated = itype.imm() as u32;
+        let sra_node = self.new_sll(self.reg_node(itype.rs1()), imm_truncated);
+        self.reg_flow_ite(itype.rd(), sra_node);
+    }
+
+    fn model_srli(&mut self, itype: IType) {
+        let imm_truncated = itype.imm() as u32;
+        let sra_node = self.new_srl(self.reg_node(itype.rs1()), imm_truncated);
+        self.reg_flow_ite(itype.rd(), sra_node);
+    }
+
+    fn model_srai(&mut self, itype: IType) {
+        let imm_truncated = (itype.imm() & 0x3f) as u32;
+        let sra_node = self.new_sra(self.reg_node(itype.rs1()), imm_truncated);
+        self.reg_flow_ite(itype.rd(), sra_node);
     }
 
     fn model_lui(&mut self, utype: UType) {
@@ -611,9 +653,9 @@ impl ModelBuilder {
             Instruction::Xori(_itype) => self.model_unimplemented(inst),
             Instruction::Ori(_itype) => self.model_unimplemented(inst),
             Instruction::Andi(_itype) => self.model_unimplemented(inst),
-            Instruction::Slli(_itype) => self.model_unimplemented(inst),
-            Instruction::Srli(_itype) => self.model_unimplemented(inst),
-            Instruction::Srai(_itype) => self.model_unimplemented(inst),
+            Instruction::Slli(itype) => self.model_slli(itype),
+            Instruction::Srli(itype) => self.model_srli(itype),
+            Instruction::Srai(itype) => self.model_srai(itype),
             Instruction::Addiw(_itype) => self.model_unimplemented(inst),
             Instruction::Slliw(_itype) => self.model_unimplemented(inst),
             Instruction::Sraiw(_itype) => self.model_unimplemented(inst),
