@@ -379,13 +379,11 @@ impl ModelBuilder {
     }
 
     // We represent `sra(a, n)` as `sub(srl(add(a, 2^63), n), srl(2^63, n))` instead.
-    fn new_sra(&mut self, value: NodeRef, shift: u32) -> NodeRef {
-        assert!(shift < 64, "shift immediate within bounds");
-        let shift_node = self.new_const(shift as u64);
+    fn new_sra(&mut self, value: NodeRef, shift: NodeRef) -> NodeRef {
         let const_node = self.new_const(1 << 63);
         let add_node = self.new_add(value, const_node.clone());
-        let srl1_node = self.new_srl(add_node, shift_node.clone());
-        let srl2_node = self.new_srl(const_node, shift_node);
+        let srl1_node = self.new_srl(add_node, shift.clone());
+        let srl2_node = self.new_srl(const_node, shift);
         self.new_sub(srl1_node, srl2_node)
     }
 
@@ -508,20 +506,22 @@ impl ModelBuilder {
     fn model_slli(&mut self, itype: IType) {
         assert!(itype.imm() < 64, "immediate within bounds");
         let imm_node = self.new_const(itype.imm() as u64);
-        let sra_node = self.new_sll(self.reg_node(itype.rs1()), imm_node);
-        self.reg_flow_ite(itype.rd(), sra_node);
+        let sll_node = self.new_sll(self.reg_node(itype.rs1()), imm_node);
+        self.reg_flow_ite(itype.rd(), sll_node);
     }
 
     fn model_srli(&mut self, itype: IType) {
         assert!(itype.imm() < 64, "immediate within bounds");
         let imm_node = self.new_const(itype.imm() as u64);
-        let sra_node = self.new_srl(self.reg_node(itype.rs1()), imm_node);
-        self.reg_flow_ite(itype.rd(), sra_node);
+        let srl_node = self.new_srl(self.reg_node(itype.rs1()), imm_node);
+        self.reg_flow_ite(itype.rd(), srl_node);
     }
 
     fn model_srai(&mut self, itype: IType) {
         let imm_truncated = (itype.imm() & 0x3f) as u32;
-        let sra_node = self.new_sra(self.reg_node(itype.rs1()), imm_truncated);
+        assert!(imm_truncated < 64, "immediate within bounds");
+        let imm_node = self.new_const(imm_truncated as u64);
+        let sra_node = self.new_sra(self.reg_node(itype.rs1()), imm_node);
         self.reg_flow_ite(itype.rd(), sra_node);
     }
 
@@ -610,6 +610,14 @@ impl ModelBuilder {
         let amount_node = self.new_and_word(self.reg_node(rtype.rs2()), mask_node);
         let srl_node = self.new_srl(self.reg_node(rtype.rs1()), amount_node);
         self.reg_flow_ite(rtype.rd(), srl_node);
+    }
+
+    fn model_sra(&mut self, rtype: RType) {
+        // Only the low 6 bits of rs2 are considered for the shift amount.
+        let mask_node = self.new_const(0x3f); // TODO: Make this a global constant.
+        let amount_node = self.new_and_word(self.reg_node(rtype.rs2()), mask_node);
+        let sra_node = self.new_sra(self.reg_node(rtype.rs1()), amount_node);
+        self.reg_flow_ite(rtype.rd(), sra_node);
     }
 
     fn model_mul(&mut self, rtype: RType) {
@@ -747,7 +755,7 @@ impl ModelBuilder {
             Instruction::Sll(rtype) => self.model_sll(rtype),
             Instruction::Sltu(rtype) => self.model_sltu(rtype),
             Instruction::Srl(rtype) => self.model_srl(rtype),
-            Instruction::Sra(_rtype) => self.model_unimplemented(inst),
+            Instruction::Sra(rtype) => self.model_sra(rtype),
             Instruction::Or(rtype) => self.model_or(rtype),
             Instruction::And(rtype) => self.model_and(rtype),
             Instruction::Mul(rtype) => self.model_mul(rtype),
