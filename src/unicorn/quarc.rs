@@ -80,7 +80,7 @@ impl PartialEq for HashableQubitRef {
 
 // BEGIN some functions
 
-fn get_gate_from_constant_bit(bit: u64) -> QubitRef {
+fn get_qubit_from_constant_bit(bit: u64) -> QubitRef {
     assert!((bit == 0) | (bit == 1));
     if bit == 1 {
         QubitRef::from(Qubit::ConstTrue)
@@ -101,12 +101,12 @@ fn is_constant(qubit_type: &QubitRef) -> bool {
     matches!(&*qubit_type.borrow(), Qubit::ConstFalse | Qubit::ConstTrue)
 }
 
-fn get_replacement_from_constant(sort: &NodeType, value_: u64) -> Vec<QubitRef> {
+fn get_replacement_from_constant(sort: &NodeType, mut value: u64) -> Vec<QubitRef> {
+    
     let total_bits = sort.bitsize();
     let mut replacement: Vec<QubitRef> = Vec::new();
-    let mut value = value_;
     for _ in 0..total_bits {
-        replacement.push(get_gate_from_constant_bit(value % 2));
+        replacement.push(get_qubit_from_constant_bit(value % 2));
         value /= 2;
     }
     replacement
@@ -1166,4 +1166,107 @@ impl<'a> QuantumCircuit<'a> {
         println!("missing implementation to write model");
         Ok(())
     }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_constants_funcs() {
+        assert!(matches!(
+            &*get_qubit_from_constant_bit(1).borrow(),
+            Qubit::ConstTrue
+        ));
+        assert!(matches!(
+            &*get_qubit_from_constant_bit(0).borrow(),
+            Qubit::ConstFalse
+        ));
+        assert!(matches!(
+            &*get_qubit_from_bool(true).borrow(),
+            Qubit::ConstTrue
+        ));
+        assert!(matches!(
+            &*get_qubit_from_bool(false).borrow(),
+            Qubit::ConstFalse
+        ));
+
+        assert!(is_constant(&QubitRef::from(Qubit::ConstFalse)));
+
+        assert!(is_constant(&QubitRef::from(Qubit::ConstTrue)));
+
+        assert!(!is_constant(&QubitRef::from(Qubit::QBit { name: "some_name".to_string() })));
+
+        assert!(get_constant(&QubitRef::from(Qubit::ConstTrue)).unwrap());
+
+        assert!(!get_constant(&QubitRef::from(Qubit::ConstFalse)).unwrap());
+        assert!(get_constant(&QubitRef::from(Qubit::QBit { name: "some_name".to_string() })).is_none());
+
+        assert!(are_both_constants(Some(true), Some(false)));
+        assert!(are_both_constants(Some(true), Some(true)));
+        assert!(are_both_constants(Some(false), Some(true)));
+        assert!(are_both_constants(Some(false), Some(false)));
+        assert!(!are_both_constants(None, Some(false)));
+        assert!(!are_both_constants(None, None));
+        assert!(!are_both_constants(Some(false), None));
+
+        assert!(!are_there_false_constants(vec![]));
+        assert!(!are_there_false_constants(vec![Some(true)]));
+        assert!(!are_there_false_constants(vec![None, None]));
+        assert!(are_there_false_constants(vec![Some(false)]));
+
+        assert!(!are_there_true_constants(vec![]));
+        assert!(are_there_true_constants(vec![Some(true)]));
+        assert!(!are_there_true_constants(vec![None, None]));
+        assert!(!are_there_true_constants(vec![Some(false)]));
+
+        
+        let sort = NodeType::Bit;
+        let value = 1;
+        let bitsize = sort.bitsize();
+        assert!(bitsize == 1);
+
+        let replacement = get_replacement_from_constant(&sort, value);
+        assert!(value == 1);
+        assert!(replacement.len() == bitsize);
+        assert!(matches!(
+            &*replacement[0].borrow(),
+            Qubit::ConstTrue
+        ));
+    }
+
+
+    fn test_prepare_controls_for_mcx() {
+        let supers_qubit1 = QubitRef::from(Qubit::QBit { name: "qubit1".to_string() });
+
+        let supers_qubit2 = QubitRef::from(Qubit::QBit { name: "qubit2".to_string()});
+
+        let const_false = QubitRef::from(Qubit::ConstFalse);
+        
+
+        let const_true = QubitRef::from(Qubit::ConstTrue);
+
+
+        let (value, controls) = prepare_controls_for_mcx(&vec![const_false.clone(), supers_qubit1.clone()], &supers_qubit2.clone());
+
+        assert!(!value.unwrap());
+        assert!(controls.len() == 0);
+
+
+        let (value2, controls2) = prepare_controls_for_mcx(&vec![const_true.clone(), const_true.clone()], &supers_qubit1.clone());
+
+        assert!(value2.unwrap());
+        assert!(controls2.len() == 0);
+
+
+        let (value3, controls3) = prepare_controls_for_mcx(&vec![supers_qubit1.clone()], &supers_qubit1.clone());
+
+        assert!(value3.unwrap());
+        assert!(controls3.len() == 0);
+    
+
+
+    }
+
 }
