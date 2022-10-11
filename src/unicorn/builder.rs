@@ -1162,9 +1162,8 @@ impl ModelBuilder {
         let brk_lower = self.new_ulte(brk_bump.clone(), self.reg_node(Register::A0));
         let brk_upper = self.new_ult(self.reg_node(Register::A0), self.reg_node(Register::Sp));
         let brk_bound = self.new_and_bit(brk_lower, brk_upper);
-        // TODO: let brk_three_lsb = self.new_const(0b111); // TODO: Make work for 32-bit system
-        // TODO: let brk_mask = self.new_and(self.reg_node(Register::A0), brk_three_lsb);
-        let brk_mask = self.zero_word.clone();
+        let brk_three_lsb = self.new_const(0b111); // TODO: Make work for 32-bit system
+        let brk_mask = self.new_and_word(self.reg_node(Register::A0), brk_three_lsb);
         let brk_aligned = self.new_eq(brk_mask, self.zero_word.clone());
         let brk_valid1 = self.new_and_bit(brk_bound, brk_aligned);
         let brk_valid2 = self.new_and_bit(active_brk.clone(), brk_valid1.clone());
