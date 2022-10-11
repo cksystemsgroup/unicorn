@@ -362,28 +362,31 @@ impl ModelBuilder {
         })
     }
 
-    // We represent `sll(a, n)` as `mul(a, 2^n)` instead.
-    fn new_sll(&mut self, value: NodeRef, shift: u32) -> NodeRef {
-        assert!(shift < 64, "shift immediate within bounds");
-        let const_node = self.new_const(1 << shift);
-        self.new_mul(value, const_node)
+    fn new_sll(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
+        self.add_node(Node::Sll {
+            nid: self.current_nid,
+            left,
+            right,
+        })
     }
 
-    // We represent `srl(a, n)` as `div(a, 2^n)` instead.
-    fn new_srl(&mut self, value: NodeRef, shift: u32) -> NodeRef {
-        assert!(shift < 64, "shift immediate within bounds");
-        let const_node = self.new_const(1 << shift);
-        self.new_div(value, const_node)
+    fn new_srl(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
+        self.add_node(Node::Srl {
+            nid: self.current_nid,
+            left,
+            right,
+        })
     }
 
     // We represent `sra(a, n)` as `sub(srl(add(a, 2^63), n), srl(2^63, n))` instead.
     fn new_sra(&mut self, value: NodeRef, shift: u32) -> NodeRef {
         assert!(shift < 64, "shift immediate within bounds");
+        let shift_node = self.new_const(shift as u64);
         let const_node = self.new_const(1 << 63);
-        let add_node = self.new_add(value, const_node);
-        let srl_node = self.new_srl(add_node, shift);
-        let bias = self.new_const((1 << 63) >> shift);
-        self.new_sub(srl_node, bias)
+        let add_node = self.new_add(value, const_node.clone());
+        let srl1_node = self.new_srl(add_node, shift_node.clone());
+        let srl2_node = self.new_srl(const_node, shift_node);
+        self.new_sub(srl1_node, srl2_node)
     }
 
     fn new_state(&mut self, init: Option<NodeRef>, name: String, sort: NodeType) -> NodeRef {
@@ -503,14 +506,16 @@ impl ModelBuilder {
     }
 
     fn model_slli(&mut self, itype: IType) {
-        let imm_truncated = itype.imm() as u32;
-        let sra_node = self.new_sll(self.reg_node(itype.rs1()), imm_truncated);
+        assert!(itype.imm() < 64, "immediate within bounds");
+        let imm_node = self.new_const(itype.imm() as u64);
+        let sra_node = self.new_sll(self.reg_node(itype.rs1()), imm_node);
         self.reg_flow_ite(itype.rd(), sra_node);
     }
 
     fn model_srli(&mut self, itype: IType) {
-        let imm_truncated = itype.imm() as u32;
-        let sra_node = self.new_srl(self.reg_node(itype.rs1()), imm_truncated);
+        assert!(itype.imm() < 64, "immediate within bounds");
+        let imm_node = self.new_const(itype.imm() as u64);
+        let sra_node = self.new_srl(self.reg_node(itype.rs1()), imm_node);
         self.reg_flow_ite(itype.rd(), sra_node);
     }
 
@@ -589,6 +594,22 @@ impl ModelBuilder {
     fn model_and(&mut self, rtype: RType) {
         let and_node = self.new_and_word(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
         self.reg_flow_ite(rtype.rd(), and_node);
+    }
+
+    fn model_sll(&mut self, rtype: RType) {
+        // Only the low 6 bits of rs2 are considered for the shift amount.
+        let mask_node = self.new_const(0x3f); // TODO: Make this a global constant.
+        let amount_node = self.new_and_word(self.reg_node(rtype.rs2()), mask_node);
+        let sll_node = self.new_sll(self.reg_node(rtype.rs1()), amount_node);
+        self.reg_flow_ite(rtype.rd(), sll_node);
+    }
+
+    fn model_srl(&mut self, rtype: RType) {
+        // Only the low 6 bits of rs2 are considered for the shift amount.
+        let mask_node = self.new_const(0x3f); // TODO: Make this a global constant.
+        let amount_node = self.new_and_word(self.reg_node(rtype.rs2()), mask_node);
+        let srl_node = self.new_srl(self.reg_node(rtype.rs1()), amount_node);
+        self.reg_flow_ite(rtype.rd(), srl_node);
     }
 
     fn model_mul(&mut self, rtype: RType) {
@@ -723,8 +744,9 @@ impl ModelBuilder {
             Instruction::Sraiw(_itype) => self.model_unimplemented(inst),
             Instruction::Add(rtype) => self.model_add(rtype),
             Instruction::Sub(rtype) => self.model_sub(rtype),
-            Instruction::Sll(_rtype) => self.model_unimplemented(inst),
+            Instruction::Sll(rtype) => self.model_sll(rtype),
             Instruction::Sltu(rtype) => self.model_sltu(rtype),
+            Instruction::Srl(rtype) => self.model_srl(rtype),
             Instruction::Sra(_rtype) => self.model_unimplemented(inst),
             Instruction::Or(rtype) => self.model_or(rtype),
             Instruction::And(rtype) => self.model_and(rtype),
@@ -778,6 +800,7 @@ impl ModelBuilder {
             | Instruction::Sub(_)
             | Instruction::Sll(_)
             | Instruction::Sltu(_)
+            | Instruction::Srl(_)
             | Instruction::Sra(_)
             | Instruction::Or(_)
             | Instruction::And(_)

@@ -69,6 +69,16 @@ pub enum Node {
         left: NodeRef,
         right: NodeRef,
     },
+    Sll {
+        nid: Nid,
+        left: NodeRef,
+        right: NodeRef,
+    },
+    Srl {
+        nid: Nid,
+        left: NodeRef,
+        right: NodeRef,
+    },
     Ult {
         nid: Nid,
         left: NodeRef,
@@ -222,6 +232,10 @@ where
                 writeln!(out, "{} udiv 2 {} {}", nid, get_nid(left), get_nid(right))?,
             Node::Rem { nid, left, right } =>
                 writeln!(out, "{} urem 2 {} {}", nid, get_nid(left), get_nid(right))?,
+            Node::Sll { nid, left, right } =>
+                writeln!(out, "{} sll 2 {} {}", nid, get_nid(left), get_nid(right))?,
+            Node::Srl { nid, left, right } =>
+                writeln!(out, "{} srl 2 {} {}", nid, get_nid(left), get_nid(right))?,
             Node::Ult { nid, left, right } =>
                 writeln!(out, "{} ult 1 {} {}", nid, get_nid(left), get_nid(right))?,
             Node::Ext { nid, from, value } =>
@@ -268,6 +282,8 @@ pub fn get_nid(node: &NodeRef) -> Nid {
         Node::Mul { nid, .. } => nid,
         Node::Div { nid, .. } => nid,
         Node::Rem { nid, .. } => nid,
+        Node::Sll { nid, .. } => nid,
+        Node::Srl { nid, .. } => nid,
         Node::Ult { nid, .. } => nid,
         Node::Ext { nid, .. } => nid,
         Node::Ite { nid, .. } => nid,

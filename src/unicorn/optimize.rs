@@ -4,6 +4,7 @@ use log::{debug, trace, warn};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::convert::TryInto;
 use std::rc::Rc;
 
 //
@@ -182,14 +183,30 @@ impl<'a, S: Solver> ConstantFolder<'a, S> {
         None
     }
 
+    // SMT-LIB does not specify the result of division by zero, for BTOR we
+    // take the largest unsigned integer that can be represented.
+    fn btor_u64_div(left: u64, right: u64) -> u64 {
+        u64::checked_div(left, right).unwrap_or(u64::MAX)
+    }
+
     // SMT-LIB does not specify the result of remainder by zero, for BTOR we
     // take the largest unsigned integer that can be represented.
     fn btor_u64_rem(left: u64, right: u64) -> u64 {
         u64::checked_rem(left, right).unwrap_or(u64::MAX)
     }
 
-    fn btor_u64_div(left: u64, right: u64) -> u64 {
-        u64::checked_div(left, right).unwrap_or(u64::MAX)
+    // SMT-LIB specifies shifts in terms of multiplication/division and is
+    // supposed to saturate on overflows, similarly BTOR2 (and btormc) also
+    // saturates. We mirror the same behavior here.
+    fn btor_u64_sll(left: u64, right: u64) -> u64 {
+        u64::checked_shl(left, right.try_into().unwrap_or(u32::MAX)).unwrap_or(0)
+    }
+
+    // SMT-LIB specifies shifts in terms of multiplication/division and is
+    // supposed to saturate on overflows, similarly BTOR2 (and btormc) also
+    // saturates. We mirror the same behavior here.
+    fn btor_u64_srl(left: u64, right: u64) -> u64 {
+        u64::checked_shr(left, right.try_into().unwrap_or(u32::MAX)).unwrap_or(0)
     }
 
     fn fold_add(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
@@ -210,6 +227,14 @@ impl<'a, S: Solver> ConstantFolder<'a, S> {
 
     fn fold_rem(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
         self.fold_any_binary(left, right, Self::btor_u64_rem, "REM")
+    }
+
+    fn fold_sll(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
+        self.fold_any_binary(left, right, Self::btor_u64_sll, "SLL")
+    }
+
+    fn fold_srl(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
+        self.fold_any_binary(left, right, Self::btor_u64_srl, "SRL")
     }
 
     fn fold_ult(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
@@ -469,6 +494,16 @@ impl<'a, S: Solver> ConstantFolder<'a, S> {
                 if let Some(n) = self.visit(left) { *left = n }
                 if let Some(n) = self.visit(right) { *right = n }
                 self.fold_rem(left, right)
+            }
+            Node::Sll { ref mut left, ref mut right, .. } => {
+                if let Some(n) = self.visit(left) { *left = n }
+                if let Some(n) = self.visit(right) { *right = n }
+                self.fold_sll(left, right)
+            }
+            Node::Srl { ref mut left, ref mut right, .. } => {
+                if let Some(n) = self.visit(left) { *left = n }
+                if let Some(n) = self.visit(right) { *right = n }
+                self.fold_srl(left, right)
             }
             Node::Ult { ref mut left, ref mut right, .. } => {
                 if let Some(n) = self.visit(left) { *left = n }
