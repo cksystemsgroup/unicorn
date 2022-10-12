@@ -34,6 +34,7 @@ pub fn generate_model(
 
 const INSTRUCTION_SIZE: u64 = riscu::INSTRUCTION_SIZE as u64;
 const PAGE_SIZE: u64 = unicorn::engine::system::PAGE_SIZE as u64;
+const WORD_SIZE_MASK: u64 = riscu::WORD_SIZE as u64 - 1;
 
 // TODO: Add implementation of all syscalls.
 // TODO: Fix initialization of `current_nid` based on binary size.
@@ -546,6 +547,70 @@ impl ModelBuilder {
         }
     }
 
+    // We represent n-bit load operations `load(n, adr, sig)` as:
+    //   word := adr & ~WORD_SIZE_MASK
+    //   prev := load(word)
+    //   left := prev << (64 - n - 8 * (adr & WORD_SIZE_MASK))
+    //   return left >>s (64 - n)       ||| if (sig == true)
+    //          left >>u (64 - n)       ||| if (sig == false)
+    //
+    // Note that the above approach even works for unaligned loads as
+    // long as the load does not cross word-boundaries.
+    fn model_l(&mut self, bits: u32, address: NodeRef, signed: bool) -> NodeRef {
+        assert!(bits > 0 && bits < 64, "bit-width within range");
+        let address_mask_node = self.new_const(!WORD_SIZE_MASK);
+        let address_word_node = self.new_and_word(address.clone(), address_mask_node);
+        self.access_flow = self.new_ite(
+            self.pc_flag(),
+            address_word_node.clone(),
+            self.access_flow.clone(),
+            NodeType::Word,
+        );
+        let read_node = self.new_read(address_word_node);
+        let eight_node = self.new_const(8); // bite per byte
+        let address_mask_node = self.new_const(WORD_SIZE_MASK);
+        let address_offset_node = self.new_and_word(address, address_mask_node);
+        let shift_amount_node = self.new_mul(eight_node, address_offset_node);
+        let shift_const_node = self.new_const(64 - bits as u64);
+        let left_shift_amount = self.new_sub(shift_const_node.clone(), shift_amount_node);
+        let left_shift_node = self.new_sll(read_node, left_shift_amount);
+        if signed {
+            self.new_sra(left_shift_node, shift_const_node)
+        } else {
+            self.new_srl(left_shift_node, shift_const_node)
+        }
+    }
+
+    fn model_lb(&mut self, itype: IType) {
+        let address_node = self.model_address(itype.rs1(), itype.imm() as u64);
+        let load_node = self.model_l(8, address_node, true);
+        self.reg_flow_ite(itype.rd(), load_node);
+    }
+
+    fn model_lbu(&mut self, itype: IType) {
+        let address_node = self.model_address(itype.rs1(), itype.imm() as u64);
+        let load_node = self.model_l(8, address_node, false);
+        self.reg_flow_ite(itype.rd(), load_node);
+    }
+
+    fn model_lh(&mut self, itype: IType) {
+        let address_node = self.model_address(itype.rs1(), itype.imm() as u64);
+        let load_node = self.model_l(16, address_node, true);
+        self.reg_flow_ite(itype.rd(), load_node);
+    }
+
+    fn model_lhu(&mut self, itype: IType) {
+        let address_node = self.model_address(itype.rs1(), itype.imm() as u64);
+        let load_node = self.model_l(16, address_node, false);
+        self.reg_flow_ite(itype.rd(), load_node);
+    }
+
+    fn model_lw(&mut self, itype: IType) {
+        let address_node = self.model_address(itype.rs1(), itype.imm() as u64);
+        let load_node = self.model_l(32, address_node, true);
+        self.reg_flow_ite(itype.rd(), load_node);
+    }
+
     fn model_ld(&mut self, itype: IType) {
         let address_node = self.model_address(itype.rs1(), itype.imm() as u64);
         self.access_flow = self.new_ite(
@@ -556,6 +621,63 @@ impl ModelBuilder {
         );
         let read_node = self.new_read(address_node);
         self.reg_flow_ite(itype.rd(), read_node);
+    }
+
+    // We represent n-bit store operations `store(n, adr, val)` as:
+    //   word := adr & ~WORD_SIZE_MASK
+    //   mask := ONES(n) << 8 * (adr & WORD_SIZE_MASK)
+    //   valu := val << 8 * (adr & WORD_SIZE_MASK)
+    //   prev := load(word)
+    //   updt := (valu & mask) | (prev & ~mask)
+    //   return store(word, updt)
+    //
+    // Note that the above approach even works for unaligned stores as
+    // long as the store does not cross word-boundaries.
+    fn model_s(&mut self, bits: u32, address: NodeRef, value: NodeRef) {
+        assert!(bits > 0 && bits < 64, "bit-width within range");
+        let address_mask_node = self.new_const(!WORD_SIZE_MASK);
+        let address_word_node = self.new_and_word(address.clone(), address_mask_node);
+        self.access_flow = self.new_ite(
+            self.pc_flag(),
+            address_word_node.clone(),
+            self.access_flow.clone(),
+            NodeType::Word,
+        );
+        let read_node = self.new_read(address_word_node.clone());
+        let ones_node = self.new_const((1 << bits) - 1);
+        let eight_node = self.new_const(8); // bite per byte
+        let address_mask_node = self.new_const(WORD_SIZE_MASK);
+        let address_offset_node = self.new_and_word(address, address_mask_node);
+        let shift_amount_node = self.new_mul(eight_node, address_offset_node);
+        let mask_node = self.new_sll(ones_node, shift_amount_node.clone());
+        let mask_not_node = self.new_not_word(mask_node.clone());
+        let value_node = self.new_sll(value, shift_amount_node);
+        let and1_node = self.new_and_word(value_node, mask_node);
+        let and2_node = self.new_and_word(read_node, mask_not_node);
+        let or_node = self.new_or(and1_node, and2_node);
+        let write_node = self.new_write(address_word_node, or_node);
+        let ite_node = self.new_ite(
+            self.pc_flag(),
+            write_node,
+            self.memory_flow.clone(),
+            NodeType::Memory,
+        );
+        self.memory_flow = ite_node;
+    }
+
+    fn model_sb(&mut self, stype: SType) {
+        let address_node = self.model_address(stype.rs1(), stype.imm() as u64);
+        self.model_s(8, address_node, self.reg_node(stype.rs2()))
+    }
+
+    fn model_sh(&mut self, stype: SType) {
+        let address_node = self.model_address(stype.rs1(), stype.imm() as u64);
+        self.model_s(16, address_node, self.reg_node(stype.rs2()))
+    }
+
+    fn model_sw(&mut self, stype: SType) {
+        let address_node = self.model_address(stype.rs1(), stype.imm() as u64);
+        self.model_s(32, address_node, self.reg_node(stype.rs2()))
     }
 
     fn model_sd(&mut self, stype: SType) {
@@ -729,15 +851,15 @@ impl ModelBuilder {
         match inst {
             Instruction::Lui(utype) => self.model_lui(utype),
             Instruction::Auipc(utype) => self.model_auipc(utype),
-            Instruction::Lb(_itype) => self.model_unimplemented(inst),
-            Instruction::Lh(_itype) => self.model_unimplemented(inst),
-            Instruction::Lw(_itype) => self.model_unimplemented(inst),
+            Instruction::Lb(itype) => self.model_lb(itype),
+            Instruction::Lh(itype) => self.model_lh(itype),
+            Instruction::Lw(itype) => self.model_lw(itype),
             Instruction::Ld(itype) => self.model_ld(itype),
-            Instruction::Lbu(_itype) => self.model_unimplemented(inst),
-            Instruction::Lhu(_itype) => self.model_unimplemented(inst),
-            Instruction::Sb(_stype) => self.model_unimplemented(inst),
-            Instruction::Sh(_stype) => self.model_unimplemented(inst),
-            Instruction::Sw(_stype) => self.model_unimplemented(inst),
+            Instruction::Lbu(itype) => self.model_lbu(itype),
+            Instruction::Lhu(itype) => self.model_lhu(itype),
+            Instruction::Sb(stype) => self.model_sb(stype),
+            Instruction::Sh(stype) => self.model_sh(stype),
+            Instruction::Sw(stype) => self.model_sw(stype),
             Instruction::Sd(stype) => self.model_sd(stype),
             Instruction::Addi(itype) => self.model_addi(itype),
             Instruction::Sltiu(_itype) => self.model_unimplemented(inst),
