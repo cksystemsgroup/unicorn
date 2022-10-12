@@ -35,6 +35,7 @@ pub fn generate_model(
 const INSTRUCTION_SIZE: u64 = riscu::INSTRUCTION_SIZE as u64;
 const PAGE_SIZE: u64 = unicorn::engine::system::PAGE_SIZE as u64;
 const WORD_SIZE_MASK: u64 = riscu::WORD_SIZE as u64 - 1;
+const BITS_PER_BYTE: u64 = 8;
 
 // TODO: Add implementation of all syscalls.
 // TODO: Fix initialization of `current_nid` based on binary size.
@@ -486,6 +487,15 @@ impl ModelBuilder {
         self.reg_flow_ite(itype.rd(), result_node);
     }
 
+    fn model_addiw(&mut self, itype: IType) {
+        let imm_node = self.new_const(itype.imm() as u64);
+        let add_node = self.new_add(self.reg_node(itype.rs1()), imm_node);
+        let shift_amount = self.new_const(32); // for (val << 32) >>s 32
+        let left_shift_node = self.new_sll(add_node, shift_amount.clone());
+        let right_shift_node = self.new_sra(left_shift_node, shift_amount);
+        self.reg_flow_ite(itype.rd(), right_shift_node);
+    }
+
     fn model_xori(&mut self, itype: IType) {
         let imm_node = self.new_const(itype.imm() as u64);
         let xor_node = self.new_xor(self.reg_node(itype.rs1()), imm_node);
@@ -567,7 +577,7 @@ impl ModelBuilder {
             NodeType::Word,
         );
         let read_node = self.new_read(address_word_node);
-        let eight_node = self.new_const(8); // bite per byte
+        let eight_node = self.new_const(BITS_PER_BYTE);
         let address_mask_node = self.new_const(WORD_SIZE_MASK);
         let address_offset_node = self.new_and_word(address, address_mask_node);
         let shift_amount_node = self.new_mul(eight_node, address_offset_node);
@@ -645,7 +655,7 @@ impl ModelBuilder {
         );
         let read_node = self.new_read(address_word_node.clone());
         let ones_node = self.new_const((1 << bits) - 1);
-        let eight_node = self.new_const(8); // bite per byte
+        let eight_node = self.new_const(BITS_PER_BYTE);
         let address_mask_node = self.new_const(WORD_SIZE_MASK);
         let address_offset_node = self.new_and_word(address, address_mask_node);
         let shift_amount_node = self.new_mul(eight_node, address_offset_node);
@@ -869,7 +879,7 @@ impl ModelBuilder {
             Instruction::Slli(itype) => self.model_slli(itype),
             Instruction::Srli(itype) => self.model_srli(itype),
             Instruction::Srai(itype) => self.model_srai(itype),
-            Instruction::Addiw(_itype) => self.model_unimplemented(inst),
+            Instruction::Addiw(itype) => self.model_addiw(itype),
             Instruction::Slliw(_itype) => self.model_unimplemented(inst),
             Instruction::Sraiw(_itype) => self.model_unimplemented(inst),
             Instruction::Add(rtype) => self.model_add(rtype),
