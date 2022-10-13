@@ -490,10 +490,10 @@ impl ModelBuilder {
     fn model_addiw(&mut self, itype: IType) {
         let imm_node = self.new_const(itype.imm() as u64);
         let add_node = self.new_add(self.reg_node(itype.rs1()), imm_node);
-        let shift_amount = self.new_const(32); // for (val << 32) >>s 32
-        let left_shift_node = self.new_sll(add_node, shift_amount.clone());
-        let right_shift_node = self.new_sra(left_shift_node, shift_amount);
-        self.reg_flow_ite(itype.rd(), right_shift_node);
+        let thirtytwo = self.new_const(32); // for (val << 32) >>s 32
+        let sll_node = self.new_sll(add_node, thirtytwo.clone());
+        let sra_node = self.new_sra(sll_node, thirtytwo);
+        self.reg_flow_ite(itype.rd(), sra_node);
     }
 
     fn model_xori(&mut self, itype: IType) {
@@ -521,10 +521,31 @@ impl ModelBuilder {
         self.reg_flow_ite(itype.rd(), sll_node);
     }
 
+    // We represent `slliw(a, n)` as `(a << (n + 32)) >>s 32` instead.
+    fn model_slliw(&mut self, itype: IType) {
+        assert!(itype.imm() < 32, "immediate within bounds");
+        let imm_node = self.new_const(itype.imm() as u64 + 32);
+        let thirtytwo = self.new_const(32); // for val >>s 32
+        let sll_node = self.new_sll(self.reg_node(itype.rs1()), imm_node);
+        let sra_node = self.new_sra(sll_node, thirtytwo);
+        self.reg_flow_ite(itype.rd(), sra_node);
+    }
+
     fn model_srli(&mut self, itype: IType) {
         assert!(itype.imm() < 64, "immediate within bounds");
         let imm_node = self.new_const(itype.imm() as u64);
         let srl_node = self.new_srl(self.reg_node(itype.rs1()), imm_node);
+        self.reg_flow_ite(itype.rd(), srl_node);
+    }
+
+    // We represent `srliw(a, n)` as `(a << 32) >>u (n + 32)` instead.
+    fn model_srliw(&mut self, itype: IType) {
+        assert!(itype.imm() < 32, "immediate within bounds");
+        assert!(itype.imm() != 0, "modeling broken for zero-shift");
+        let imm_node = self.new_const(itype.imm() as u64 + 32);
+        let thirtytwo = self.new_const(32); // for val << 32
+        let sll_node = self.new_sll(self.reg_node(itype.rs1()), thirtytwo);
+        let srl_node = self.new_srl(sll_node, imm_node);
         self.reg_flow_ite(itype.rd(), srl_node);
     }
 
@@ -533,6 +554,17 @@ impl ModelBuilder {
         assert!(imm_truncated < 64, "immediate within bounds");
         let imm_node = self.new_const(imm_truncated as u64);
         let sra_node = self.new_sra(self.reg_node(itype.rs1()), imm_node);
+        self.reg_flow_ite(itype.rd(), sra_node);
+    }
+
+    // We represent `sraiw(a, n)` as `(a << 32) >>s (n + 32)` instead.
+    fn model_sraiw(&mut self, itype: IType) {
+        let imm_truncated = (itype.imm() & 0x3f) as u32;
+        assert!(imm_truncated < 32, "immediate within bounds");
+        let imm_node = self.new_const(imm_truncated as u64 + 32);
+        let thirtytwo = self.new_const(32); // for val << 32
+        let sll_node = self.new_sll(self.reg_node(itype.rs1()), thirtytwo);
+        let sra_node = self.new_sra(sll_node, imm_node);
         self.reg_flow_ite(itype.rd(), sra_node);
     }
 
@@ -880,8 +912,9 @@ impl ModelBuilder {
             Instruction::Srli(itype) => self.model_srli(itype),
             Instruction::Srai(itype) => self.model_srai(itype),
             Instruction::Addiw(itype) => self.model_addiw(itype),
-            Instruction::Slliw(_itype) => self.model_unimplemented(inst),
-            Instruction::Sraiw(_itype) => self.model_unimplemented(inst),
+            Instruction::Slliw(itype) => self.model_slliw(itype),
+            Instruction::Srliw(itype) => self.model_srliw(itype),
+            Instruction::Sraiw(itype) => self.model_sraiw(itype),
             Instruction::Add(rtype) => self.model_add(rtype),
             Instruction::Sub(rtype) => self.model_sub(rtype),
             Instruction::Sll(rtype) => self.model_sll(rtype),
@@ -935,6 +968,7 @@ impl ModelBuilder {
             | Instruction::Srai(_)
             | Instruction::Addiw(_)
             | Instruction::Slliw(_)
+            | Instruction::Srliw(_)
             | Instruction::Sraiw(_)
             | Instruction::Add(_)
             | Instruction::Sub(_)
