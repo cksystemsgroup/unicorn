@@ -1235,6 +1235,7 @@ mod tests {
         assert!(matches!(&*replacement[0].borrow(), Qubit::ConstTrue));
     }
 
+    #[test]
     fn test_prepare_controls_for_mcx() {
         let supers_qubit1 = QubitRef::from(Qubit::QBit {
             name: "qubit1".to_string(),
