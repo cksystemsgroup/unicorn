@@ -274,8 +274,25 @@ fn main() -> Result<()> {
                     let _ = qc.process_model(unroll_depth);
                     let _ = qc.write_model(file);
                     if has_concrete_inputs {
-                        let _inputs = expect_optional_arg::<String>(args, "inputs")?;
-                        unimplemented!();
+                        let inputs = expect_optional_arg::<String>(args, "inputs")?;
+                        let total_variables = qc.input_qubits.len();
+
+                        if let Some(all_inputs) = inputs {
+                            let instances: Vec<&str> = all_inputs.split('-').collect();
+
+                            for instance in instances {
+                                let mut values: Vec<i64> = instance
+                                    .split(',')
+                                    .map(|x| i64::from_str(x).unwrap())
+                                    .collect();
+                                while values.len() < total_variables {
+                                    values.push(0);
+                                }
+                                println!("{}\n", qc.evaluate_input(&values));
+                            }
+                        } else {
+                            panic!("This part of the code should be unreachable.");
+                        }
                     }
                 } else {
                     panic!("Provide output path!")

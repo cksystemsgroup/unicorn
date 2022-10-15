@@ -1147,6 +1147,7 @@ impl<'a> QuantumCircuit<'a> {
             let (val_oracle, controls) = prepare_controls_for_mcx(&tmp_controls, &target);
             if let Some(value) = val_oracle {
                 println!("This oracle will always evaluate to {}", value);
+                self.output_oracle = Some(get_qubit_from_bool(value));
             } else {
                 self.circuit_stack.push(UnitaryRef::from(Unitary::Mcx {
                     controls,
@@ -1158,18 +1159,133 @@ impl<'a> QuantumCircuit<'a> {
         Ok(())
     }
 
-    pub fn write_model<W>(self, mut _out: W) -> Result<()>
+    pub fn write_model<W>(&self, mut _out: W) -> Result<()>
     where
         W: Write,
     {
         println!("missing implementation to write model");
         Ok(())
     }
+
+    fn get_value_in_bin(&self, value_: i64, sort: usize) -> Vec<bool> {
+        let mut value = value_;
+        let mut answer: Vec<bool> = Vec::new();
+        for _ in 0..sort {
+            if value % 2 == 0 {
+                answer.push(false);
+            } else {
+                answer.push(true);
+            }
+            value /= 2;
+        }
+        assert!(sort == answer.len());
+        answer
+    }
+
+    pub fn evaluate_input(&self, values: &[i64]) -> bool {
+        assert!(!self.output_oracle.is_none());
+        if let Some(value) = get_constant(&self.output_oracle.clone().unwrap()) {
+            return value;
+        }
+
+        let mut assignments: HashMap<HashableQubitRef, bool> = HashMap::new();
+        for (input, value) in self.input_qubits.iter().zip(values.iter()) {
+            let qubits = input.1.clone();
+            let bin_value = self.get_value_in_bin(*value, qubits.len());
+
+            for (qubit, bit) in qubits.iter().zip(bin_value.iter()) {
+                let key = HashableQubitRef::from(qubit.clone());
+                assignments.insert(key, *bit);
+            }
+        }
+
+        for gate in self.circuit_stack.iter() {
+            match &*gate.borrow() {
+                Unitary::Not { input } => {
+                    assert!(!is_constant(input));
+                    let key = HashableQubitRef::from(input.clone());
+
+                    if assignments.contains_key(&key) {
+                        let value = *assignments.get(&key).unwrap();
+                        assignments.insert(key, !value);
+                    } else {
+                        // qubits are initialized in 0. Therefore, NOT should set it to true.
+                        assignments.insert(key, true);
+                    }
+                }
+                Unitary::Cnot { control, target } => {
+                    assert!(!is_constant(control));
+                    assert!(!is_constant(target));
+
+                    let control_key = HashableQubitRef::from(control.clone());
+                    let target_key = HashableQubitRef::from(target.clone());
+
+                    if let Some(control_value) = assignments.get(&control_key) {
+                        if *control_value {
+                            if let Some(target_value) = assignments.get(&target_key) {
+                                if *target_value {
+                                    assignments.insert(target_key, false);
+                                } else {
+                                    assignments.insert(target_key, true);
+                                }
+                            } else {
+                                // target is initialized in 0, therefore we must flip it to 1
+                                assignments.insert(target_key, true);
+                            }
+                        }
+                    } else {
+                        panic!("Control qubit does not has any value! There is a bug.");
+                    }
+                }
+                Unitary::Mcx { controls, target } => {
+                    assert!(!is_constant(target));
+                    assert!(!controls.is_empty());
+
+                    let mut controls_and = true;
+                    for control in controls {
+                        assert!(!is_constant(control));
+                        let control_key = HashableQubitRef::from(control.clone());
+                        if let Some(control_val) = assignments.get(&control_key) {
+                            if !(*control_val) {
+                                controls_and = false;
+                                break;
+                            }
+                        } else {
+                            panic!(
+                                "There is a control in MCX that doesnt has a value. This is a bug"
+                            );
+                        }
+                    }
+
+                    if controls_and {
+                        let target_key = HashableQubitRef::from(target.clone());
+
+                        if let Some(target_value) = assignments.get(&target_key) {
+                            if *target_value {
+                                assignments.insert(target_key, false);
+                            } else {
+                                assignments.insert(target_key, true);
+                            }
+                        } else {
+                            assignments.insert(target_key, true);
+                        }
+                    }
+                }
+                Unitary::Barrier => {}
+            }
+        }
+
+        let key = HashableQubitRef::from(self.output_oracle.as_ref().unwrap().clone());
+        return *assignments.get(&key).unwrap();
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
+    use crate::parse_btor2_file;
 
     #[test]
     fn test_constants_funcs() {
@@ -1270,5 +1386,14 @@ mod tests {
 
         assert!(value3.unwrap());
         assert!(controls3.len() == 0);
+    }
+
+    #[test]
+    fn eq_test() {
+        let model = parse_btor2_file(Path::new("../../examples/quarc/eq.btor2"));
+
+        let mut qc = QuantumCircuit::new(&model, 64, false);
+
+        let _ = qc.process_model(1);
     }
 }
