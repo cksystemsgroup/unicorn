@@ -1446,27 +1446,23 @@ mod tests {
 
         let const_true = QubitRef::from(Qubit::ConstTrue);
 
-        let (value, controls) = prepare_controls_for_mcx(
-            &vec![const_false.clone(), supers_qubit1.clone()],
-            &supers_qubit2.clone(),
-        );
+        let (value, controls) =
+            prepare_controls_for_mcx(&[const_false, supers_qubit1.clone()], &supers_qubit2);
 
         assert!(!value.unwrap());
-        assert!(controls.len() == 0);
+        assert!(controls.is_empty());
 
-        let (value2, controls2) = prepare_controls_for_mcx(
-            &vec![const_true.clone(), const_true.clone()],
-            &supers_qubit1.clone(),
-        );
+        let (value2, controls2) =
+            prepare_controls_for_mcx(&[const_true.clone(), const_true], &supers_qubit1);
 
         assert!(value2.unwrap());
-        assert!(controls2.len() == 0);
+        assert!(controls2.is_empty());
 
         let (value3, controls3) =
-            prepare_controls_for_mcx(&vec![supers_qubit1.clone()], &supers_qubit1.clone());
+            prepare_controls_for_mcx(&[supers_qubit1.clone()], &supers_qubit1);
 
         assert!(value3.unwrap());
-        assert!(controls3.len() == 0);
+        assert!(controls3.is_empty());
     }
 
     #[test]
