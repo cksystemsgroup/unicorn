@@ -1,6 +1,7 @@
 use crate::unicorn::{get_nid, HashableNodeRef, Model, Node, NodeRef, NodeType};
 use anyhow::Result;
 use std::cell::RefCell;
+use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::io::Write;
@@ -762,6 +763,84 @@ impl<'a> QuantumCircuit<'a> {
         (c, r)
     }
 
+    fn print_stats(&self) {
+        let count_gates = self.circuit_stack.len();
+        let mut count_multiqubit_gates = 0;
+        let mut count_single_qubit_gates = 0;
+        let mut count_qubits = 2; // For qubit const false, and const true
+        let mut max_mcx_length = 0;
+
+        let mut qubits_used: HashSet<HashableQubitRef> = HashSet::new();
+
+        for gate in self.circuit_stack.iter() {
+            match &*gate.borrow() {
+                Unitary::Not { input } => {
+                    if !is_constant(input) {
+                        let key = HashableQubitRef::from(input.clone());
+                        if !qubits_used.contains(&key) {
+                            count_qubits += 1;
+                            qubits_used.insert(key);
+                        }
+                    }
+
+                    count_single_qubit_gates += 1;
+                }
+                Unitary::Cnot { control, target } => {
+                    if !is_constant(control) {
+                        let key_control = HashableQubitRef::from(control.clone());
+
+                        if !qubits_used.contains(&key_control) {
+                            count_qubits += 1;
+                            qubits_used.insert(key_control);
+                        }
+                    }
+
+                    if !is_constant(target) {
+                        let key_target = HashableQubitRef::from(target.clone());
+                        if !qubits_used.contains(&key_target) {
+                            count_qubits += 1;
+                            qubits_used.insert(key_target);
+                        }
+                    }
+                    max_mcx_length = max(max_mcx_length, 1);
+                    count_multiqubit_gates += 1;
+                }
+                Unitary::Mcx { controls, target } => {
+                    max_mcx_length = max(max_mcx_length, controls.len());
+                    for control in controls.iter() {
+                        if !is_constant(control) {
+                            let key_control = HashableQubitRef::from(control.clone());
+
+                            if !qubits_used.contains(&key_control) {
+                                count_qubits += 1;
+                                qubits_used.insert(key_control);
+                            }
+                        }
+                    }
+
+                    if !is_constant(target) {
+                        let key_target = HashableQubitRef::from(target.clone());
+                        if !qubits_used.contains(&key_target) {
+                            count_qubits += 1;
+                            qubits_used.insert(key_target);
+                        }
+                    }
+
+                    count_multiqubit_gates += 1;
+                }
+                _ => {}
+            }
+        }
+
+        println!("******* QUANTUM CIRCUIT STATS ********");
+        println!("Qubits required: {}", count_qubits);
+        println!("Total gates: {}", count_gates);
+        println!("Single-qubit gates: {}", count_single_qubit_gates);
+        println!("MCX gates: {}", count_multiqubit_gates);
+        println!("Max. controls in MCX: {}", max_mcx_length);
+        println!("**************************************");
+    }
+
     fn process(&mut self, node: &NodeRef) -> Vec<QubitRef> {
         if let Some(replacement) = self.get_last_qubitset(node) {
             return replacement;
@@ -1105,6 +1184,8 @@ impl<'a> QuantumCircuit<'a> {
                 }
             }
         }
+
+        self.print_stats();
 
         if !is_constant(&result_ored_bad_states) {
             let (val, bad_state_qubits) =
