@@ -86,6 +86,10 @@ fn translate_model_into_target_state(model: &Model) -> SymbolicState {
                     }
                     continue;
                 }
+                if name.starts_with("dynamic-dispatch-on") {
+                    // Nothing to do here.
+                    continue;
+                }
                 panic!("unhandled state: {}", name);
             } else {
                 panic!("expecting 'State' node here");
