@@ -134,15 +134,16 @@ impl BTOR2Parser {
                                         init: Some(value_ref),
                                         name: None,
                                     }));
-                                    self.mapping.insert(nid_state, current_node.clone().unwrap());
+                                    self.mapping
+                                        .insert(nid_state, current_node.clone().unwrap());
                                     return current_node.unwrap();
                                 }
                                 _ => {
                                     panic!("invalid init!");
                                 }
                             };
-                        } 
-                    } 
+                        }
+                    }
                     panic!("Error parsing init ({:?})", line);
                 }
                 "state" => {
