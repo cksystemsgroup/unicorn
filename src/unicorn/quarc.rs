@@ -77,6 +77,27 @@ impl PartialEq for HashableQubitRef {
     }
 }
 
+pub struct Dependency {
+    name: String,
+    operands: Vec<Vec<QubitRef>>,
+    target: Vec<QubitRef>,
+}
+
+impl Dependency {
+    pub fn new(
+        name: &String,
+        operand1: &[QubitRef],
+        operand2: &[QubitRef],
+        target: &[QubitRef],
+    ) -> Self {
+        Self {
+            name: name.to_string(),
+            operands: vec![operand1.to_owned(), operand2.to_owned()],
+            target: target.to_owned(),
+        }
+    }
+}
+
 // END structs declaration
 
 // BEGIN some functions
@@ -110,6 +131,27 @@ fn get_replacement_from_constant(sort: &NodeType, mut value: u64) -> Vec<QubitRe
         value /= 2;
     }
     replacement
+}
+
+fn get_word_value(
+    qubits: &[QubitRef],
+    assignment: &HashMap<HashableQubitRef, bool>,
+) -> Option<i64> {
+    let mut answer: i64 = 0;
+    let mut curr_power = 1;
+    for qubit in qubits.iter() {
+        let key = HashableQubitRef::from(qubit.clone());
+        if let Some(value) = assignment.get(&key) {
+            answer += curr_power * (*value as i64);
+        } else if matches!(&*qubit.borrow(), Qubit::ConstTrue) {
+            answer += curr_power;
+        } else if !matches!(&*qubit.borrow(), Qubit::ConstFalse) {
+            println!("not found");
+            return None;
+        }
+        curr_power <<= 1;
+    }
+    Some(answer)
 }
 
 fn get_constant(gate_type: &QubitRef) -> Option<bool> {
@@ -187,6 +229,7 @@ pub struct QuantumCircuit<'a> {
     pub bad_state_nodes: Vec<NodeRef>,
     pub all_qubits: HashSet<QubitRef>,
     pub constraints: HashMap<HashableQubitRef, bool>, // this is for remainder and division, these are constraint based.
+    pub dependencies: Vec<Dependency>,
     pub input_qubits: Vec<(NodeRef, Vec<QubitRef>)>,
     pub mapping_nids: HashMap<Nid, NodeRef>,
     pub mapping: HashMap<HashableNodeRef, HashMap<i32, Vec<QubitRef>>>, // maps a btor2 operator to its resulting bitvector of gates
@@ -209,6 +252,7 @@ impl<'a> QuantumCircuit<'a> {
             bad_state_qubits: Vec::new(),
             bad_state_nodes: Vec::new(),
             constraints: HashMap::new(),
+            dependencies: Vec::new(),
             all_qubits: HashSet::new(),
             input_qubits: Vec::new(),
             mapping_nids: HashMap::new(),
@@ -574,7 +618,7 @@ impl<'a> QuantumCircuit<'a> {
     ) -> (usize, Vec<UnitaryRef>, Vec<QubitRef>) {
         let mut gates_to_uncompute: Vec<UnitaryRef> = Vec::new();
         let mut result: Vec<QubitRef> = Vec::new();
-        let mut used_memory = 0;
+        let used_memory = 0;
 
         if let Some(val) = get_constant(&bit) {
             if val {
@@ -601,8 +645,12 @@ impl<'a> QuantumCircuit<'a> {
                             result.push(QubitRef::from(Qubit::ConstFalse));
                         }
                     } else {
-                        used_memory += 1;
-                        let target = self.get_memory(1)[0].clone();
+                        // TODO: Is hard to determine reusable memory because just after this there is an addition that can also use dynamic memory
+                        // used_memory += 1;
+                        let new_memory = self.get_memory(1);
+                        assert!(new_memory.len() == 1);
+                        let target = new_memory[0].clone();
+                        result.push(target.clone());
                         gates_to_uncompute.push(UnitaryRef::from(Unitary::Mcx {
                             controls: vec![word[i].clone(), bit.clone()],
                             target: target.clone(),
@@ -629,7 +677,7 @@ impl<'a> QuantumCircuit<'a> {
         }
 
         for (index, bit) in left_operand.iter().enumerate() {
-            let (used_memory, gates_to_uncompute, result) =
+            let (_used_memory, gates_to_uncompute, result) =
                 self.multiply_word_by_bit(right_operand, bit.clone(), index);
 
             replacement = self.add_one_qubitset(&result, replacement);
@@ -638,8 +686,7 @@ impl<'a> QuantumCircuit<'a> {
             for gate in gates_to_uncompute.iter().rev() {
                 self.circuit_stack.push(gate.clone());
             }
-
-            self.dm_index -= used_memory;
+            self.dm_index -= self.dm_index;
         }
         assert!(replacement.len() == left_operand.len());
         replacement
@@ -769,6 +816,21 @@ impl<'a> QuantumCircuit<'a> {
             }));
         }
 
+        self.dependencies.push(Dependency::new(
+            &"div".to_string(),
+            &left_operand,
+            &right_operand,
+            &c,
+        ));
+        self.dependencies.push(Dependency::new(
+            &"rem".to_string(),
+            &left_operand,
+            &right_operand,
+            &r,
+        ));
+
+        self.temp = r.clone();
+
         let res_mul = self.mul(&c, &right_operand);
         let res_sum = self.add(&res_mul, &r);
 
@@ -779,9 +841,46 @@ impl<'a> QuantumCircuit<'a> {
         self.insert_into_contrants(&res_eq[0], true);
         self.insert_into_contrants(&res_mul[sort - 1], false);
         self.insert_into_contrants(&res_sum[sort - 1], false);
+
+        // right operand must be different than 0
+        let mut dummy_zero: Vec<QubitRef> = Vec::new();
+
+        for _ in 0..right_operand.len() {
+            dummy_zero.push(QubitRef::from(Qubit::ConstFalse));
+        }
+
+        let diff_zero_dummy = self.eq(&right_operand, &dummy_zero);
+
+        self.insert_into_contrants(&diff_zero_dummy[0], false);
         assert!(c.len() == r.len());
         assert!(c.len() == right_operand.len());
         (c, r)
+    }
+
+    pub fn _get_value_from_nid(
+        &self,
+        nid: Nid,
+        assignments: &HashMap<HashableQubitRef, bool>,
+    ) -> Option<i64> {
+        let node = self.mapping_nids.get(&nid).unwrap();
+
+        let node_qubits = self.get_last_qubitset(node);
+        let mut current_power = 1;
+        if let Some(qubits) = node_qubits {
+            let mut answer = 0;
+            for qubit in qubits {
+                let key = HashableQubitRef::from(qubit);
+                if let Some(value) = assignments.get(&key) {
+                    answer += (*value as i64) * current_power;
+                } else {
+                    return None;
+                }
+                current_power <<= 1;
+            }
+            Some(answer)
+        } else {
+            None
+        }
     }
 
     fn print_stats(&self) {
@@ -1133,9 +1232,7 @@ impl<'a> QuantumCircuit<'a> {
                 let right_operand = self.process(right);
                 assert!(left_operand.len() == right_operand.len());
                 let result = self.ult(&left_operand, &right_operand);
-                self.temp = result.clone();
-                // assert!(result.len() == left_operand.len() +1);
-
+                assert!(result.len() == left_operand.len() + 1);
                 self.record_mapping(node, self.current_n, vec![result[result.len() - 1].clone()])
             }
             Node::Mul { left, right, .. } => {
@@ -1214,8 +1311,8 @@ impl<'a> QuantumCircuit<'a> {
         if self.bad_state_qubits.is_empty() {
             result_ored_bad_states = QubitRef::from(Qubit::ConstFalse);
         }
-        self.output_oracle = Some(self.bad_state_qubits[0].clone());
         self.print_stats();
+
         if !is_constant(&result_ored_bad_states) {
             let (val, bad_state_qubits) =
                 prepare_controls_for_mcx(&self.bad_state_qubits, &result_ored_bad_states);
@@ -1231,7 +1328,6 @@ impl<'a> QuantumCircuit<'a> {
                 self.or_bad_state_qubits(bad_state_qubits, &result_ored_bad_states);
             }
         }
-
         if self.constraints.is_empty() {
             self.output_oracle = Some(result_ored_bad_states);
         } else if self.output_oracle.is_none() {
@@ -1293,31 +1389,6 @@ impl<'a> QuantumCircuit<'a> {
         answer
     }
 
-    pub fn _get_value_from_nid(
-        &self,
-        nid: Nid,
-        assignments: &HashMap<HashableQubitRef, bool>,
-    ) -> Option<i64> {
-        let node = self.mapping_nids.get(&nid).unwrap();
-
-        let node_qubits = self.get_last_qubitset(node);
-        let mut current_power = 1;
-        if let Some(qubits) = node_qubits {
-            let mut answer = 0;
-            for qubit in qubits {
-                let key = HashableQubitRef::from(qubit);
-                if let Some(value) = assignments.get(&key) {
-                    answer += (*value as i64) * current_power;
-                } else {
-                    return None;
-                }
-                current_power <<= 1;
-            }
-            Some(answer)
-        } else {
-            None
-        }
-    }
     pub fn evaluate_circuit(&self, assignments: &mut HashMap<HashableQubitRef, bool>) {
         for gate in self.circuit_stack.iter() {
             match &*gate.borrow() {
@@ -1412,6 +1483,31 @@ impl<'a> QuantumCircuit<'a> {
             for (qubit, bit) in qubits.iter().zip(bin_value.iter()) {
                 let key = HashableQubitRef::from(qubit.clone());
                 assignments.insert(key, *bit);
+            }
+        }
+
+        // solve dependencies
+
+        for dependency in self.dependencies.iter() {
+            let operand1_value = get_word_value(&dependency.operands[0], &assignments).unwrap();
+            let operand2_value = get_word_value(&dependency.operands[1], &assignments).unwrap();
+            assert!(dependency.operands[0].len() == dependency.operands[1].len());
+            let mut result;
+            if operand2_value != 0 {
+                if dependency.name == "div" {
+                    result = operand1_value / operand2_value;
+                } else {
+                    assert!(dependency.name == "rem");
+                    result = operand1_value % operand2_value;
+                }
+            } else {
+                result = 0;
+            }
+
+            for qubit in dependency.target.iter() {
+                let key = HashableQubitRef::from(qubit.clone());
+                assignments.insert(key, (result % 2) == 1);
+                result /= 2;
             }
         }
         self.evaluate_circuit(&mut assignments);
@@ -1760,6 +1856,78 @@ mod tests {
             let circuit_value = qc._get_value_from_nid(3, &assignments);
             assert!(!circuit_value.is_none());
             assert!(result == circuit_value.unwrap());
+        }
+    }
+
+    #[test]
+    fn mul_test() {
+        let model = parse_btor2_file(Path::new("examples/quarc/mul.btor2"));
+        assert!(model.bad_states_initial.len() == 1);
+        assert!(model.sequentials.len() == 1);
+        let mut qc = QuantumCircuit::new(&model, 64, false);
+        let _ = qc.process_model(1);
+        assert!(qc.input_qubits.len() == 2);
+
+        for i in 0..256 {
+            for j in 0..256 {
+                let result = (i * j) & 255;
+
+                let (oracle_val, assignments) = qc.evaluate_input(&vec![i, j]);
+                assert!(oracle_val);
+
+                let circuit_value = qc._get_value_from_nid(4, &assignments);
+                assert!(!circuit_value.is_none());
+                assert!(result == circuit_value.unwrap());
+            }
+        }
+    }
+
+    #[test]
+    fn div_test() {
+        let model = parse_btor2_file(Path::new("examples/quarc/div.btor2"));
+        assert!(model.bad_states_initial.len() == 1);
+        assert!(model.sequentials.len() == 1);
+        let mut qc = QuantumCircuit::new(&model, 64, false);
+        let _ = qc.process_model(1);
+        assert!(qc.input_qubits.len() == 2);
+
+        for i in 0..256 {
+            for j in 0..256 {
+                let (oracle_val, assignments) = qc.evaluate_input(&vec![i, j]);
+                let circuit_value = qc._get_value_from_nid(4, &assignments);
+                if j != 0 {
+                    let result = (i / j) & 255;
+                    assert!(oracle_val);
+                    assert!(!circuit_value.is_none());
+                    assert!(result == circuit_value.unwrap());
+                } else {
+                    assert!(!oracle_val)
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn rem_test() {
+        let model = parse_btor2_file(Path::new("examples/quarc/rem.btor2"));
+        assert!(model.bad_states_initial.len() == 1);
+        assert!(model.sequentials.len() == 1);
+        let mut qc = QuantumCircuit::new(&model, 64, false);
+        let _ = qc.process_model(1);
+        assert!(qc.input_qubits.len() == 2);
+        for i in 0..256 {
+            for j in 0..256 {
+                let (oracle_val, assignments) = qc.evaluate_input(&vec![i, j]);
+                let circuit_value = qc._get_value_from_nid(4, &assignments);
+                if j != 0 {
+                    let result = (i % j) & 255;
+                    assert!(oracle_val);
+                    assert!(!circuit_value.is_none());
+                    assert!(result == circuit_value.unwrap());
+                } else {
+                    assert!(!oracle_val)
+                }
+            }
         }
     }
 }
