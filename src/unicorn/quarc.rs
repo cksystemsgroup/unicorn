@@ -1,4 +1,4 @@
-use crate::unicorn::{get_nid, HashableNodeRef, Model, Node, NodeRef, NodeType};
+use crate::unicorn::{get_nid, HashableNodeRef, Model, Nid, Node, NodeRef, NodeType};
 use anyhow::Result;
 use std::cell::RefCell;
 use std::cmp::max;
@@ -188,14 +188,16 @@ pub struct QuantumCircuit<'a> {
     pub all_qubits: HashSet<QubitRef>,
     pub constraints: HashMap<HashableQubitRef, bool>, // this is for remainder and division, these are constraint based.
     pub input_qubits: Vec<(NodeRef, Vec<QubitRef>)>,
-    pub mapping: HashMap<HashableNodeRef, HashMap<usize, Vec<QubitRef>>>, // maps a btor2 operator to its resulting bitvector of gates
+    pub mapping_nids: HashMap<Nid, NodeRef>,
+    pub mapping: HashMap<HashableNodeRef, HashMap<i32, Vec<QubitRef>>>, // maps a btor2 operator to its resulting bitvector of gates
     pub circuit_stack: Vec<UnitaryRef>,
     pub count_multiqubit_gates: u64,
-    pub current_n: usize,
-    pub current_state_nodes: HashMap<HashableNodeRef, usize>,
+    pub current_n: i32,
+    pub current_state_nodes: HashMap<HashableNodeRef, i32>,
     pub dynamic_memory: Vec<QubitRef>,
     pub dm_index: usize,
     pub output_oracle: Option<QubitRef>,
+    pub temp: Vec<QubitRef>,
     word_size: usize,
     model: &'a Model, // BTOR2 model
     use_dynamic_memory: bool,
@@ -209,6 +211,7 @@ impl<'a> QuantumCircuit<'a> {
             constraints: HashMap::new(),
             all_qubits: HashSet::new(),
             input_qubits: Vec::new(),
+            mapping_nids: HashMap::new(),
             mapping: HashMap::new(),
             dynamic_memory: Vec::new(),
             dm_index: 0,
@@ -218,6 +221,7 @@ impl<'a> QuantumCircuit<'a> {
             word_size: word_size_,
             count_multiqubit_gates: 0,
             current_n: 0,
+            temp: Vec::new(),
             use_dynamic_memory: use_dynamic_memory_,
             output_oracle: None,
         }
@@ -240,7 +244,7 @@ impl<'a> QuantumCircuit<'a> {
         }
     }
 
-    fn get_last_qubitset(&mut self, node: &NodeRef) -> Option<Vec<QubitRef>> {
+    fn get_last_qubitset(&self, node: &NodeRef) -> Option<Vec<QubitRef>> {
         let key = HashableNodeRef::from(node.clone());
 
         if !self.mapping.contains_key(&key) {
@@ -361,7 +365,7 @@ impl<'a> QuantumCircuit<'a> {
     fn record_mapping(
         &mut self,
         node: &NodeRef,
-        index: usize,
+        index: i32,
         replacement: Vec<QubitRef>,
     ) -> Vec<QubitRef> {
         let key = HashableNodeRef::from(node.clone());
@@ -371,7 +375,6 @@ impl<'a> QuantumCircuit<'a> {
         }
 
         let replacements = self.mapping.get_mut(&key).unwrap();
-        assert!(!replacements.contains_key(&index));
         replacements.insert(index, replacement.clone());
 
         self.current_state_nodes.insert(key, index);
@@ -423,31 +426,43 @@ impl<'a> QuantumCircuit<'a> {
         let mut result: Vec<QubitRef> = vec![];
 
         let sort = qubitset.len();
+        assert!(target_set.len() == qubitset.len());
+
+        for qubit in target_set.iter() {
+            result.push(qubit.clone());
+        }
 
         for index in 0..sort {
             for i in index..sort {
                 let mut tmp_controls = target_set[index..((sort - 1 - i) + index)].to_vec();
                 tmp_controls.push(qubitset[index].clone());
-                let mut target = target_set[sort - 1 - i + index].clone();
+                let mut target = result[sort - 1 - i + index].clone();
                 let (mcx_res, controls) = prepare_controls_for_mcx(&tmp_controls, &target);
 
                 if let Some(mcx_val) = mcx_res {
                     if mcx_val {
-                        result.push(QubitRef::from(Qubit::ConstTrue));
-                    } else {
-                        result.push(QubitRef::from(Qubit::ConstFalse));
+                        if let Some(target_value) = get_constant(&target) {
+                            if target_value {
+                                result[sort - 1 - i + index] = QubitRef::from(Qubit::ConstFalse);
+                            } else {
+                                result[sort - 1 - i + index] = QubitRef::from(Qubit::ConstTrue);
+                            }
+                        } else {
+                            self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
+                                input: result[sort - 1 - i + index].clone(),
+                            }))
+                        }
                     }
                 } else {
                     if is_constant(&target) {
                         target = self.get_memory(1)[0].clone();
                     }
-                    result.push(target.clone());
+                    result[sort - 1 - i + index] = target.clone();
                     self.circuit_stack
                         .push(UnitaryRef::from(Unitary::Mcx { controls, target }))
                 }
             }
         }
-
         assert!(result.len() == sort);
         result
     }
@@ -488,9 +503,9 @@ impl<'a> QuantumCircuit<'a> {
         for qubit in qubitset {
             if let Some(val) = get_constant(qubit) {
                 if val {
-                    result1.push(QubitRef::from(Qubit::ConstTrue));
-                } else {
                     result1.push(QubitRef::from(Qubit::ConstFalse));
+                } else {
+                    result1.push(QubitRef::from(Qubit::ConstTrue));
                 }
             } else {
                 result1.push(qubit.clone());
@@ -504,16 +519,27 @@ impl<'a> QuantumCircuit<'a> {
         }
         assert!(result1.len() == qubitset.len());
         let sort = qubitset.len();
-        let mut result2: Vec<QubitRef> = Vec::new();
         for i in 0..sort - 1 {
             let target = result1[sort - i - 1].clone();
             let tmp_controls = result1[..(sort - i - 1)].to_vec();
             let (mcx_res, controls) = prepare_controls_for_mcx(&tmp_controls, &target);
-
             if let Some(mcx_val) = mcx_res {
-                result2.push(get_qubit_from_bool(mcx_val));
+                if mcx_val {
+                    if let Some(target_val) = get_constant(&target) {
+                        if target_val {
+                            result1[sort - i - 1] = QubitRef::from(Qubit::ConstFalse);
+                        } else {
+                            result1[sort - i - 1] = QubitRef::from(Qubit::ConstTrue);
+                        }
+                    } else {
+                        gates_to_uncompute.push(UnitaryRef::from(Unitary::Not {
+                            input: target.clone(),
+                        }));
+                        self.circuit_stack
+                            .push(UnitaryRef::from(Unitary::Not { input: target }));
+                    }
+                }
             } else {
-                result2.push(target.clone());
                 gates_to_uncompute.push(UnitaryRef::from(Unitary::Mcx {
                     controls: controls.clone(),
                     target: target.clone(),
@@ -522,23 +548,22 @@ impl<'a> QuantumCircuit<'a> {
                     .push(UnitaryRef::from(Unitary::Mcx { controls, target }));
             }
         }
-        result2.push(result1[sort - 1].clone());
-        assert!(result2.len() == result1.len());
-        assert!(result2.len() == qubitset.len());
+
+        assert!(result1.len() == qubitset.len());
 
         // apply not gate to LSB qubit
-        if let Some(val) = get_constant(&result2[0]) {
-            result2[0] = get_qubit_from_bool(!val);
+        if let Some(val) = get_constant(&result1[0]) {
+            result1[0] = get_qubit_from_bool(!val);
         } else {
             gates_to_uncompute.push(UnitaryRef::from(Unitary::Not {
-                input: result2[0].clone(),
+                input: result1[0].clone(),
             }));
             self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
-                input: result2[0].clone(),
+                input: result1[0].clone(),
             }));
         }
 
-        (gates_to_uncompute, result2)
+        (gates_to_uncompute, result1)
     }
 
     fn multiply_word_by_bit(
@@ -639,21 +664,19 @@ impl<'a> QuantumCircuit<'a> {
                     controls.push(l_qubit.clone());
                 }
             } else if are_there_false_constants(vec![const_l, const_r]) {
-                let control: QubitRef;
-                if is_constant(l_qubit) {
-                    control = r_qubit.clone();
+                let control: QubitRef = if is_constant(l_qubit) {
+                    r_qubit.clone()
                 } else {
-                    control = l_qubit.clone();
-                }
+                    l_qubit.clone()
+                };
 
-                let target: QubitRef;
-                if self.use_dynamic_memory {
-                    target = self.get_memory(1)[0].clone();
+                let target: QubitRef = if self.use_dynamic_memory {
+                    self.get_memory(1)[0].clone()
                 } else {
-                    target = QubitRef::from(Qubit::QBit {
+                    QubitRef::from(Qubit::QBit {
                         name: "eq_ancilla".to_string(),
-                    });
-                }
+                    })
+                };
                 controls.push(target.clone());
                 self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
                     input: control.clone(),
@@ -666,14 +689,13 @@ impl<'a> QuantumCircuit<'a> {
                     .push(UnitaryRef::from(Unitary::Not { input: control }));
             } else {
                 // no constants
-                let target: QubitRef;
-                if self.use_dynamic_memory {
-                    target = self.get_memory(1)[0].clone();
+                let target: QubitRef = if self.use_dynamic_memory {
+                    self.get_memory(1)[0].clone()
                 } else {
-                    target = QubitRef::from(Qubit::QBit {
+                    QubitRef::from(Qubit::QBit {
                         name: "eq_ancilla".to_string(),
-                    });
-                }
+                    })
+                };
                 controls.push(target.clone());
                 self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot {
                     control: l_qubit.clone(),
@@ -698,14 +720,13 @@ impl<'a> QuantumCircuit<'a> {
         if let Some(value) = tmp.0 {
             replacement = vec![get_qubit_from_bool(value)];
         } else {
-            let target: QubitRef;
-            if self.use_dynamic_memory {
-                target = self.get_memory(1)[0].clone();
+            let target: QubitRef = if self.use_dynamic_memory {
+                self.get_memory(1)[0].clone()
             } else {
-                target = QubitRef::from(Qubit::QBit {
+                QubitRef::from(Qubit::QBit {
                     name: "eq_ancilla".to_string(),
-                });
-            }
+                })
+            };
 
             replacement = vec![target.clone()];
             self.circuit_stack
@@ -764,7 +785,7 @@ impl<'a> QuantumCircuit<'a> {
     }
 
     fn print_stats(&self) {
-        let count_gates = self.circuit_stack.len();
+        let mut count_gates = 0;
         let mut count_multiqubit_gates = 0;
         let mut count_single_qubit_gates = 0;
         let mut count_qubits = 2; // For qubit const false, and const true
@@ -775,6 +796,7 @@ impl<'a> QuantumCircuit<'a> {
         for gate in self.circuit_stack.iter() {
             match &*gate.borrow() {
                 Unitary::Not { input } => {
+                    count_gates += 1;
                     if !is_constant(input) {
                         let key = HashableQubitRef::from(input.clone());
                         if !qubits_used.contains(&key) {
@@ -786,6 +808,7 @@ impl<'a> QuantumCircuit<'a> {
                     count_single_qubit_gates += 1;
                 }
                 Unitary::Cnot { control, target } => {
+                    count_gates += 1;
                     if !is_constant(control) {
                         let key_control = HashableQubitRef::from(control.clone());
 
@@ -806,6 +829,7 @@ impl<'a> QuantumCircuit<'a> {
                     count_multiqubit_gates += 1;
                 }
                 Unitary::Mcx { controls, target } => {
+                    count_gates += 1;
                     max_mcx_length = max(max_mcx_length, controls.len());
                     for control in controls.iter() {
                         if !is_constant(control) {
@@ -841,10 +865,20 @@ impl<'a> QuantumCircuit<'a> {
         println!("**************************************");
     }
 
+    fn ult(&mut self, left: &[QubitRef], right: &[QubitRef]) -> Vec<QubitRef> {
+        let mut left_operand = left.to_owned();
+        let mut right_operand = right.to_owned();
+        left_operand.push(QubitRef::from(Qubit::ConstFalse));
+        right_operand.push(QubitRef::from(Qubit::ConstFalse));
+
+        self.sub(&left_operand, &right_operand)
+    }
+
     fn process(&mut self, node: &NodeRef) -> Vec<QubitRef> {
         if let Some(replacement) = self.get_last_qubitset(node) {
             return replacement;
         }
+        self.mapping_nids.insert(get_nid(node), node.clone());
         match &*node.borrow() {
             Node::Const { sort, imm, .. } => {
                 assert!(self.current_n == 0);
@@ -914,23 +948,21 @@ impl<'a> QuantumCircuit<'a> {
                     } else if are_there_false_constants(vec![const_r, const_l]) {
                         replacement.push(QubitRef::from(Qubit::ConstFalse));
                     } else if are_there_true_constants(vec![const_l, const_r]) {
-                        let control: QubitRef;
-                        if is_constant(l_qubit) {
+                        let control: QubitRef = if is_constant(l_qubit) {
                             // l_qubit must be true
-                            control = r_qubit.clone();
+                            r_qubit.clone()
                         } else {
                             // const_r must be true
-                            control = l_qubit.clone();
-                        }
-                        let target: QubitRef;
+                            l_qubit.clone()
+                        };
 
-                        if self.use_dynamic_memory {
-                            target = self.get_memory(1)[0].clone();
+                        let target: QubitRef = if self.use_dynamic_memory {
+                            self.get_memory(1)[0].clone()
                         } else {
-                            target = QubitRef::from(Qubit::QBit {
+                            QubitRef::from(Qubit::QBit {
                                 name: "and".to_string(),
-                            });
-                        }
+                            })
+                        };
                         replacement.push(target.clone());
                         self.circuit_stack
                             .push(UnitaryRef::from(Unitary::Cnot { control, target }));
@@ -1010,15 +1042,13 @@ impl<'a> QuantumCircuit<'a> {
                             } else if const_l.unwrap() {
                                 replacement.push(cond_operand[0].clone());
                             } else {
-                                let target: QubitRef;
-
-                                if self.use_dynamic_memory {
-                                    target = self.get_memory(1)[0].clone();
+                                let target: QubitRef = if self.use_dynamic_memory {
+                                    self.get_memory(1)[0].clone()
                                 } else {
-                                    target = QubitRef::from(Qubit::QBit {
+                                    QubitRef::from(Qubit::QBit {
                                         name: "ancilla_ite".to_string(),
-                                    });
-                                }
+                                    })
+                                };
                                 // TODO: Maybe is not necesary to request memory here for target?
                                 replacement.push(target.clone());
                                 self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot {
@@ -1030,16 +1060,14 @@ impl<'a> QuantumCircuit<'a> {
                                 }));
                             }
                         } else if are_there_false_constants(vec![const_l, const_r]) {
-                            let target: QubitRef;
-
-                            if self.use_dynamic_memory {
-                                target = self.get_memory(1)[0].clone();
+                            let target: QubitRef = if self.use_dynamic_memory {
+                                self.get_memory(1)[0].clone()
                             } else {
-                                target = QubitRef::from(Qubit::QBit {
+                                QubitRef::from(Qubit::QBit {
                                     name: "ancilla_ite".to_string(),
-                                });
-                            }
-
+                                })
+                            };
+                            replacement.push(target.clone());
                             if is_constant(l_qubit) {
                                 self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
                                     input: cond_operand[0].clone(),
@@ -1061,15 +1089,15 @@ impl<'a> QuantumCircuit<'a> {
                             // TODO: Optimize when there is only one constant and its true?
 
                             // no constants
-                            let target: QubitRef;
-                            if self.use_dynamic_memory {
-                                target = self.get_memory(1)[0].clone();
+                            let target: QubitRef = if self.use_dynamic_memory {
+                                self.get_memory(1)[0].clone()
                             } else {
-                                target = QubitRef::from(Qubit::QBit {
+                                QubitRef::from(Qubit::QBit {
                                     name: "ancilla_ite".to_string(),
-                                });
-                            }
+                                })
+                            };
 
+                            replacement.push(target.clone());
                             self.circuit_stack.push(UnitaryRef::from(Unitary::Mcx {
                                 controls: vec![cond_operand[0].clone(), l_qubit.clone()],
                                 target: target.clone(),
@@ -1087,6 +1115,7 @@ impl<'a> QuantumCircuit<'a> {
                             }));
                         }
                     }
+                    assert!(replacement.len() == left_operand.len());
                 }
 
                 self.record_mapping(node, self.current_n, replacement)
@@ -1100,15 +1129,14 @@ impl<'a> QuantumCircuit<'a> {
                 self.record_mapping(node, self.current_n, replacement)
             }
             Node::Ult { left, right, .. } => {
-                let mut left_operand = self.process(left);
-                let mut right_operand = self.process(right);
+                let left_operand = self.process(left);
+                let right_operand = self.process(right);
+                assert!(left_operand.len() == right_operand.len());
+                let result = self.ult(&left_operand, &right_operand);
+                self.temp = result.clone();
+                // assert!(result.len() == left_operand.len() +1);
 
-                left_operand.push(QubitRef::from(Qubit::ConstFalse));
-                right_operand.push(QubitRef::from(Qubit::ConstFalse));
-
-                let result = self.sub(&left_operand, &right_operand);
-
-                self.record_mapping(node, self.current_n, vec![result.last().unwrap().clone()])
+                self.record_mapping(node, self.current_n, vec![result[result.len() - 1].clone()])
             }
             Node::Mul { left, right, .. } => {
                 let left_operand = self.process(left);
@@ -1158,7 +1186,7 @@ impl<'a> QuantumCircuit<'a> {
         });
 
         for i in 0..unroll_depth {
-            self.current_n = i;
+            self.current_n = i as i32;
             for sequential in &self.model.sequentials {
                 if let Node::Next { .. } = &*sequential.borrow() {
                     let _ = self.process(sequential);
@@ -1166,8 +1194,7 @@ impl<'a> QuantumCircuit<'a> {
                     panic!("expecting 'Next' node here");
                 }
             }
-
-            for bad_state in &self.model.bad_states_sequential {
+            for bad_state in &self.model.bad_states_initial {
                 let bitblasted_bad_state = self.process(bad_state);
                 assert!(bitblasted_bad_state.len() == 1);
                 if let Some(val) = get_constant(&bitblasted_bad_state[0]) {
@@ -1184,9 +1211,11 @@ impl<'a> QuantumCircuit<'a> {
                 }
             }
         }
-
+        if self.bad_state_qubits.is_empty() {
+            result_ored_bad_states = QubitRef::from(Qubit::ConstFalse);
+        }
+        self.output_oracle = Some(self.bad_state_qubits[0].clone());
         self.print_stats();
-
         if !is_constant(&result_ored_bad_states) {
             let (val, bad_state_qubits) =
                 prepare_controls_for_mcx(&self.bad_state_qubits, &result_ored_bad_states);
@@ -1237,6 +1266,7 @@ impl<'a> QuantumCircuit<'a> {
                 self.output_oracle = Some(target);
             }
         }
+
         Ok(())
     }
 
@@ -1263,23 +1293,32 @@ impl<'a> QuantumCircuit<'a> {
         answer
     }
 
-    pub fn evaluate_input(&self, values: &[i64]) -> bool {
-        assert!(!self.output_oracle.is_none());
-        if let Some(value) = get_constant(&self.output_oracle.clone().unwrap()) {
-            return value;
-        }
+    pub fn _get_value_from_nid(
+        &self,
+        nid: Nid,
+        assignments: &HashMap<HashableQubitRef, bool>,
+    ) -> Option<i64> {
+        let node = self.mapping_nids.get(&nid).unwrap();
 
-        let mut assignments: HashMap<HashableQubitRef, bool> = HashMap::new();
-        for (input, value) in self.input_qubits.iter().zip(values.iter()) {
-            let qubits = input.1.clone();
-            let bin_value = self.get_value_in_bin(*value, qubits.len());
-
-            for (qubit, bit) in qubits.iter().zip(bin_value.iter()) {
-                let key = HashableQubitRef::from(qubit.clone());
-                assignments.insert(key, *bit);
+        let node_qubits = self.get_last_qubitset(node);
+        let mut current_power = 1;
+        if let Some(qubits) = node_qubits {
+            let mut answer = 0;
+            for qubit in qubits {
+                let key = HashableQubitRef::from(qubit);
+                if let Some(value) = assignments.get(&key) {
+                    answer += (*value as i64) * current_power;
+                } else {
+                    return None;
+                }
+                current_power <<= 1;
             }
+            Some(answer)
+        } else {
+            None
         }
-
+    }
+    pub fn evaluate_circuit(&self, assignments: &mut HashMap<HashableQubitRef, bool>) {
         for gate in self.circuit_stack.iter() {
             match &*gate.borrow() {
                 Unitary::Not { input } => {
@@ -1313,13 +1352,15 @@ impl<'a> QuantumCircuit<'a> {
                                 // target is initialized in 0, therefore we must flip it to 1
                                 assignments.insert(target_key, true);
                             }
+                        } else if assignments.get(&target_key).is_none() {
+                            // if control is not true we just check if its in the assignments-dictionary, if not we add it
+                            assignments.insert(target_key, false);
                         }
                     } else {
                         panic!("Control qubit does not has any value! There is a bug.");
                     }
                 }
                 Unitary::Mcx { controls, target } => {
-                    assert!(!is_constant(target));
                     assert!(!controls.is_empty());
 
                     let mut controls_and = true;
@@ -1337,10 +1378,8 @@ impl<'a> QuantumCircuit<'a> {
                             );
                         }
                     }
-
+                    let target_key = HashableQubitRef::from(target.clone());
                     if controls_and {
-                        let target_key = HashableQubitRef::from(target.clone());
-
                         if let Some(target_value) = assignments.get(&target_key) {
                             if *target_value {
                                 assignments.insert(target_key, false);
@@ -1350,14 +1389,34 @@ impl<'a> QuantumCircuit<'a> {
                         } else {
                             assignments.insert(target_key, true);
                         }
+                    } else if assignments.get(&target_key).is_none() {
+                        // if control is not true we just check if its in the assignments-dictionary, if not we add it
+                        assignments.insert(target_key, false);
                     }
                 }
                 Unitary::Barrier => {}
             }
         }
+    }
+    pub fn evaluate_input(&self, values: &[i64]) -> (bool, HashMap<HashableQubitRef, bool>) {
+        assert!(self.output_oracle.is_some());
+        let mut assignments: HashMap<HashableQubitRef, bool> = HashMap::new();
+        if let Some(value) = get_constant(&self.output_oracle.clone().unwrap()) {
+            return (value, assignments);
+        }
 
+        for (input, value) in self.input_qubits.iter().zip(values.iter()) {
+            let qubits = input.1.clone();
+            let bin_value = self.get_value_in_bin(*value, qubits.len());
+
+            for (qubit, bit) in qubits.iter().zip(bin_value.iter()) {
+                let key = HashableQubitRef::from(qubit.clone());
+                assignments.insert(key, *bit);
+            }
+        }
+        self.evaluate_circuit(&mut assignments);
         let key = HashableQubitRef::from(self.output_oracle.as_ref().unwrap().clone());
-        return *assignments.get(&key).unwrap();
+        return (*assignments.get(&key).unwrap(), assignments);
     }
 }
 
@@ -1467,10 +1526,240 @@ mod tests {
 
     #[test]
     fn eq_test() {
-        let model = parse_btor2_file(Path::new("../../examples/quarc/eq.btor2"));
+        let model = parse_btor2_file(Path::new("examples/quarc/eq.btor2"));
+        assert!(model.bad_states_initial.len() == 1);
+        assert!(model.sequentials.len() == 0);
 
         let mut qc = QuantumCircuit::new(&model, 64, false);
 
         let _ = qc.process_model(1);
+        assert!(qc.input_qubits.len() == 2);
+
+        assert!(qc.evaluate_input(&vec![0, 0]).0);
+        assert!(qc.evaluate_input(&vec![1, 1]).0);
+        assert!(!qc.evaluate_input(&vec![0, 1]).0);
+        assert!(!qc.evaluate_input(&vec![1, 0]).0);
+    }
+
+    #[test]
+    fn eq8_test() {
+        let model = parse_btor2_file(Path::new("examples/quarc/eq8.btor2"));
+        assert!(model.bad_states_initial.len() == 1);
+        assert!(model.sequentials.len() == 0);
+        let mut qc = QuantumCircuit::new(&model, 64, false);
+        let _ = qc.process_model(1);
+        assert!(qc.input_qubits.len() == 2);
+
+        for i in 0..256 {
+            for j in 0..256 {
+                if i == j {
+                    assert!(qc.evaluate_input(&vec![i, j]).0);
+                } else {
+                    assert!(!qc.evaluate_input(&vec![i, j]).0);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn add_test() {
+        let model = parse_btor2_file(Path::new("examples/quarc/add.btor2"));
+        assert!(model.bad_states_initial.len() == 1);
+        assert!(model.sequentials.len() == 1);
+        let mut qc = QuantumCircuit::new(&model, 64, false);
+        let _ = qc.process_model(1);
+        assert!(qc.input_qubits.len() == 2);
+
+        for i in 0..256 {
+            for j in 0..256 {
+                let result = (i + j) & 255;
+
+                let (oracle_val, assignments) = qc.evaluate_input(&vec![i, j]);
+                assert!(oracle_val);
+
+                let circuit_value = qc._get_value_from_nid(4, &assignments);
+                assert!(!circuit_value.is_none());
+                assert!(result == circuit_value.unwrap());
+            }
+        }
+    }
+
+    #[test]
+    fn and_test() {
+        let model = parse_btor2_file(Path::new("examples/quarc/and.btor2"));
+        assert!(model.bad_states_initial.len() == 1);
+        assert!(model.sequentials.len() == 1);
+        let mut qc = QuantumCircuit::new(&model, 64, false);
+        let _ = qc.process_model(1);
+        assert!(qc.input_qubits.len() == 2);
+
+        for i in 0..256 {
+            for j in 0..256 {
+                let result = i & j & 255;
+
+                let (oracle_val, assignments) = qc.evaluate_input(&vec![i, j]);
+                assert!(oracle_val);
+
+                let circuit_value = qc._get_value_from_nid(4, &assignments);
+                assert!(!circuit_value.is_none());
+                assert!(result == circuit_value.unwrap());
+            }
+        }
+    }
+
+    #[test]
+    fn twos_complement_test() {
+        let model = parse_btor2_file(Path::new("examples/quarc/sub.btor2"));
+        let mut qc = QuantumCircuit::new(&model, 64, false);
+
+        let mut assignments: HashMap<HashableQubitRef, bool> = HashMap::new();
+        let mut const_qubitset: Vec<QubitRef> = vec![];
+        for i in 0..8 {
+            const_qubitset.push(QubitRef::from(Qubit::QBit {
+                name: "temp".to_string(),
+            }));
+            let key = HashableQubitRef::from(const_qubitset[i].clone());
+            assignments.insert(key, false);
+        }
+
+        let (_gates, _answer) = qc.twos_complement(&const_qubitset);
+        qc.evaluate_circuit(&mut assignments);
+
+        for i in 0..8 {
+            let key = HashableQubitRef::from(const_qubitset[i].clone());
+            let value = assignments.get(&key).unwrap();
+            assert!(!value);
+        }
+    }
+
+    #[test]
+    fn sub_test() {
+        let model = parse_btor2_file(Path::new("examples/quarc/sub.btor2"));
+        assert!(model.bad_states_initial.len() == 1);
+        assert!(model.sequentials.len() == 1);
+        let mut qc = QuantumCircuit::new(&model, 64, false);
+        let _ = qc.process_model(1);
+        assert!(qc.input_qubits.len() == 2);
+
+        for i in 0..256 {
+            for j in 0..256 {
+                let result = (i - j) & 255;
+
+                let (oracle_val, assignments) = qc.evaluate_input(&vec![i, j]);
+                assert!(oracle_val);
+
+                let circuit_value = qc._get_value_from_nid(4, &assignments);
+                assert!(!circuit_value.is_none());
+                assert!(result == circuit_value.unwrap());
+            }
+        }
+    }
+
+    #[test]
+    fn ult_test0() {
+        let model = parse_btor2_file(Path::new("examples/quarc/sub.btor2"));
+        let mut qc = QuantumCircuit::new(&model, 64, false);
+
+        let mut assignments: HashMap<HashableQubitRef, bool> = HashMap::new();
+        let mut const_qubitset: Vec<QubitRef> = vec![];
+        let mut const_qubitset2: Vec<QubitRef> = vec![];
+        for i in 0..8 {
+            const_qubitset.push(QubitRef::from(Qubit::QBit {
+                name: "temp".to_string(),
+            }));
+            const_qubitset2.push(QubitRef::from(Qubit::QBit {
+                name: "temp".to_string(),
+            }));
+            let mut key = HashableQubitRef::from(const_qubitset[i].clone());
+            if i == 0 {
+                assignments.insert(key, true);
+            } else {
+                assignments.insert(key, false);
+            }
+            key = HashableQubitRef::from(const_qubitset2[i].clone());
+            assignments.insert(key, false);
+        }
+
+        let ult_ans = qc.ult(&const_qubitset, &const_qubitset2);
+        qc.evaluate_circuit(&mut assignments);
+
+        for i in 0..8 {
+            let key = HashableQubitRef::from(ult_ans[i].clone());
+            let value = assignments.get(&key).unwrap();
+            println!("{} -> {}", i, value);
+            // assert!(!value);
+        }
+    }
+
+    #[test]
+    fn ult_test() {
+        let model = parse_btor2_file(Path::new("examples/quarc/ult.btor2"));
+        assert!(model.bad_states_initial.len() == 1);
+        assert!(model.sequentials.len() == 0);
+        let mut qc = QuantumCircuit::new(&model, 64, false);
+        let _ = qc.process_model(1);
+        assert!(qc.input_qubits.len() == 2);
+        for i in 1..256 {
+            for j in 0..256 {
+                let (oracle_val, _) = qc.evaluate_input(&vec![i, j]);
+                println!("{} {} -> {}", i, j, oracle_val);
+                if i < j {
+                    assert!(oracle_val);
+                } else {
+                    assert!(!oracle_val);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn ite_test() {
+        let model = parse_btor2_file(Path::new("examples/quarc/ite.btor2"));
+        assert!(model.bad_states_initial.len() == 1);
+        assert!(model.sequentials.len() == 0);
+        let mut qc = QuantumCircuit::new(&model, 64, false);
+        let _ = qc.process_model(1);
+        assert!(qc.input_qubits.len() == 3);
+        for i in 0..8 {
+            let mut temp = i;
+
+            let cond = temp % 2;
+            temp /= 2;
+
+            let true_part = temp % 2;
+            temp /= 2;
+
+            let false_part = temp % 2;
+
+            let (oracle_val, _) =
+                qc.evaluate_input(&vec![cond.clone(), true_part.clone(), false_part.clone()]);
+
+            if cond == 1 {
+                assert!((oracle_val as i64) == true_part);
+            } else {
+                assert!((oracle_val as i64) == false_part);
+            }
+        }
+    }
+
+    #[test]
+    fn not_test() {
+        let model = parse_btor2_file(Path::new("examples/quarc/not.btor2"));
+        assert!(model.bad_states_initial.len() == 1);
+        assert!(model.sequentials.len() == 1);
+        let mut qc = QuantumCircuit::new(&model, 64, false);
+        let _ = qc.process_model(1);
+        assert!(qc.input_qubits.len() == 1);
+
+        for i in 0..256 {
+            let result = !i & 255;
+
+            let (oracle_val, assignments) = qc.evaluate_input(&vec![i]);
+            assert!(oracle_val);
+
+            let circuit_value = qc._get_value_from_nid(3, &assignments);
+            assert!(!circuit_value.is_none());
+            assert!(result == circuit_value.unwrap());
+        }
     }
 }
