@@ -288,7 +288,7 @@ fn main() -> Result<()> {
                                 while values.len() < total_variables {
                                     values.push(0);
                                 }
-                                println!("{}\n", qc.evaluate_input(&values));
+                                println!("{}\n", qc.evaluate_input(&values).0);
                             }
                         } else {
                             panic!("This part of the code should be unreachable.");
