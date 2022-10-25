@@ -1616,24 +1616,24 @@ mod tests {
     fn eq_test() {
         let model = parse_btor2_file(Path::new("examples/quarc/eq.btor2"));
         assert!(model.bad_states_initial.len() == 1);
-        assert!(model.sequentials.len() == 0);
+        assert!(model.sequentials.is_empty());
 
         let mut qc = QuantumCircuit::new(&model, 64, false);
 
         let _ = qc.process_model(1);
         assert!(qc.input_qubits.len() == 2);
 
-        assert!(qc.evaluate_input(&vec![0, 0]).0);
-        assert!(qc.evaluate_input(&vec![1, 1]).0);
-        assert!(!qc.evaluate_input(&vec![0, 1]).0);
-        assert!(!qc.evaluate_input(&vec![1, 0]).0);
+        assert!(qc.evaluate_input(&[0, 0]).0);
+        assert!(qc.evaluate_input(&[1, 1]).0);
+        assert!(!qc.evaluate_input(&[0, 1]).0);
+        assert!(!qc.evaluate_input(&[1, 0]).0);
     }
 
     #[test]
     fn eq8_test() {
         let model = parse_btor2_file(Path::new("examples/quarc/eq8.btor2"));
         assert!(model.bad_states_initial.len() == 1);
-        assert!(model.sequentials.len() == 0);
+        assert!(model.sequentials.is_empty());
         let mut qc = QuantumCircuit::new(&model, 64, false);
         let _ = qc.process_model(1);
         assert!(qc.input_qubits.len() == 2);
@@ -1641,9 +1641,9 @@ mod tests {
         for i in 0..256 {
             for j in 0..256 {
                 if i == j {
-                    assert!(qc.evaluate_input(&vec![i, j]).0);
+                    assert!(qc.evaluate_input(&[i, j]).0);
                 } else {
-                    assert!(!qc.evaluate_input(&vec![i, j]).0);
+                    assert!(!qc.evaluate_input(&[i, j]).0);
                 }
             }
         }
@@ -1662,7 +1662,7 @@ mod tests {
             for j in 0..256 {
                 let result = (i + j) & 255;
 
-                let (oracle_val, assignments) = qc.evaluate_input(&vec![i, j]);
+                let (oracle_val, assignments) = qc.evaluate_input(&[i, j]);
                 assert!(oracle_val);
 
                 let circuit_value = qc._get_value_from_nid(4, &assignments);
@@ -1685,7 +1685,7 @@ mod tests {
             for j in 0..256 {
                 let result = i & j & 255;
 
-                let (oracle_val, assignments) = qc.evaluate_input(&vec![i, j]);
+                let (oracle_val, assignments) = qc.evaluate_input(&[i, j]);
                 assert!(oracle_val);
 
                 let circuit_value = qc._get_value_from_nid(4, &assignments);
@@ -1713,8 +1713,8 @@ mod tests {
         let (_gates, _answer) = qc.twos_complement(&const_qubitset);
         qc.evaluate_circuit(&mut assignments);
 
-        for i in 0..8 {
-            let key = HashableQubitRef::from(const_qubitset[i].clone());
+        for item in const_qubitset.iter().take(8) {
+            let key = HashableQubitRef::from(item.clone());
             let value = assignments.get(&key).unwrap();
             assert!(!value);
         }
@@ -1733,7 +1733,7 @@ mod tests {
             for j in 0..256 {
                 let result = (i - j) & 255;
 
-                let (oracle_val, assignments) = qc.evaluate_input(&vec![i, j]);
+                let (oracle_val, assignments) = qc.evaluate_input(&[i, j]);
                 assert!(oracle_val);
 
                 let circuit_value = qc._get_value_from_nid(4, &assignments);
@@ -1771,8 +1771,8 @@ mod tests {
         let ult_ans = qc.ult(&const_qubitset, &const_qubitset2);
         qc.evaluate_circuit(&mut assignments);
 
-        for i in 0..8 {
-            let key = HashableQubitRef::from(ult_ans[i].clone());
+        for (i, item) in ult_ans.iter().enumerate().take(8) {
+            let key = HashableQubitRef::from(item.clone());
             let value = assignments.get(&key).unwrap();
             println!("{} -> {}", i, value);
             // assert!(!value);
@@ -1783,13 +1783,13 @@ mod tests {
     fn ult_test() {
         let model = parse_btor2_file(Path::new("examples/quarc/ult.btor2"));
         assert!(model.bad_states_initial.len() == 1);
-        assert!(model.sequentials.len() == 0);
+        assert!(model.sequentials.is_empty());
         let mut qc = QuantumCircuit::new(&model, 64, false);
         let _ = qc.process_model(1);
         assert!(qc.input_qubits.len() == 2);
         for i in 1..256 {
             for j in 0..256 {
-                let (oracle_val, _) = qc.evaluate_input(&vec![i, j]);
+                let (oracle_val, _) = qc.evaluate_input(&[i, j]);
                 println!("{} {} -> {}", i, j, oracle_val);
                 if i < j {
                     assert!(oracle_val);
@@ -1804,7 +1804,7 @@ mod tests {
     fn ite_test() {
         let model = parse_btor2_file(Path::new("examples/quarc/ite.btor2"));
         assert!(model.bad_states_initial.len() == 1);
-        assert!(model.sequentials.len() == 0);
+        assert!(model.sequentials.is_empty());
         let mut qc = QuantumCircuit::new(&model, 64, false);
         let _ = qc.process_model(1);
         assert!(qc.input_qubits.len() == 3);
@@ -1819,8 +1819,7 @@ mod tests {
 
             let false_part = temp % 2;
 
-            let (oracle_val, _) =
-                qc.evaluate_input(&vec![cond.clone(), true_part.clone(), false_part.clone()]);
+            let (oracle_val, _) = qc.evaluate_input(&[cond, true_part, false_part]);
 
             if cond == 1 {
                 assert!((oracle_val as i64) == true_part);
@@ -1842,7 +1841,7 @@ mod tests {
         for i in 0..256 {
             let result = !i & 255;
 
-            let (oracle_val, assignments) = qc.evaluate_input(&vec![i]);
+            let (oracle_val, assignments) = qc.evaluate_input(&[i]);
             assert!(oracle_val);
 
             let circuit_value = qc._get_value_from_nid(3, &assignments);
