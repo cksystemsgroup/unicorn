@@ -85,7 +85,7 @@ pub struct Dependency {
 
 impl Dependency {
     pub fn new(
-        name: &String,
+        name: &str,
         operand1: &[QubitRef],
         operand2: &[QubitRef],
         target: &[QubitRef],
@@ -816,18 +816,10 @@ impl<'a> QuantumCircuit<'a> {
             }));
         }
 
-        self.dependencies.push(Dependency::new(
-            &"div".to_string(),
-            &left_operand,
-            &right_operand,
-            &c,
-        ));
-        self.dependencies.push(Dependency::new(
-            &"rem".to_string(),
-            &left_operand,
-            &right_operand,
-            &r,
-        ));
+        self.dependencies
+            .push(Dependency::new("div", &left_operand, &right_operand, &c));
+        self.dependencies
+            .push(Dependency::new("rem", &left_operand, &right_operand, &r));
 
         self.temp = r.clone();
 
@@ -1872,7 +1864,7 @@ mod tests {
             for j in 0..256 {
                 let result = (i * j) & 255;
 
-                let (oracle_val, assignments) = qc.evaluate_input(&vec![i, j]);
+                let (oracle_val, assignments) = qc.evaluate_input(&[i, j]);
                 assert!(oracle_val);
 
                 let circuit_value = qc._get_value_from_nid(4, &assignments);
@@ -1893,7 +1885,7 @@ mod tests {
 
         for i in 0..256 {
             for j in 0..256 {
-                let (oracle_val, assignments) = qc.evaluate_input(&vec![i, j]);
+                let (oracle_val, assignments) = qc.evaluate_input(&[i, j]);
                 let circuit_value = qc._get_value_from_nid(4, &assignments);
                 if j != 0 {
                     let result = (i / j) & 255;
@@ -1917,7 +1909,7 @@ mod tests {
         assert!(qc.input_qubits.len() == 2);
         for i in 0..256 {
             for j in 0..256 {
-                let (oracle_val, assignments) = qc.evaluate_input(&vec![i, j]);
+                let (oracle_val, assignments) = qc.evaluate_input(&[i, j]);
                 let circuit_value = qc._get_value_from_nid(4, &assignments);
                 if j != 0 {
                     let result = (i % j) & 255;
