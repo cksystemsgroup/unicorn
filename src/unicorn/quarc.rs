@@ -1769,7 +1769,7 @@ mod tests {
                             local_result += curr_power;
                         }
                     } else {
-                        assert!(false);
+                        unreachable!();
                     }
                     curr_power <<= 1;
                 }
@@ -1801,7 +1801,7 @@ mod tests {
                             local_result += curr_power;
                         }
                     } else {
-                        assert!(false);
+                        unreachable!()
                     }
                     curr_power <<= 1;
                 }
