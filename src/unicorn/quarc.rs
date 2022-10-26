@@ -281,10 +281,16 @@ impl<'a> QuantumCircuit<'a> {
                 QubitRef::from(Qubit::ConstTrue)
             }
         } else {
+            //  since we dont know whether this qubit is going to be used later
+            let target = self.get_memory(1)[0].clone();
             self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
-                input: a_qubit.clone(),
+                input: target.clone(),
             }));
-            a_qubit.clone()
+            self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot {
+                control: a_qubit.clone(),
+                target: target.clone(),
+            }));
+            target
         }
     }
 
@@ -327,12 +333,14 @@ impl<'a> QuantumCircuit<'a> {
     }
 
     fn or_bad_state_qubits(&mut self, controls: Vec<QubitRef>, target: &QubitRef) {
+        // This function assumes optimizations before calling it, since its only used for the output of the oracle.
         // assume all values are Qubit::Qbit
         assert!(controls.len() > 1);
 
         self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
             input: target.clone(),
         }));
+
         for qubit in controls.iter() {
             self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
                 input: qubit.clone(),
@@ -741,14 +749,12 @@ impl<'a> QuantumCircuit<'a> {
                 };
                 controls.push(target.clone());
                 self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
-                    input: control.clone(),
+                    input: target.clone(),
                 }));
                 self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot {
                     control: control.clone(),
                     target,
                 }));
-                self.circuit_stack
-                    .push(UnitaryRef::from(Unitary::Not { input: control }));
             } else {
                 // no constants
                 let target: QubitRef = if self.use_dynamic_memory {
@@ -1061,16 +1067,17 @@ impl<'a> QuantumCircuit<'a> {
                             l_qubit.clone()
                         };
 
-                        let target: QubitRef = if self.use_dynamic_memory {
-                            self.get_memory(1)[0].clone()
-                        } else {
-                            QubitRef::from(Qubit::QBit {
-                                name: "and".to_string(),
-                            })
-                        };
-                        replacement.push(target.clone());
-                        self.circuit_stack
-                            .push(UnitaryRef::from(Unitary::Cnot { control, target }));
+                        // let target: QubitRef = if self.use_dynamic_memory {
+                        //     self.get_memory(1)[0].clone()
+                        // } else {
+                        //     QubitRef::from(Qubit::QBit {
+                        //         name: "and".to_string(),
+                        //     })
+                        // };
+                        // replacement.push(target.clone());
+                        // self.circuit_stack
+                        //     .push(UnitaryRef::from(Unitary::Cnot { control, target }));
+                        replacement.push(control);
                     } else {
                         // there are no constants
                         let target: QubitRef;
@@ -1145,8 +1152,10 @@ impl<'a> QuantumCircuit<'a> {
                             if const_l.unwrap() == const_r.unwrap() {
                                 replacement.push(l_qubit.clone());
                             } else if const_l.unwrap() {
+                                // true-part is true
                                 replacement.push(cond_operand[0].clone());
                             } else {
+                                // true-part is false and false-part is true
                                 let target: QubitRef = if self.use_dynamic_memory {
                                     self.get_memory(1)[0].clone()
                                 } else {
@@ -1156,12 +1165,12 @@ impl<'a> QuantumCircuit<'a> {
                                 };
                                 // TODO: Maybe is not necesary to request memory here for target?
                                 replacement.push(target.clone());
+                                self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
+                                    input: target.clone(),
+                                }));
                                 self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot {
                                     control: cond_operand[0].clone(),
                                     target,
-                                }));
-                                self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
-                                    input: cond_operand[0].clone(),
                                 }));
                             }
                         } else if are_there_false_constants(vec![const_l, const_r]) {
