@@ -7,6 +7,7 @@ use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::rc::Rc;
 
+
 //
 // Public Interface
 //
@@ -1004,10 +1005,12 @@ impl<'a> QuantumCircuit<'a> {
                 ..
             } => {
                 // this is an input
+                println!("this is an input");
                 let name = name.as_deref().unwrap_or("?");
                 self.process_input(sort.bitsize(), node, name.to_string())
             }
             Node::Input { sort, name, .. } => {
+                println!("this is an input");
                 self.process_input(sort.bitsize(), node, name.to_string())
             }
             Node::State { sort, init, .. } => {
@@ -1323,6 +1326,23 @@ impl<'a> QuantumCircuit<'a> {
                     self.bad_state_qubits.push(bitblasted_bad_state[0].clone());
                 }
             }
+
+            for bad_state in &self.model.bad_states_sequential {
+                let bitblasted_bad_state = self.process(bad_state);
+                assert!(bitblasted_bad_state.len() == 1);
+                if let Some(val) = get_constant(&bitblasted_bad_state[0]) {
+                    if val {
+                        println!(
+                            "Bad state found at state transition {} ({})",
+                            i,
+                            get_nid(bad_state)
+                        );
+                        result_ored_bad_states = QubitRef::from(Qubit::ConstTrue);
+                    }
+                } else {
+                    self.bad_state_qubits.push(bitblasted_bad_state[0].clone());
+                }
+            }
         }
         if self.bad_state_qubits.is_empty() {
             result_ored_bad_states = QubitRef::from(Qubit::ConstFalse);
@@ -1535,6 +1555,10 @@ impl<'a> QuantumCircuit<'a> {
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+    use riscu::load_object_file;
+    use crate::unicorn::builder::generate_model;
+    use bytesize::ByteSize;
+    use crate::unicorn::memory::replace_memory;
 
     use super::*;
     use crate::parse_btor2_file;
@@ -2011,5 +2035,74 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn symbolic_experiments_no_dynamic_mem() -> Result<()>{
+        let mut simple_assignment_bad_inputs: HashSet<i32> = HashSet::new();
+        for i in 0..6 {
+            simple_assignment_bad_inputs.insert(i);
+        }
+        for i in 49..256 {
+            simple_assignment_bad_inputs.insert(i);
+        }
+
+        let mut all_inputs_bad: HashSet<i32> = HashSet::new();
+        let mut all_inputs_bad_but_zero: HashSet<i32> = HashSet::new();
+        for i in 0..256 {
+            all_inputs_bad.insert(i);
+            if i > 0 {
+                all_inputs_bad_but_zero.insert(i);
+            }
+        }
+        let paths_to_timesteps = HashMap::from([
+            ("division-by-zero-3-35.m", (17, HashSet::from([28]))),
+            ("memory-access-fail-1-35.m", (1, all_inputs_bad)),
+            ("nested-if-else-1-35.m", (52, HashSet::from([49]))),
+            (
+                "nested-if-else-reverse-1-35.m",
+                (51, HashSet::from([49])),
+            ),
+            ("return-from-loop-1-35.m", (36, HashSet::from([48]))),
+            (
+                "simple-assignment-1-35.m",
+                (32, simple_assignment_bad_inputs),
+            ),
+            ("simple-if-else-1-35.m", (46, HashSet::from([49]))),
+            (
+                "simple-if-else-reverse-1-35.m",
+                (44, HashSet::from([49])),
+            ),
+            (
+                "simple-if-without-else-1-35.m",
+                (45, HashSet::from([49])),
+            ),
+            ("d.m", (15, all_inputs_bad_but_zero)),
+        ]);
+
+        for (file_name, data) in paths_to_timesteps.iter() {
+            println!("current file: {}", *file_name);
+            let mut path = "examples/selfie/".to_owned();
+            path.push_str(file_name);
+            let program = load_object_file(&path)?;
+            let mut model = generate_model(&program, ByteSize::mib(1).as_u64(), 8, 32, &[])?;
+            replace_memory(&mut model);
+            let mut qc = QuantumCircuit::new(&model, 64, false);
+            let _ = qc.process_model(data.0);
+            for input_value in 0..256 {
+                let mut input_values = vec![];
+                for _ in 0..qc.input_qubits.len() {
+                    input_values.push(input_value as i64);
+                }
+                let (oracle_val, _) = qc.evaluate_input(&input_values);
+
+                if data.1.get(&input_value).is_some() {
+                    assert!(oracle_val);
+                } else {
+                    assert!(!oracle_val);
+                }
+            }
+        }
+        Ok(())
     }
 }
