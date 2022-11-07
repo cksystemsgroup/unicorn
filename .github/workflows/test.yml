@@ -39,14 +39,14 @@ jobs:
     strategy:
       matrix:
         toolchain: [1.60.0]
-        os: [ubuntu-20.04, macos-10.15, windows-2019]
+        os: [ubuntu-20.04, macos-11, windows-2019]
         experimental: [false]
         include:
           - platform: Linux
             os: ubuntu-20.04
             features: z3,boolector
           - platform: MacOs
-            os: macos-10.15
+            os: macos-11
             features: z3,boolector
           - platform: Windows
             os: windows-2019
