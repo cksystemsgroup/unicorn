@@ -147,7 +147,6 @@ fn get_word_value(
         } else if matches!(&*qubit.borrow(), Qubit::ConstTrue) {
             answer += curr_power;
         } else if !matches!(&*qubit.borrow(), Qubit::ConstFalse) {
-            println!("not found");
             return None;
         }
         curr_power <<= 1;
@@ -309,7 +308,15 @@ impl<'a> QuantumCircuit<'a> {
                         None
                     }
                 }
-                Node::State { .. } => {
+                Node::State {  init: None, .. } => {
+                    let replacements = self.mapping.get(&key).unwrap();
+                    if replacements.contains_key(&self.current_n) {
+                        Some(replacements[&self.current_n].clone())
+                    } else {
+                        None
+                    }
+                }
+                Node::State {  .. } => {
                     let replacements = self.mapping.get(&key).unwrap();
                     if let Some(replacement) = replacements.get(&(self.current_n - 1)) {
                         Some(replacement.clone())
@@ -428,8 +435,8 @@ impl<'a> QuantumCircuit<'a> {
         }
 
         let replacements = self.mapping.get_mut(&key).unwrap();
-        replacements.insert(index, replacement.clone());
-
+        let exists = replacements.insert(index, replacement.clone());
+        assert!(exists.is_none() || index == 0);
         self.current_state_nodes.insert(key, index);
 
         replacement
@@ -1005,12 +1012,10 @@ impl<'a> QuantumCircuit<'a> {
                 ..
             } => {
                 // this is an input
-                println!("this is an input");
                 let name = name.as_deref().unwrap_or("?");
                 self.process_input(sort.bitsize(), node, name.to_string())
             }
             Node::Input { sort, name, .. } => {
-                println!("this is an input");
                 self.process_input(sort.bitsize(), node, name.to_string())
             }
             Node::State { sort, init, .. } => {
@@ -1117,7 +1122,6 @@ impl<'a> QuantumCircuit<'a> {
             Node::Eq { left, right, .. } => {
                 let left_operand = self.process(left);
                 let right_operand = self.process(right);
-
                 let replacement = self.eq(&left_operand, &right_operand);
                 self.record_mapping(node, self.current_n, replacement)
             }
@@ -1126,15 +1130,14 @@ impl<'a> QuantumCircuit<'a> {
                 let right_operand = self.process(right);
 
                 let replacement = self.add(&left_operand, &right_operand);
-
                 self.record_mapping(node, self.current_n, replacement)
             }
             Node::Ite {
                 cond, left, right, ..
             } => {
                 let cond_operand = self.process(cond);
-
                 assert!(cond_operand.len() == 1);
+                // println!("ite cond {:?}", cond_operand);
                 let mut replacement: Vec<QubitRef>;
                 if let Some(cond_val) = get_constant(&cond_operand[0]) {
                     if cond_val {
@@ -1146,6 +1149,9 @@ impl<'a> QuantumCircuit<'a> {
                     replacement = Vec::new();
                     let left_operand = self.process(left);
                     let right_operand = self.process(right);
+
+                    // println!("ite left {:?}", left_operand);
+                    // println!("ite right {:?}", right_operand);
 
                     for (l_qubit, r_qubit) in left_operand.iter().zip(right_operand.iter()) {
                         let const_l = get_constant(l_qubit);
@@ -1232,17 +1238,18 @@ impl<'a> QuantumCircuit<'a> {
                             }));
                         }
                     }
+                    // println!("ite replacement {:?}", replacement);
                     assert!(replacement.len() == left_operand.len());
                 }
-
                 self.record_mapping(node, self.current_n, replacement)
             }
             Node::Sub { left, right, .. } => {
                 let left_operand = self.process(left);
                 let right_operand = self.process(right);
-
+                // println!("sub left: {:?}", left_operand);
+                // println!("sub right: {:?}", right_operand);
                 let replacement = self.sub(&left_operand, &right_operand);
-
+                // println!("sub replacement: {:?}", replacement);
                 self.record_mapping(node, self.current_n, replacement)
             }
             Node::Ult { left, right, .. } => {
@@ -1252,13 +1259,21 @@ impl<'a> QuantumCircuit<'a> {
                 let result = self.ult(&left_operand, &right_operand);
                 assert!(result.len() == left_operand.len() + 1);
                 self.temp = result.clone();
-                self.record_mapping(node, self.current_n, vec![result[result.len() - 1].clone()])
+                let replacement = vec![result[result.len() - 1].clone()];
+                // println!("ult left: {:?}", left_operand);
+                // println!("ult right: {:?}", right_operand);
+                // println!("ult repl: {:?}", replacement);
+                self.record_mapping(node, self.current_n,replacement)
             }
             Node::Mul { left, right, .. } => {
                 let left_operand = self.process(left);
                 let right_operand = self.process(right);
 
                 let replacement = self.mul(&left_operand, &right_operand);
+
+                // println!("mul left: {:?}", left_operand);
+                // println!("mul right: {:?}", right_operand);
+                // println!("mul repl: {:?}", replacement);
 
                 self.record_mapping(node, self.current_n, replacement)
             }
@@ -2056,28 +2071,28 @@ mod tests {
             }
         }
         let paths_to_timesteps = HashMap::from([
-            ("division-by-zero-3-35.m", (17, HashSet::from([28]))),
-            ("memory-access-fail-1-35.m", (1, all_inputs_bad)),
-            ("nested-if-else-1-35.m", (52, HashSet::from([49]))),
-            (
-                "nested-if-else-reverse-1-35.m",
-                (51, HashSet::from([49])),
-            ),
-            ("return-from-loop-1-35.m", (36, HashSet::from([48]))),
-            (
-                "simple-assignment-1-35.m",
-                (32, simple_assignment_bad_inputs),
-            ),
-            ("simple-if-else-1-35.m", (46, HashSet::from([49]))),
-            (
-                "simple-if-else-reverse-1-35.m",
-                (44, HashSet::from([49])),
-            ),
-            (
-                "simple-if-without-else-1-35.m",
-                (45, HashSet::from([49])),
-            ),
-            ("d.m", (15, all_inputs_bad_but_zero)),
+            // ("division-by-zero-3-35.m", (86, HashSet::from([28]))),
+            // ("memory-access-fail-1-35.m", (72, all_inputs_bad)),
+            // ("nested-if-else-1-35.m", (123, HashSet::from([49]))),
+            // (
+            //     "nested-if-else-reverse-1-35.m",
+            //     (122, HashSet::from([49])),
+            // ),
+            // ("return-from-loop-1-35.m", (105, HashSet::from([48]))),
+            // (
+            //     "simple-assignment-1-35.m",
+            //     (105, simple_assignment_bad_inputs),
+            // ),
+            // ("simple-if-else-1-35.m", (117, HashSet::from([49]))),
+            // (
+            //     "simple-if-else-reverse-1-35.m",
+            //     (115, HashSet::from([49])),
+            // ),
+            // (
+            //     "simple-if-without-else-1-35.m",
+            //     (116, HashSet::from([49])),
+            // ),
+            ("d.m", (84, all_inputs_bad_but_zero)),
         ]);
 
         for (file_name, data) in paths_to_timesteps.iter() {
