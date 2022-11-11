@@ -390,7 +390,7 @@ impl ModelBuilder {
     }
 
     fn new_state(&mut self, init: Option<NodeRef>, name: String, sort: NodeType) -> NodeRef {
-        let nid_increase = if init.is_some() { 1 } else { 0 };
+        let nid_increase = u64::from(init.is_some());
         let state_node = self.add_node(Node::State {
             nid: self.current_nid,
             sort,
