@@ -40,6 +40,9 @@ boolector-sys = { version = "~0", features = ["vendor-lgl"], optional = true }
 z3-solver = { package = "z3", version = "~0.11", features = ["static-link-z3"], optional = true }
 z3-sys = { version = "~0", features = ["static-link-z3"], optional = true }
 pyo3 = { version = "~0.17", features = ["auto-initialize"] }
+egui = "0.19.0"
+eframe = "0.19.0"
+rfd = "0.10.0"
 
 [patch.crates-io]
 # TODO: Allows us to work on `riscu` and `unicorn` in parallel. Remove

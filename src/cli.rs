@@ -1,8 +1,9 @@
+use std::str::FromStr;
+
 use anyhow::{anyhow, Context, Result};
 use clap::{
     crate_authors, crate_description, crate_version, value_parser, Arg, ArgMatches, Command,
 };
-use std::str::FromStr;
 use strum::{EnumString, EnumVariantNames, IntoStaticStr, VariantNames};
 
 #[derive(Debug, PartialEq, Eq, EnumString, EnumVariantNames, IntoStaticStr)]
@@ -25,8 +26,10 @@ pub enum SmtType {
     Z3,
 }
 
-const DEFAULT_MEMORY_SIZE: &str = "1"; // 1 MiB
-const DEFAULT_MAX_HEAP: &str = "8"; // 8 words
+const DEFAULT_MEMORY_SIZE: &str = "1";
+// 1 MiB
+const DEFAULT_MAX_HEAP: &str = "8";
+// 8 words
 const DEFAULT_MAX_STACK: &str = "32"; // 32 words
 
 pub fn args() -> Command {
@@ -333,7 +336,6 @@ pub fn args() -> Command {
                         .default_value("1.0")
                         .value_parser(value_parser!(f32)),
                 )
-
         )
         .subcommand_required(true)
         .arg_required_else_help(true)
