@@ -337,6 +337,10 @@ pub fn args() -> Command {
                         .value_parser(value_parser!(f32)),
                 )
         )
+        .subcommand(
+        Command::new("gui")
+            .about("Start unicorn with a GUI")
+        )
         .subcommand_required(true)
         .arg_required_else_help(true)
         .propagate_version(true)
