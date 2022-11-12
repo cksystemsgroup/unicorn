@@ -2,6 +2,7 @@
 
 use std::default::Default;
 use std::fs;
+use std::io::BufWriter;
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -12,25 +13,25 @@ use egui::Ui;
 use rfd;
 use riscu::load_object_file;
 
+use crate::cli::SmtType;
 use crate::guinea::design::get_frame_design;
 use crate::guinea::error_handling::unpanic;
 use crate::guinea::print::{stringify_model, stringify_program};
+use crate::unicorn::bitblasting::{bitblast_model, GateModel};
+use crate::unicorn::bitblasting_dimacs::write_dimacs_model;
+use crate::unicorn::bitblasting_printer::write_btor2_model;
 use crate::unicorn::btor2file_parser::parse_btor2_file;
 use crate::unicorn::builder::generate_model;
 use crate::unicorn::memory::replace_memory;
 use crate::unicorn::optimize::optimize_model;
-use crate::unicorn::solver::none_impl;
+use crate::unicorn::solver::{boolector_impl, none_impl, z3solver_impl};
 use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
 use crate::unicorn::Model;
 
 // TODO:
-//   -b, --bitblast            Perform bitblasting of the model
-//   -d, --dimacs              Output DIMACS CNF instead of BTOR2
 //   -e, --emulate             Start emulation from created model
 //   -c, --compile             Compile program from created model
 //   -i, --inputs <inputs>     Concrete inputs to specialize the model
-//   -s, --solver <SOLVER>     SMT solver used for optimization [default: generic] [possible values: generic]
-//   preview file & error messages as floating windows
 
 pub fn gui() {
     let options = eframe::NativeOptions {
@@ -46,6 +47,7 @@ pub fn gui() {
 
 struct MyApp {
     model: Option<Model>,
+    bit_model: Option<GateModel>,
     memory_size: u64,
     max_heap: u32,
     max_stack: u32,
@@ -58,12 +60,17 @@ struct MyApp {
     extras: String,
     times_unrolled: usize,
     desired_unrolls: usize,
+    dimacs: bool,
+    solver: SmtType,
+    error_message: Option<String>,
+    error_occurred: bool,
 }
 
 impl Default for MyApp {
     fn default() -> Self {
         Self {
             model: None,
+            bit_model: None,
             memory_size: 1,
             max_heap: 8,
             max_stack: 32,
@@ -76,12 +83,25 @@ impl Default for MyApp {
             extras: "".to_string(),
             times_unrolled: 0,
             desired_unrolls: 0,
+            dimacs: false,
+            solver: SmtType::Generic,
+            error_message: None,
+            error_occurred: false,
         }
     }
 }
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let error_msg = self.error_message.clone();
+        egui::Window::new("Error Occured")
+            .open(&mut self.error_occurred)
+            .fixed_pos((350.0, 200.0))
+            .fixed_size((400.0, 200.0))
+            .resizable(false)
+            .collapsible(false)
+            .show(ctx, |ui| ui.label(error_msg.as_ref().unwrap()));
+
         egui::SidePanel::left("Selection")
             .frame(get_frame_design())
             .resizable(false)
@@ -116,46 +136,45 @@ impl MyApp {
                     self.picked_path = Some(path.display().to_string());
                 }
             }
+            ui.checkbox(&mut self.from_beator, "Input is a BTOR2 file");
         });
 
-        ui.checkbox(
-            &mut self.from_beator,
-            "Input is a BTOR2 file (currently broken)",
-        );
-
-        ui.add_space(5.0);
-        ui.label("Arguments passed to emulated program");
-        ui.text_edit_singleline(&mut self.extras);
-        ui.add_space(5.0);
+        // ui.add_space(5.0);
+        // ui.label("Arguments passed to emulated program");
+        // ui.text_edit_singleline(&mut self.extras);
+        // ui.add_space(5.0);
 
         let picked_path = self
             .picked_path
             .clone()
             .unwrap_or_else(|| "NONE".to_string());
 
-        ui.horizontal_wrapped(|ui| {
-            ui.label("Selected File:");
-            ui.monospace(&picked_path);
-        });
-
         ui.add_space(10.0);
         ui.add_enabled_ui(self.picked_path.is_some(), |ui| {
+            ui.label("Selected File:");
+            ui.monospace(&picked_path);
+
             if ui.button("Preview File").clicked() {
                 self.reset_model_params();
                 let path = PathBuf::from_str(&picked_path).unwrap();
 
-                self.output = if !self.from_beator {
-                    Some(match load_object_file(&path) {
-                        Ok(x) => stringify_program(&x),
-                        Err(e) => format!("Invalid file, gave error:\n{:?}", e),
-                    })
+                if !self.from_beator {
+                    match load_object_file(&path) {
+                        Ok(x) => self.output = Some(stringify_program(&x)),
+                        Err(e) => {
+                            self.error_occurred = true;
+                            self.error_message =
+                                Some(format!("Invalid file, gave error:\n{:?}", e));
+                            self.reset_model_params();
+                        }
+                    };
                 } else {
                     let model = parse_btor2_file(&path);
-                    Some(stringify_model(&model))
+                    self.output = Some(stringify_model(&model));
                 }
             }
 
-            ui.add_space(20.0);
+            ui.add_space(15.0);
             ui.label("Model Creation");
             ui.separator();
 
@@ -217,23 +236,27 @@ impl MyApp {
                         self.model = model;
 
                         if !error_msg.is_empty() {
-                            self.output = Some(format!(
+                            self.error_occurred = true;
+                            self.error_message = Some(format!(
                                 "Trying to create the model failed an assert:\n{}",
                                 error_msg
                             ));
+                            self.reset_model_params();
                         } else {
                             self.output = output;
                         }
                     } else {
-                        self.output = Some(format!(
+                        self.error_occurred = true;
+                        self.error_message = Some(format!(
                             "Invalid file, gave error:\n{:?}",
                             program.err().unwrap()
-                        ))
+                        ));
+                        self.reset_model_params();
                     }
                 }
             });
 
-            ui.add_space(20.0);
+            ui.add_space(15.0);
             ui.label("Model modification");
             ui.separator();
 
@@ -242,62 +265,124 @@ impl MyApp {
                     ui.horizontal_wrapped(|ui| {
                         ui.label("Number of unrolls:");
                         ui.add(egui::DragValue::new(&mut self.desired_unrolls));
-                    });
-                    if ui.button("Do Unrolls").clicked() {
-                        self.model.as_mut().unwrap().lines.clear();
-                        replace_memory(self.model.as_mut().unwrap());
+                        if ui.button("Do Unrolls").clicked() {
+                            self.model.as_mut().unwrap().lines.clear();
+                            replace_memory(self.model.as_mut().unwrap());
 
-                        self.times_unrolled += self.desired_unrolls;
+                            self.times_unrolled += self.desired_unrolls;
 
-                        for n in 0..self.desired_unrolls {
-                            unroll_model(self.model.as_mut().unwrap(), n);
-                        }
+                            for n in 0..self.desired_unrolls {
+                                unroll_model(self.model.as_mut().unwrap(), n);
+                            }
 
-                        self.desired_unrolls = 0;
+                            self.desired_unrolls = 0;
 
-                        // TODO: support all optimizers
-                        prune_model(self.model.as_mut().unwrap());
-                        optimize_model::<none_impl::NoneSolver>(self.model.as_mut().unwrap());
-                        renumber_model(self.model.as_mut().unwrap());
-                        self.output = Some(stringify_model(self.model.as_ref().unwrap()));
-                    }
-                    ui.label(format!("({} done so far)", self.times_unrolled));
-                });
-
-                ui.horizontal_wrapped(|ui| {
-                    ui.add_enabled_ui(!(self.pruned || self.bit_blasted), |ui| {
-                        if ui.button("Prune").clicked() {
-                            self.pruned = true;
-                            // TODO: support all optimizers
-                            optimize_model::<none_impl::NoneSolver>(self.model.as_mut().unwrap());
+                            prune_model(self.model.as_mut().unwrap());
+                            match self.solver {
+                                SmtType::Generic => optimize_model::<none_impl::NoneSolver>(
+                                    self.model.as_mut().unwrap(),
+                                ),
+                                #[cfg(feature = "boolector")]
+                                SmtType::Boolector => {
+                                    optimize_model::<boolector_impl::BoolectorSolver>(
+                                        self.model.as_mut().unwrap(),
+                                    )
+                                }
+                                #[cfg(feature = "z3")]
+                                SmtType::Z3 => optimize_model::<z3solver_impl::Z3SolverWrapper>(
+                                    self.model.as_mut().unwrap(),
+                                ),
+                            }
                             renumber_model(self.model.as_mut().unwrap());
                             self.output = Some(stringify_model(self.model.as_ref().unwrap()));
                         }
+                        ui.label(format!("({} done so far)", self.times_unrolled));
                     });
 
-                    ui.add_enabled_ui(self.bit_blasted, |ui| {
-                        if ui.button("Bit Blast").clicked() {
-                            self.bit_blasted = true;
+                    ui.add_space(10.0);
+                    ui.label("Solver:");
+                    ui.horizontal_wrapped(|ui| {
+                        ui.selectable_value(&mut self.solver, SmtType::Generic, "Generic");
+                        #[cfg(feature = "boolector")]
+                        ui.selectable_value(&mut self.solver, SmtType::Boolector, "Boolector");
+                        #[cfg(feature = "z3")]
+                        ui.selectable_value(&mut self.solver, SmtType::Z3, "Z3");
+                    });
+                    ui.add_space(10.0);
+                });
+
+                ui.add_enabled_ui(!(self.pruned || self.bit_blasted), |ui| {
+                    if ui.button("Prune Sequential Part").clicked() {
+                        self.pruned = true;
+                        match self.solver {
+                            SmtType::Generic => optimize_model::<none_impl::NoneSolver>(
+                                self.model.as_mut().unwrap(),
+                            ),
+                            #[cfg(feature = "boolector")]
+                            SmtType::Boolector => {
+                                optimize_model::<boolector_impl::BoolectorSolver>(
+                                    self.model.as_mut().unwrap(),
+                                )
+                            }
+                            #[cfg(feature = "z3")]
+                            SmtType::Z3 => optimize_model::<z3solver_impl::Z3SolverWrapper>(
+                                self.model.as_mut().unwrap(),
+                            ),
                         }
+                        renumber_model(self.model.as_mut().unwrap());
+                        self.output = Some(stringify_model(self.model.as_ref().unwrap()));
+                    }
+                });
+
+                ui.add_space(5.0);
+                ui.add_enabled_ui(!self.bit_blasted, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.button("Bit Blast").clicked() {
+                            let mut buf = BufWriter::new(Vec::new());
+
+                            self.bit_blasted = true;
+                            self.bit_model =
+                                Some(bitblast_model(self.model.as_ref().unwrap(), true, 64));
+                            let _ = if self.dimacs {
+                                write_dimacs_model(self.bit_model.as_ref().unwrap(), &mut buf)
+                            } else {
+                                write_btor2_model(self.bit_model.as_ref().unwrap(), &mut buf)
+                            };
+                            let bytes = buf.into_inner().unwrap();
+                            self.output = Some(String::from_utf8(bytes).unwrap());
+                        }
+                        ui.checkbox(&mut self.dimacs, "Output dimacs gate model");
                     });
                 });
             });
 
-            ui.add_space(20.0);
+            ui.add_space(15.0);
             ui.label("Output Handling");
             ui.separator();
             ui.add_enabled_ui(self.output.is_some(), |ui| {
-                if ui.button("Save Output").clicked() {
-                    let path = std::env::current_dir().unwrap();
-                    let res = rfd::FileDialog::new()
-                        .set_file_name("output.btor2")
-                        .set_directory(&path)
-                        .save_file();
+                ui.horizontal_wrapped(|ui| {
+                    if ui.button("Save Output").clicked() {
+                        let path = std::env::current_dir().unwrap();
+                        let res = rfd::FileDialog::new()
+                            .set_file_name(if self.dimacs {
+                                "output.cnf"
+                            } else {
+                                "output.btor2"
+                            })
+                            .set_directory(&path)
+                            .save_file();
 
-                    if let Some(save_file) = res {
-                        fs::write(save_file, self.output.as_ref().unwrap()).ok();
+                        if let Some(save_file) = res {
+                            fs::write(save_file, self.output.as_ref().unwrap()).ok();
+                        }
                     }
-                }
+
+                    if ui.button("Reset Model").clicked() {
+                        self.model = None;
+                        self.output = None;
+                        self.reset_model_params();
+                    }
+                });
             });
         });
     }
