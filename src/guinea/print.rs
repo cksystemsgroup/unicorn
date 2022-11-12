@@ -1,4 +1,6 @@
+use crate::unicorn::{write_model, Model};
 use riscu::{decode, Program};
+use std::io::BufWriter;
 
 pub fn stringify_program(program: &Program) -> String {
     let mut lines: Vec<String> = vec![format!("{} instructions:", program.code.content.len() / 4)];
@@ -42,4 +44,11 @@ pub fn stringify_program(program: &Program) -> String {
         .collect();
     lines.append(&mut data_items);
     lines.join("\n")
+}
+
+pub fn stringify_model(model: &Model) -> String {
+    let mut buf = BufWriter::new(Vec::new());
+    let _ = write_model(model, &mut buf);
+    let bytes = buf.into_inner().unwrap();
+    String::from_utf8(bytes).unwrap()
 }
