@@ -15,6 +15,7 @@ use riscu::load_object_file;
 
 use crate::guinea::design::get_frame_design;
 use crate::guinea::error_handling::unpanic;
+use crate::guinea::print::stringify_program;
 use crate::unicorn::builder::generate_model;
 use crate::unicorn::{write_model, Model};
 
@@ -85,7 +86,23 @@ impl MyApp {
             }
         });
 
-        ui.collapsing("Advanced Settings", |ui| {
+        if let Some(picked_path) = &self.picked_path.clone() {
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Selected File:");
+                ui.monospace(picked_path);
+            });
+
+            if ui.button("Preview File").clicked() {
+                let path = PathBuf::from_str(picked_path).unwrap();
+
+                self.output = Some(match load_object_file(&path) {
+                    Ok(x) => stringify_program(&x),
+                    Err(e) => format!("Invalid file, gave error:\n{:?}", e),
+                });
+            }
+
+            ui.add_space(20.0);
+
             ui.horizontal_wrapped(|ui| {
                 ui.label("Number of machine-words usable as heap.");
                 ui.add(egui::DragValue::new(&mut self.max_heap));
@@ -98,13 +115,8 @@ impl MyApp {
                 ui.label("Total size of memory in MiB.");
                 ui.add(egui::DragValue::new(&mut self.memory_size).clamp_range(1..=1024));
             });
-        });
 
-        if let Some(picked_path) = &self.picked_path.clone() {
-            ui.horizontal_wrapped(|ui| {
-                ui.label("Selected File:");
-                ui.monospace(picked_path);
-            });
+            ui.add_space(20.0);
 
             if ui.button("Create Model").clicked() {
                 let path = PathBuf::from_str(picked_path).unwrap();
