@@ -747,9 +747,7 @@ impl<'a> QuantumCircuit<'a> {
             }
             (gates_to_uncompute, result)
         } else {
-            println!("*******");
             while result.len() < word.len() {
-                println!("{}", i);
                 if s < shift {
                     result.push(QubitRef::from(Qubit::ConstFalse));
                     s += 1;
@@ -1494,7 +1492,6 @@ impl<'a> QuantumCircuit<'a> {
         assert!(self.input_qubits.is_empty());
         assert!(self.circuit_stack.is_empty());
         assert!(self.word_size == 64 || self.word_size == 32);
-        println!("bad states initial {}", self.model.bad_states_initial.len());
         for i in 1..(unroll_depth + 1) {
             self.current_n = i as i32;
             for sequential in &self.model.sequentials {
@@ -2513,7 +2510,6 @@ mod tests {
                     input_values.push(input_value as i64);
                 }
                 let (oracle_val, _) = qc.evaluate_input(&input_values);
-                println!("{} {}", input_value, oracle_val);
                 if data.1.get(&input_value).is_some() {
                     // qc._dump_assignments(&assignments)?;
                     assert!(oracle_val);
