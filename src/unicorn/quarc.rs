@@ -1216,18 +1216,18 @@ impl<'a> QuantumCircuit<'a> {
                             l_qubit.clone()
                         };
 
-                        let target: QubitRef = if self.use_dynamic_memory {
-                            self.get_memory(1)[0].clone()
-                        } else {
-                            QubitRef::from(Qubit::QBit {
-                                name: "and".to_string(),
-                                dependency: None,
-                            })
-                        };
-                        replacement.push(target.clone());
-                        self.circuit_stack
-                            .push(UnitaryRef::from(Unitary::Cnot { control, target }));
-                        // replacement.push(control);
+                        // let target: QubitRef = if self.use_dynamic_memory {
+                        //     self.get_memory(1)[0].clone()
+                        // } else {
+                        //     QubitRef::from(Qubit::QBit {
+                        //         name: "and".to_string(),
+                        //         dependency: None,
+                        //     })
+                        // };
+                        // replacement.push(target.clone());
+                        // self.circuit_stack
+                        //     .push(UnitaryRef::from(Unitary::Cnot { control, target }));
+                        replacement.push(control);
                     } else {
                         // there are no constants
                         let target: QubitRef;
