@@ -722,15 +722,15 @@ impl<'a> QuantumCircuit<'a> {
         word: &[QubitRef],
         bit: &QubitRef,
         shift: usize,
-    ) -> (usize, Vec<UnitaryRef>, Vec<QubitRef>) {
+        ancillas: &[QubitRef],
+    ) -> (Vec<UnitaryRef>, Vec<QubitRef>) {
         let mut gates_to_uncompute: Vec<UnitaryRef> = Vec::new();
         let mut result: Vec<QubitRef> = Vec::new();
-        let used_memory = 0;
 
+        let mut s = 0;
+        let mut i = 0;
         if let Some(val) = get_constant(bit) {
             if val {
-                let mut s = 0;
-                let mut i = 0;
                 while result.len() < word.len() {
                     if s < shift {
                         result.push(QubitRef::from(Qubit::ConstFalse));
@@ -745,12 +745,11 @@ impl<'a> QuantumCircuit<'a> {
                     result.push(QubitRef::from(Qubit::ConstFalse));
                 }
             }
-            (used_memory, gates_to_uncompute, result)
+            (gates_to_uncompute, result)
         } else {
-            let mut i = 0;
-            let mut s = 0;
-
+            println!("*******");
             while result.len() < word.len() {
+                println!("{}", i);
                 if s < shift {
                     result.push(QubitRef::from(Qubit::ConstFalse));
                     s += 1;
@@ -764,12 +763,10 @@ impl<'a> QuantumCircuit<'a> {
                     } else {
                         // TODO: Is hard to determine reusable memory because just after this there is an addition that can also use dynamic memory
                         // used_memory += 1;
-                        let new_memory = self.get_memory(1);
-                        assert!(new_memory.len() == 1);
-                        let target = new_memory[0].clone();
-                        result.push(target.clone());
+                        let target = ancillas[i].clone();
                         assert!(!is_constant(&word[i]));
                         assert!(!is_constant(bit));
+                        result.push(target.clone());
                         gates_to_uncompute.push(UnitaryRef::from(Unitary::Mcx {
                             controls: vec![word[i].clone(), bit.clone()],
                             target: target.clone(),
@@ -783,30 +780,31 @@ impl<'a> QuantumCircuit<'a> {
                 }
             }
             assert!(result.len() == word.len());
-            (used_memory, gates_to_uncompute, result)
+            (gates_to_uncompute, result)
         }
     }
 
     fn mul(&mut self, left_operand: &[QubitRef], right_operand: &[QubitRef]) -> Vec<QubitRef> {
         assert!(left_operand.len() == right_operand.len());
         let mut replacement: Vec<QubitRef> = Vec::new();
-
+        let ancillas = &self.get_memory(left_operand.len());
         for _ in 0..left_operand.len() {
             replacement.push(QubitRef::from(Qubit::ConstFalse));
         }
 
         for (index, bit) in left_operand.iter().enumerate() {
-            let (_used_memory, _gates_to_uncompute, result) =
-                self.multiply_word_by_bit(right_operand, bit, index);
+            let (gates_to_uncompute, result) =
+                self.multiply_word_by_bit(right_operand, bit, index, ancillas);
 
             replacement = self.add_one_qubitset(&result, replacement);
 
             // uncompute ancillas
-            // for gate in gates_to_uncompute.iter().rev() {
-            //     self.circuit_stack.push(gate.clone());
-            // }
+            for gate in gates_to_uncompute.iter().rev() {
+                self.circuit_stack.push(gate.clone());
+            }
             // self.dm_index -= self.dm_index;
         }
+        self.dm_index -= ancillas.len();
         assert!(replacement.len() == left_operand.len());
         replacement
     }
@@ -915,7 +913,7 @@ impl<'a> QuantumCircuit<'a> {
         replacement
     }
 
-    fn insert_into_contrants(&mut self, qubit: &QubitRef, value: bool) {
+    fn _insert_into_contrants(&mut self, qubit: &QubitRef, value: bool) {
         let key = HashableQubitRef::from(qubit.clone());
         if let std::collections::hash_map::Entry::Vacant(e) = self.constraints.entry(key) {
             e.insert(value);
@@ -1499,13 +1497,13 @@ impl<'a> QuantumCircuit<'a> {
         println!("bad states initial {}", self.model.bad_states_initial.len());
         for i in 1..(unroll_depth + 1) {
             self.current_n = i as i32;
-            // for sequential in &self.model.sequentials {
-            //     if let Node::Next { .. } = &*sequential.borrow() {
-            //         let _ = self.process(sequential);
-            //     } else {
-            //         panic!("expecting 'Next' node here");
-            //     }
-            // }
+            for sequential in &self.model.sequentials {
+                if let Node::Next { .. } = &*sequential.borrow() {
+                    let _ = self.process(sequential);
+                } else {
+                    panic!("expecting 'Next' node here");
+                }
+            }
             for bad_state in &self.model.bad_states_initial {
                 let bitblasted_bad_state = self.process(bad_state);
                 assert!(bitblasted_bad_state.len() == 1);
@@ -1523,26 +1521,25 @@ impl<'a> QuantumCircuit<'a> {
                 }
             }
 
-            // for bad_state in &self.model.bad_states_sequential {
-            //     let bitblasted_bad_state = self.process(bad_state);
-            //     assert!(bitblasted_bad_state.len() == 1);
-            //     if let Some(val) = get_constant(&bitblasted_bad_state[0]) {
-            //         if val {
-            //             println!(
-            //                 "Bad state found at state transition {} ({})",
-            //                 i,
-            //                 get_nid(bad_state)
-            //             );
-            //             self.result_ored_bad_states = QubitRef::from(Qubit::ConstTrue);
-            //         }
-            //     } else {
-            //         self.bad_state_qubits.push(bitblasted_bad_state[0].clone());
-            //     }
-            // }
+            for bad_state in &self.model.bad_states_sequential {
+                let bitblasted_bad_state = self.process(bad_state);
+                assert!(bitblasted_bad_state.len() == 1);
+                if let Some(val) = get_constant(&bitblasted_bad_state[0]) {
+                    if val {
+                        println!(
+                            "Bad state found at state transition {} ({})",
+                            i,
+                            get_nid(bad_state)
+                        );
+                        self.result_ored_bad_states = QubitRef::from(Qubit::ConstTrue);
+                    }
+                } else {
+                    self.bad_state_qubits.push(bitblasted_bad_state[0].clone());
+                }
+            }
         }
 
         if self.bad_state_qubits.is_empty() && !is_constant(&self.result_ored_bad_states) {
-
             self.result_ored_bad_states = QubitRef::from(Qubit::ConstFalse);
         }
         self.print_stats();
@@ -1607,7 +1604,7 @@ impl<'a> QuantumCircuit<'a> {
         Ok(())
     }
 
-    pub fn write_model<W>(&self, mut _out: W) -> Result<()>
+    pub fn _write_model<W>(&self, mut _out: W) -> Result<()>
     where
         W: Write,
     {
