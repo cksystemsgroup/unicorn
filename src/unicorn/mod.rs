@@ -20,6 +20,7 @@ pub mod emulate_loader;
 pub mod memory;
 pub mod optimize;
 pub mod qubot;
+pub mod sat_solver;
 pub mod solver;
 pub mod unroller;
 

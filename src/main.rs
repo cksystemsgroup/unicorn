@@ -14,6 +14,7 @@ use crate::unicorn::emulate_loader::load_model_into_emulator;
 use crate::unicorn::memory::replace_memory;
 use crate::unicorn::optimize::{optimize_model, optimize_model_with_input};
 use crate::unicorn::qubot::{InputEvaluator, Qubot};
+use crate::unicorn::sat_solver::get_sat_formula;
 use crate::unicorn::solver::*;
 use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
 use crate::unicorn::write_model;
@@ -24,6 +25,7 @@ use anyhow::{Context, Result};
 use bytesize::ByteSize;
 use cli::{collect_arg_values, expect_arg, expect_optional_arg, LogLevel, SmtType};
 use env_logger::{Env, TimestampPrecision};
+use kissat_rs::Solver;
 use riscu::load_object_file;
 use std::{
     env,
@@ -237,6 +239,48 @@ fn main() -> Result<()> {
                         );
                     }
                 }
+            }
+
+            Ok(())
+        }
+        Some(("satsolver", args)) => {
+            let input = expect_arg::<PathBuf>(args, "input-file")?;
+            let unroll = args.get_one::<usize>("unroll-model").cloned();
+            let max_heap = *args.get_one::<u32>("max-heap").unwrap();
+            let max_stack = *args.get_one::<u32>("max-stack").unwrap();
+            let memory_size = ByteSize::mib(*args.get_one("memory").unwrap()).as_u64();
+            let prune = args.get_flag("prune-model");
+            let input_is_btor2 = args.get_flag("from-btor2");
+
+            let mut model = if !input_is_btor2 {
+                let program = load_object_file(&input)?;
+                generate_model(&program, memory_size, max_heap, max_stack, &[])?
+            } else {
+                parse_btor2_file(&input)
+            };
+
+            if let Some(unroll_depth) = unroll {
+                model.lines.clear();
+
+                for n in 0..unroll_depth {
+                    unroll_model(&mut model, n);
+                }
+                if prune {
+                    prune_model(&mut model);
+                }
+                renumber_model(&mut model);
+            }
+
+            let gate_model = bitblast_model(&model, true, 64);
+
+            let formula = get_sat_formula(&gate_model);
+
+            let satisfying_assignment = Solver::solve_formula(formula).unwrap();
+
+            if let Some(_assignments) = satisfying_assignment {
+                println!("There is a bad state!");
+            } else {
+                println!("No bad state found!");
             }
 
             Ok(())

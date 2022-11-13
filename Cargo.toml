@@ -40,6 +40,7 @@ boolector-sys = { version = "~0", features = ["vendor-lgl"], optional = true }
 z3-solver = { package = "z3", version = "~0.11", features = ["static-link-z3"], optional = true }
 z3-sys = { version = "~0", features = ["static-link-z3"], optional = true }
 pyo3 = { version = "~0.17", features = ["auto-initialize"] }
+kissat-rs = { git = "https://github.com/firefighterduck/kissat-rs", branch = "main", version = "0.1" }
 
 [patch.crates-io]
 # TODO: Allows us to work on `riscu` and `unicorn` in parallel. Remove

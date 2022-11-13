@@ -305,6 +305,60 @@ pub fn args() -> Command {
                 )
         )
         .subcommand(
+            Command::new("satsolver")
+                .about("Run a SAT solver over a binary/btor2 file")
+                .arg(
+                    Arg::new("input-file")
+                        .help("If --from-btor2 flag is not passed, then RISC-U ELF binary to be converted, else a BTOR2 file.")
+                        .num_args(1)
+                        .value_name("FILE")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("from-btor2")
+                        .help("Pass this flag if the input file is a BTOR2 file.")
+                        .short('f')
+                        .long("from-btor2")
+                        .num_args(0)
+                )
+                .arg(
+                    Arg::new("max-heap")
+                        .help("Number of machine-words usable as heap")
+                        .long("max-heap")
+                        .num_args(1)
+                        .value_name("NUMBER")
+                        .default_value(DEFAULT_MAX_HEAP)
+                        .value_parser(value_parser!(u32)),
+                )
+                .arg(
+                    Arg::new("max-stack")
+                        .help("Number of machine-words usable as stack")
+                        .long("max-stack")
+                        .num_args(1)
+                        .value_name("NUMBER")
+                        .default_value(DEFAULT_MAX_STACK)
+                        .value_parser(value_parser!(u32)),
+                )
+                .arg(
+                    Arg::new("memory")
+                        .help("Total size of memory in MiB [possible: 1 .. 1024]")
+                        .long("memory")
+                        .num_args(1)
+                        .value_name("NUMBER")
+                        .default_value(DEFAULT_MEMORY_SIZE)
+                        .value_parser(value_parser_memory_size()),
+                )
+                .arg(
+                    Arg::new("unroll-model")
+                        .help("Number of instructions to unroll from model")
+                        .short('u')
+                        .long("unroll")
+                        .num_args(1)
+                        .value_name("NUMBER")
+                        .value_parser(value_parser!(usize)),
+                )
+        )
+        .subcommand(
             Command::new("dwave")
                 .about("Execute QUBO model on the quantum annealer")
                 .arg(
