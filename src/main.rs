@@ -65,7 +65,7 @@ fn main() -> Result<()> {
         }
         Some(("beator", args)) | Some(("qubot", args)) | Some(("quarc", args)) => {
             let is_beator = matches.subcommand().unwrap().0 == "beator";
-            let is_quarc =  matches.subcommand().unwrap().0 == "quarc";
+            let is_quarc = matches.subcommand().unwrap().0 == "quarc";
             let input = expect_arg::<PathBuf>(args, "input-file")?;
             let output = expect_optional_arg::<PathBuf>(args, "output-file")?;
             let unroll = args.get_one::<usize>("unroll-model").cloned();
@@ -192,33 +192,33 @@ fn main() -> Result<()> {
                 } else {
                     write_model(&model.unwrap(), stdout())?;
                 }
-            } else if is_quarc  {
+            } else if is_quarc {
                 let use_dynamic_memory = args.contains_id("dynamic-memory");
                 let m = model.unwrap();
                 let mut qc = QuantumCircuit::new(&m, 64, use_dynamic_memory); // 64 is a paramater describing wordsize
-                                                                                      // TODO: make wordsize parameter customizable from command line
-                    let _ = qc.process_model(1);
-                    if has_concrete_inputs {
-                        let inputs = expect_optional_arg::<String>(args, "inputs")?;
-                        let total_variables = qc.input_qubits.len();
+                                                                              // TODO: make wordsize parameter customizable from command line
+                let _ = qc.process_model(1);
+                if has_concrete_inputs {
+                    let inputs = expect_optional_arg::<String>(args, "inputs")?;
+                    let total_variables = qc.input_qubits.len();
 
-                        if let Some(all_inputs) = inputs {
-                            let instances: Vec<&str> = all_inputs.split('-').collect();
+                    if let Some(all_inputs) = inputs {
+                        let instances: Vec<&str> = all_inputs.split('-').collect();
 
-                            for instance in instances {
-                                let mut values: Vec<i64> = instance
-                                    .split(',')
-                                    .map(|x| i64::from_str(x).unwrap())
-                                    .collect();
-                                while values.len() < total_variables {
-                                    values.push(0);
-                                }
-                                println!("{}\n", qc.evaluate_input(&values).0);
+                        for instance in instances {
+                            let mut values: Vec<i64> = instance
+                                .split(',')
+                                .map(|x| i64::from_str(x).unwrap())
+                                .collect();
+                            while values.len() < total_variables {
+                                values.push(0);
                             }
-                        } else {
-                            panic!("This part of the code should be unreachable.");
+                            println!("{}\n", qc.evaluate_input(&values).0);
                         }
+                    } else {
+                        panic!("This part of the code should be unreachable.");
                     }
+                }
             } else {
                 let is_ising = args.contains_id("ising");
 
@@ -269,7 +269,7 @@ fn main() -> Result<()> {
 
             Ok(())
         }
-        
+
         Some(("dwave", args)) => {
             let input = args.get_one::<String>("input-file").unwrap();
             let runs = *args.get_one::<u32>("num-runs").unwrap();
