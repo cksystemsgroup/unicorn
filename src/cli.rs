@@ -216,12 +216,6 @@ pub fn args() -> Command<'static> {
                         .long("from-btor2")
                 )
                 .arg(
-                    Arg::new("dynamic-memory")
-                        .help("Pass this flag to compile a program with dynamic quantum memory")
-                        .short('d')
-                        .long("dynamic-memory")
-                )
-                .arg(
                     Arg::new("output-file")
                         .help("Output path for the generated QUBO model")
                         .short('o')
@@ -312,6 +306,12 @@ pub fn args() -> Command<'static> {
                     .required(true),
             )
             .arg(
+                Arg::new("dynamic-memory")
+                    .help("Pass this flag to compile a program with dynamic quantum memory")
+                    .short('d')
+                    .long("dynamic-memory")
+            )
+            .arg(
                 Arg::new("from-btor2")
                     .help("Pass this flag if the input file is a BTOR2 file.")
                     .short('f')
@@ -376,6 +376,19 @@ pub fn args() -> Command<'static> {
                     .takes_value(true)
                     .value_name("NUMBER")
                     .value_parser(value_parser!(usize)),
+            )
+            .arg(
+                Arg::new("from-dimacs")
+                    .help("Consume DIMACS instead of RISC-U inputs")
+                    .long("from-dimacs")
+            )
+            .arg(
+                Arg::new("extras")
+                    .help("Arguments passed to emulated program")
+                    .value_name("ARGUMENTS")
+                    .last(true)
+                    .allow_hyphen_values(true)
+                    .multiple(true)
             )
         )
         .subcommand(

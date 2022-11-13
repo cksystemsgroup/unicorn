@@ -1496,16 +1496,16 @@ impl<'a> QuantumCircuit<'a> {
         assert!(self.input_qubits.is_empty());
         assert!(self.circuit_stack.is_empty());
         assert!(self.word_size == 64 || self.word_size == 32);
-
+        println!("bad states initial {}", self.model.bad_states_initial.len());
         for i in 1..(unroll_depth + 1) {
             self.current_n = i as i32;
-            for sequential in &self.model.sequentials {
-                if let Node::Next { .. } = &*sequential.borrow() {
-                    let _ = self.process(sequential);
-                } else {
-                    panic!("expecting 'Next' node here");
-                }
-            }
+            // for sequential in &self.model.sequentials {
+            //     if let Node::Next { .. } = &*sequential.borrow() {
+            //         let _ = self.process(sequential);
+            //     } else {
+            //         panic!("expecting 'Next' node here");
+            //     }
+            // }
             for bad_state in &self.model.bad_states_initial {
                 let bitblasted_bad_state = self.process(bad_state);
                 assert!(bitblasted_bad_state.len() == 1);
@@ -1523,29 +1523,26 @@ impl<'a> QuantumCircuit<'a> {
                 }
             }
 
-            for bad_state in &self.model.bad_states_sequential {
-                let bitblasted_bad_state = self.process(bad_state);
-                assert!(bitblasted_bad_state.len() == 1);
-                if let Some(val) = get_constant(&bitblasted_bad_state[0]) {
-                    if val {
-                        println!(
-                            "Bad state found at state transition {} ({})",
-                            i,
-                            get_nid(bad_state)
-                        );
-                        self.result_ored_bad_states = QubitRef::from(Qubit::ConstTrue);
-                    }
-                } else {
-                    self.bad_state_qubits.push(bitblasted_bad_state[0].clone());
-                }
-            }
+            // for bad_state in &self.model.bad_states_sequential {
+            //     let bitblasted_bad_state = self.process(bad_state);
+            //     assert!(bitblasted_bad_state.len() == 1);
+            //     if let Some(val) = get_constant(&bitblasted_bad_state[0]) {
+            //         if val {
+            //             println!(
+            //                 "Bad state found at state transition {} ({})",
+            //                 i,
+            //                 get_nid(bad_state)
+            //             );
+            //             self.result_ored_bad_states = QubitRef::from(Qubit::ConstTrue);
+            //         }
+            //     } else {
+            //         self.bad_state_qubits.push(bitblasted_bad_state[0].clone());
+            //     }
+            // }
         }
 
         if self.bad_state_qubits.is_empty() && !is_constant(&self.result_ored_bad_states) {
-            println!(
-                "bad states qubits is empty{:?}",
-                self.result_ored_bad_states
-            );
+
             self.result_ored_bad_states = QubitRef::from(Qubit::ConstFalse);
         }
         self.print_stats();

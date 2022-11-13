@@ -63,9 +63,9 @@ fn main() -> Result<()> {
 
             Ok(())
         }
-        Some(("beator", args)) | Some(("qubot", args)) => {
+        Some(("beator", args)) | Some(("qubot", args)) | Some(("quarc", args)) => {
             let is_beator = matches.subcommand().unwrap().0 == "beator";
-
+            let is_quarc =  matches.subcommand().unwrap().0 == "quarc";
             let input = expect_arg::<PathBuf>(args, "input-file")?;
             let output = expect_optional_arg::<PathBuf>(args, "output-file")?;
             let unroll = args.get_one::<usize>("unroll-model").cloned();
@@ -75,8 +75,8 @@ fn main() -> Result<()> {
             let memory_size = ByteSize::mib(*args.get_one("memory").unwrap()).as_u64();
             let has_concrete_inputs = is_beator && args.contains_id("inputs");
             let inputs = expect_optional_arg::<String>(args, "inputs")?;
-            let prune = !is_beator || args.contains_id("prune-model");
             let input_is_btor2 = args.contains_id("from-btor2");
+            let prune = !is_beator || args.contains_id("prune-model");
             let input_is_dimacs = !is_beator && args.contains_id("from-dimacs");
             let compile_model = is_beator && args.contains_id("compile");
             let emulate_model = is_beator && args.contains_id("emulate");
@@ -192,6 +192,33 @@ fn main() -> Result<()> {
                 } else {
                     write_model(&model.unwrap(), stdout())?;
                 }
+            } else if is_quarc  {
+                let use_dynamic_memory = args.contains_id("dynamic-memory");
+                let m = model.unwrap();
+                let mut qc = QuantumCircuit::new(&m, 64, use_dynamic_memory); // 64 is a paramater describing wordsize
+                                                                                      // TODO: make wordsize parameter customizable from command line
+                    let _ = qc.process_model(1);
+                    if has_concrete_inputs {
+                        let inputs = expect_optional_arg::<String>(args, "inputs")?;
+                        let total_variables = qc.input_qubits.len();
+
+                        if let Some(all_inputs) = inputs {
+                            let instances: Vec<&str> = all_inputs.split('-').collect();
+
+                            for instance in instances {
+                                let mut values: Vec<i64> = instance
+                                    .split(',')
+                                    .map(|x| i64::from_str(x).unwrap())
+                                    .collect();
+                                while values.len() < total_variables {
+                                    values.push(0);
+                                }
+                                println!("{}\n", qc.evaluate_input(&values).0);
+                            }
+                        } else {
+                            panic!("This part of the code should be unreachable.");
+                        }
+                    }
             } else {
                 let is_ising = args.contains_id("ising");
 
@@ -242,68 +269,7 @@ fn main() -> Result<()> {
 
             Ok(())
         }
-        Some(("quarc", args)) => {
-            let input = expect_arg::<PathBuf>(args, "input-file")?;
-            let input_is_btor2 = args.contains_id("from-btor2");
-            let use_dynamic_memory = args.contains_id("dynamic-memory");
-            let output = expect_optional_arg::<PathBuf>(args, "output-file")?;
-
-            let max_heap = *args.get_one::<u32>("max-heap").unwrap();
-            let max_stack = *args.get_one::<u32>("max-stack").unwrap();
-            let memory_size = ByteSize::mib(*args.get_one("memory").unwrap()).as_u64();
-
-            let has_concrete_inputs = args.contains_id("inputs");
-
-            let unroll = args.get_one::<usize>("unroll-model").cloned();
-
-            let mut model = if !input_is_btor2 {
-                let arg0 = expect_arg::<String>(args, "input-file")?;
-                let program = load_object_file(&input)?;
-                let argv = [vec![arg0], vec![]].concat();
-                generate_model(&program, memory_size, max_heap, max_stack, &argv)?
-            } else {
-                parse_btor2_file(&input)
-            };
-
-            if let Some(unroll_depth) = unroll {
-                model.lines.clear();
-                if let Some(ref output_path) = output {
-                    let file = File::create(output_path)?;
-                    let mut qc = QuantumCircuit::new(&model, 64, use_dynamic_memory); // 64 is a paramater describing wordsize
-                                                                                      // TODO: make wordsize parameter customizable from command line
-                    let _ = qc.process_model(unroll_depth);
-                    let _ = qc.write_model(file);
-                    if has_concrete_inputs {
-                        let inputs = expect_optional_arg::<String>(args, "inputs")?;
-                        let total_variables = qc.input_qubits.len();
-
-                        if let Some(all_inputs) = inputs {
-                            let instances: Vec<&str> = all_inputs.split('-').collect();
-
-                            for instance in instances {
-                                let mut values: Vec<i64> = instance
-                                    .split(',')
-                                    .map(|x| i64::from_str(x).unwrap())
-                                    .collect();
-                                while values.len() < total_variables {
-                                    values.push(0);
-                                }
-                                println!("{}\n", qc.evaluate_input(&values).0);
-                            }
-                        } else {
-                            panic!("This part of the code should be unreachable.");
-                        }
-                    }
-                } else {
-                    panic!("Provide output path!")
-                }
-                // TODO: USE SMT-SOLVER no keep reducing model size
-            } else {
-                panic!("must provide unroll depth")
-            }
-
-            Ok(())
-        }
+        
         Some(("dwave", args)) => {
             let input = args.get_one::<String>("input-file").unwrap();
             let runs = *args.get_one::<u32>("num-runs").unwrap();
