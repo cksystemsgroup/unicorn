@@ -21,7 +21,7 @@ Unicorn reports the size of QUBO models and quantum circuits in number of quantu
 
 Unicorn optimizes size by applying SMT and SAT solvers during compilation. Whenever a quantum bit can be shown to represent a constant value for all inputs, the bit is replaced with that value. Given a time budget `T`, unicorn attempts to find solutions for all quantum bits within `T`. Only if unicorn runs out of time, involving a quantum machine makes sense yet only as long as the number `u` of undetermined quantum bits is less than the number `a` of quantum bits available on the machine. We call `a-u` the quantum advantage with time budget `T`.
 
-Unicorn supports a subset of 64-bit and 32-bit RISC-V called RISC-U, where the U stands for unsigned integer arithmetic, and five system calls (`exit`, `brk`, `openat`, `read`, `write`). RISC-U code gets input through the `read` system call. We plan to support all of RISC-V and more system calls eventually.
+Unicorn supports the base 64-bit RISC-V instruction set with some extensions (specifically `rv64im` at the moment), and five system calls (`exit`, `brk`, `openat`, `read`, `write`). RISC-V code gets input through the `read` system call. We plan to support more RISC-V extensions and more system calls eventually.
 
 For more information on how unicorn works check out our [paper](https://arxiv.org/abs/2111.12063).
 
@@ -61,7 +61,7 @@ $ cargo test --locked
 ```
 ## Usage
 
-First, generate a RISC-U binary with [Selfie](https://github.com/cksystemsteaching/selfie) using the command below:
+First, generate a RISC-V binary with [Selfie](https://github.com/cksystemsteaching/selfie) using the command below:
 
 ```sh
 selfie -c <SOURCE_CODE_FILE> -o <BINARY_FILE>

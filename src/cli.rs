@@ -47,7 +47,7 @@ pub fn args() -> Command {
         )
         .subcommand(
             Command::new("emulate")
-                .about("Emulate execution of a RISC-U ELF binary")
+                .about("Emulate execution of a RISC-V ELF binary")
                 .arg(
                     Arg::new("input-file")
                         .value_name("FILE")
@@ -75,7 +75,7 @@ pub fn args() -> Command {
         )
         .subcommand(
             Command::new("disassemble")
-                .about("Disassemble a RISC-V ELF binary")
+                .about("Disassemble and print a RISC-V ELF binary")
                 .arg(
                     Arg::new("input-file")
                         .value_name("FILE")
@@ -86,10 +86,10 @@ pub fn args() -> Command {
         )
         .subcommand(
             Command::new("beator")
-                .about("Create a BTOR2 model for a RISC-U ELF binary")
+                .about("Create a BTOR2 model for a RISC-V ELF binary")
                 .arg(
                     Arg::new("input-file")
-                        .help("RISC-U ELF binary to be converted")
+                        .help("RISC-V ELF binary to be converted")
                         .num_args(1)
                         .value_name("FILE")
                         .required(true),
@@ -207,10 +207,10 @@ pub fn args() -> Command {
         )
         .subcommand(
             Command::new("qubot")
-                .about("Create a QUBO model for a RISC-U ELF binary")
+                .about("Create a QUBO model for a RISC-V ELF binary")
                 .arg(
                     Arg::new("input-file")
-                        .help("If --from-btor2 flag is not passed, then RISC-U ELF binary to be converted, else a BTOR2 file.")
+                        .help("If --from-btor2 flag is not passed, then RISC-V ELF binary to be converted, else a BTOR2 file.")
                         .num_args(1)
                         .value_name("FILE")
                         .required(true),
@@ -291,7 +291,7 @@ pub fn args() -> Command {
                 )
                 .arg(
                     Arg::new("from-dimacs")
-                        .help("Consume DIMACS instead of RISC-U inputs")
+                        .help("Consume DIMACS instead of RISC-V inputs")
                         .long("from-dimacs")
                         .num_args(0)
                 )
