@@ -40,12 +40,6 @@ Just make sure you build for one of these targets:
 $ rustup component add rustfmt
 $ rustup component add clippy
 ```
-3. Install tool for documentation generation
-```sh
-$ cargo install mdbook --locked
-$ cargo install mdbook-linkcheck --locked
-$ cargo install mdbook-graphviz --locked
-```
 
 ### Build and Test from Source
 Tests can be executed on all platforms, alltough one
