@@ -38,7 +38,7 @@ struct CodeGenerator<'a> {
 struct SymbolicState {
     // This is the relevant part in `EmulatorState`:
     //   - registers: Vec<EmulatorValue>,
-    //   - memory: VirtualMemory<EmulatorValue>,
+    //   - memory: Vec<u8>,
     //   - program_counter: EmulatorValue,
     //   - program_break: EmulatorValue,
     registers: Vec<Option<NodeRef>>,
