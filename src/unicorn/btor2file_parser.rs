@@ -249,9 +249,35 @@ impl BTOR2Parser {
                         }
                     }
                 }
-                "read" | "write" => {
-                    // TODO: Implement these btor2 operators
-                    unimplemented!("Missing read/write support: {}", operator_name);
+                "read" => {
+                    if let Ok(nid_memory) = line[3].parse::<Nid>() {
+                        if let Ok(nid_address) = line[4].parse::<Nid>() {
+                            let memory = self.process_node(nid_memory);
+                            let address = self.process_node(nid_address);
+                            current_node = Some(NodeRef::from(Node::Read {
+                                nid,
+                                memory,
+                                address,
+                            }))
+                        }
+                    }
+                }
+                "write" => {
+                    if let Ok(nid_memory) = line[3].parse::<Nid>() {
+                        if let Ok(nid_address) = line[4].parse::<Nid>() {
+                            if let Ok(nid_value) = line[5].parse::<Nid>() {
+                                let memory = self.process_node(nid_memory);
+                                let address = self.process_node(nid_address);
+                                let value = self.process_node(nid_value);
+                                current_node = Some(NodeRef::from(Node::Write {
+                                    nid,
+                                    memory,
+                                    address,
+                                    value,
+                                }))
+                            }
+                        }
+                    }
                 }
                 _ => {
                     panic!("Unsupported BTOR2 operator: {}", operator_name);
