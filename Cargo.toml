@@ -15,6 +15,7 @@ default = []
 z3 = ["z3-solver", "z3-sys"]
 boolector = ["boolector-solver", "boolector-sys"]
 true-rng = []
+gui = ["egui", "eframe", "rfd"]
 
 [lib]
 name = "unicorn"
@@ -40,9 +41,9 @@ boolector-sys = { version = "~0", features = ["vendor-lgl"], optional = true }
 z3-solver = { package = "z3", version = "~0.11", features = ["static-link-z3"], optional = true }
 z3-sys = { version = "~0", features = ["static-link-z3"], optional = true }
 pyo3 = { version = "~0.17", features = ["auto-initialize"] }
-egui = "0.19.0"
-eframe = "0.19.0"
-rfd = "0.10.0"
+egui = { version = "0.19.0", optional = true }
+eframe = { version = "0.19.0", optional = true }
+rfd = { version = "0.10.0", optional = true }
 
 [patch.crates-io]
 # TODO: Allows us to work on `riscu` and `unicorn` in parallel. Remove

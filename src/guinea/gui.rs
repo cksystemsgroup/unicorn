@@ -24,13 +24,17 @@ use crate::unicorn::btor2file_parser::parse_btor2_file;
 use crate::unicorn::builder::generate_model;
 use crate::unicorn::memory::replace_memory;
 use crate::unicorn::optimize::optimize_model;
-use crate::unicorn::solver::{boolector_impl, none_impl, z3solver_impl};
+#[cfg(feature = "boolector")]
+use crate::unicorn::solver::boolector_impl;
+use crate::unicorn::solver::none_impl;
+#[cfg(feature = "z3")]
+use crate::unicorn::solver::z3solver_impl;
 use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
 use crate::unicorn::Model;
 
 // TODO:
-//   -e, --emulate             Start emulation from created model
-//   -c, --compile             Compile program from created model
+//   -e, --emulate             Start emulation from created model (leave out)
+//   -c, --compile             Compile program from created model (leave out)
 //   -i, --inputs <inputs>     Concrete inputs to specialize the model
 
 pub fn gui() {
@@ -277,7 +281,6 @@ impl MyApp {
 
                             self.desired_unrolls = 0;
 
-                            prune_model(self.model.as_mut().unwrap());
                             match self.solver {
                                 SmtType::Generic => optimize_model::<none_impl::NoneSolver>(
                                     self.model.as_mut().unwrap(),
@@ -314,6 +317,8 @@ impl MyApp {
                 ui.add_enabled_ui(!(self.pruned || self.bit_blasted), |ui| {
                     if ui.button("Prune Sequential Part").clicked() {
                         self.pruned = true;
+                        prune_model(self.model.as_mut().unwrap());
+
                         match self.solver {
                             SmtType::Generic => optimize_model::<none_impl::NoneSolver>(
                                 self.model.as_mut().unwrap(),

@@ -3,6 +3,7 @@ mod guinea;
 mod quantum_annealing;
 mod unicorn;
 
+#[cfg(feature = "gui")]
 use crate::guinea::gui::gui;
 use crate::quantum_annealing::dwave_api::sample_quantum_annealer;
 use crate::unicorn::bitblasting::bitblast_model;
@@ -250,6 +251,7 @@ fn main() -> Result<()> {
 
             sample_quantum_annealer(input, runs, chain_strength)
         }
+        #[cfg(feature = "gui")]
         Some(("gui", _args)) => {
             gui();
             Ok(())

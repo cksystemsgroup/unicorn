@@ -33,7 +33,7 @@ const DEFAULT_MAX_HEAP: &str = "8";
 const DEFAULT_MAX_STACK: &str = "32"; // 32 words
 
 pub fn args() -> Command {
-    Command::new("Unicorn")
+    let command = Command::new("Unicorn")
         .version(crate_version!())
         .author(crate_authors!(", "))
         .about(crate_description!())
@@ -337,13 +337,15 @@ pub fn args() -> Command {
                         .value_parser(value_parser!(f32)),
                 )
         )
-        .subcommand(
-        Command::new("gui")
-            .about("Start unicorn with a GUI")
-        )
         .subcommand_required(true)
         .arg_required_else_help(true)
-        .propagate_version(true)
+        .propagate_version(true);
+
+    #[cfg(feature = "gui")]
+    let command = command.subcommand(Command::new("gui").about("Start unicorn with a GUI"));
+
+    #[allow(clippy::let_and_return)]
+    command
 }
 
 pub fn expect_arg<T: FromStr>(m: &ArgMatches, arg: &str) -> Result<T>
