@@ -102,196 +102,196 @@ impl BTOR2Parser {
     }
 
     fn process_node(&mut self, nid: Nid) -> NodeRef {
-        let mut current_node: Option<NodeRef> = None;
-        let line = self.lines.get(&nid).unwrap().clone();
-        let operator_name = line[1].to_lowercase();
-
         if self.mapping.contains_key(&nid) {
             return self.mapping.get(&nid).unwrap().clone();
         }
 
-        if let Ok(sort_nid) = line[2].parse::<Nid>() {
-            let sort = if operator_name != "bad" {
+        let mut current_node: Option<NodeRef> = None;
+        let line = self.lines.get(&nid).unwrap().clone();
+        let operator_name = line[1].to_lowercase();
+        let sort = if let Ok(sort_nid) = line[2].parse::<Nid>() {
+            if operator_name != "bad" {
                 self.get_sort(sort_nid)
             } else {
                 NodeType::Bit
-            };
+            }
+        } else {
+            panic!("error parsing nid {} ", line[0]);
+        };
 
-            match operator_name.as_str() {
-                "constd" => {
-                    if let Ok(imm) = line[3].parse::<u64>() {
-                        current_node = Some(NodeRef::from(Node::Const { nid, sort, imm }));
-                    } else {
-                        panic!("not valid imm for const operator ({})", line[3]);
+        match operator_name.as_str() {
+            "constd" => {
+                if let Ok(imm) = line[3].parse::<u64>() {
+                    current_node = Some(NodeRef::from(Node::Const { nid, sort, imm }));
+                } else {
+                    panic!("not valid imm for const operator ({})", line[3]);
+                }
+            }
+            "input" => {
+                current_node = Some(NodeRef::from(Node::Input {
+                    nid,
+                    sort,
+                    name: "input".to_string(),
+                }))
+            }
+            "init" => {
+                if let Ok(nid_state) = line[3].parse::<Nid>() {
+                    if let Ok(nid_value) = line[4].parse::<Nid>() {
+                        let state_ref = self.process_node(nid_state);
+                        let value_ref = self.process_node(nid_value);
+                        match &*state_ref.borrow() {
+                            Node::State { name, .. } => {
+                                let modified_state = NodeRef::from(Node::State {
+                                    nid: nid_state,
+                                    sort,
+                                    init: Some(value_ref),
+                                    name: name.clone(),
+                                });
+                                current_node = Some(modified_state.clone());
+                                self.mapping.insert(nid_state, modified_state);
+                            }
+                            _ => {
+                                panic!("invalid init!");
+                            }
+                        };
                     }
                 }
-                "input" => {
-                    current_node = Some(NodeRef::from(Node::Input {
+            }
+            "state" => {
+                let name = line.get(3).cloned();
+                current_node = Some(NodeRef::from(Node::State {
+                    nid,
+                    sort,
+                    init: None,
+                    name,
+                }));
+            }
+            "not" => {
+                if let Ok(nid_value) = line[3].parse::<Nid>() {
+                    let value = self.process_node(nid_value);
+                    current_node = Some(NodeRef::from(Node::Not { nid, sort, value }))
+                }
+            }
+            "bad" => {
+                if let Ok(nid_value) = line[2].parse::<Nid>() {
+                    let name = line.get(3).cloned();
+                    let value = self.process_node(nid_value);
+                    current_node = Some(NodeRef::from(Node::Bad {
                         nid,
-                        sort,
-                        name: "input".to_string(),
+                        cond: value,
+                        name,
                     }))
                 }
-                "init" => {
-                    if let Ok(nid_state) = line[3].parse::<Nid>() {
-                        if let Ok(nid_value) = line[4].parse::<Nid>() {
-                            let state_ref = self.process_node(nid_state);
-                            let value_ref = self.process_node(nid_value);
-                            match &*state_ref.borrow() {
-                                Node::State { name, .. } => {
-                                    let modified_state = NodeRef::from(Node::State {
-                                        nid: nid_state,
-                                        sort,
-                                        init: Some(value_ref),
-                                        name: name.clone(),
-                                    });
-                                    current_node = Some(modified_state.clone());
-                                    self.mapping.insert(nid_state, modified_state);
-                                }
-                                _ => {
-                                    panic!("invalid init!");
-                                }
-                            };
+            }
+            "ite" => {
+                // TODO: handle negative conditions
+                if let Ok(nid_condition) = line[3].parse::<Nid>() {
+                    if let Ok(nid_truth_part) = line[4].parse::<Nid>() {
+                        if let Ok(nid_false_part) = line[5].parse::<Nid>() {
+                            let cond = self.process_node(nid_condition);
+                            let left = self.process_node(nid_truth_part);
+                            let right = self.process_node(nid_false_part);
+
+                            current_node = Some(NodeRef::from(Node::Ite {
+                                nid,
+                                sort,
+                                cond,
+                                left,
+                                right,
+                            }))
                         }
                     }
                 }
-                "state" => {
-                    let name = line.get(3).cloned();
-                    current_node = Some(NodeRef::from(Node::State {
-                        nid,
-                        sort,
-                        init: None,
-                        name,
-                    }));
-                }
-                "not" => {
-                    if let Ok(nid_value) = line[3].parse::<Nid>() {
-                        let value = self.process_node(nid_value);
-                        current_node = Some(NodeRef::from(Node::Not { nid, sort, value }))
+            }
+            "add" | "sub" | "mul" | "udiv" | "urem" | "ult" | "eq" | "and" | "next" => {
+                if let Ok(nid_left) = line[3].parse::<Nid>() {
+                    if let Ok(nid_right) = line[4].parse::<Nid>() {
+                        let left = self.process_node(nid_left);
+                        let right = self.process_node(nid_right);
+
+                        let temp_node = match operator_name.as_str() {
+                            "add" => Node::Add { nid, left, right },
+                            "sub" => Node::Sub { nid, left, right },
+                            "mul" => Node::Mul { nid, left, right },
+                            "udiv" => Node::Div { nid, left, right },
+                            "urem" => Node::Rem { nid, left, right },
+                            "ult" => Node::Ult { nid, left, right },
+                            "eq" => Node::Eq { nid, left, right },
+                            "and" => Node::And {
+                                nid,
+                                sort,
+                                left,
+                                right,
+                            },
+                            "next" => Node::Next {
+                                nid,
+                                sort,
+                                state: left,
+                                next: right,
+                            },
+                            _ => {
+                                panic!("This piece of code should be unreacheable");
+                            }
+                        };
+                        current_node = Some(NodeRef::from(temp_node));
                     }
                 }
-                "bad" => {
-                    if let Ok(nid_value) = line[2].parse::<Nid>() {
-                        let name = line.get(3).cloned();
+            }
+            "uext" => {
+                if let Ok(nid_value) = line[3].parse::<Nid>() {
+                    if let Ok(bits_ext) = line[4].parse::<usize>() {
                         let value = self.process_node(nid_value);
-                        current_node = Some(NodeRef::from(Node::Bad {
+                        let bits_dest = sort.bitsize();
+                        let bits_src = bits_dest - bits_ext;
+                        current_node = Some(NodeRef::from(Node::Ext {
                             nid,
-                            cond: value,
-                            name,
+                            from: get_nodetype(bits_src),
+                            value,
                         }))
                     }
                 }
-                "ite" => {
-                    // TODO: handle negative conditions
-                    if let Ok(nid_condition) = line[3].parse::<Nid>() {
-                        if let Ok(nid_truth_part) = line[4].parse::<Nid>() {
-                            if let Ok(nid_false_part) = line[5].parse::<Nid>() {
-                                let cond = self.process_node(nid_condition);
-                                let left = self.process_node(nid_truth_part);
-                                let right = self.process_node(nid_false_part);
-
-                                current_node = Some(NodeRef::from(Node::Ite {
-                                    nid,
-                                    sort,
-                                    cond,
-                                    left,
-                                    right,
-                                }))
-                            }
-                        }
+            }
+            "read" => {
+                if let Ok(nid_memory) = line[3].parse::<Nid>() {
+                    if let Ok(nid_address) = line[4].parse::<Nid>() {
+                        let memory = self.process_node(nid_memory);
+                        let address = self.process_node(nid_address);
+                        current_node = Some(NodeRef::from(Node::Read {
+                            nid,
+                            memory,
+                            address,
+                        }))
                     }
                 }
-                "add" | "sub" | "mul" | "udiv" | "urem" | "ult" | "eq" | "and" | "next" => {
-                    if let Ok(nid_left) = line[3].parse::<Nid>() {
-                        if let Ok(nid_right) = line[4].parse::<Nid>() {
-                            let left = self.process_node(nid_left);
-                            let right = self.process_node(nid_right);
-
-                            let temp_node = match operator_name.as_str() {
-                                "add" => Node::Add { nid, left, right },
-                                "sub" => Node::Sub { nid, left, right },
-                                "mul" => Node::Mul { nid, left, right },
-                                "udiv" => Node::Div { nid, left, right },
-                                "urem" => Node::Rem { nid, left, right },
-                                "ult" => Node::Ult { nid, left, right },
-                                "eq" => Node::Eq { nid, left, right },
-                                "and" => Node::And {
-                                    nid,
-                                    sort,
-                                    left,
-                                    right,
-                                },
-                                "next" => Node::Next {
-                                    nid,
-                                    sort,
-                                    state: left,
-                                    next: right,
-                                },
-                                _ => {
-                                    panic!("This piece of code should be unreacheable");
-                                }
-                            };
-                            current_node = Some(NodeRef::from(temp_node));
-                        }
-                    }
-                }
-                "uext" => {
-                    if let Ok(nid_value) = line[3].parse::<Nid>() {
-                        if let Ok(bits_ext) = line[4].parse::<usize>() {
+            }
+            "write" => {
+                if let Ok(nid_memory) = line[3].parse::<Nid>() {
+                    if let Ok(nid_address) = line[4].parse::<Nid>() {
+                        if let Ok(nid_value) = line[5].parse::<Nid>() {
+                            let memory = self.process_node(nid_memory);
+                            let address = self.process_node(nid_address);
                             let value = self.process_node(nid_value);
-                            let bits_dest = sort.bitsize();
-                            let bits_src = bits_dest - bits_ext;
-                            current_node = Some(NodeRef::from(Node::Ext {
+                            current_node = Some(NodeRef::from(Node::Write {
                                 nid,
-                                from: get_nodetype(bits_src),
+                                memory,
+                                address,
                                 value,
                             }))
                         }
                     }
                 }
-                "read" => {
-                    if let Ok(nid_memory) = line[3].parse::<Nid>() {
-                        if let Ok(nid_address) = line[4].parse::<Nid>() {
-                            let memory = self.process_node(nid_memory);
-                            let address = self.process_node(nid_address);
-                            current_node = Some(NodeRef::from(Node::Read {
-                                nid,
-                                memory,
-                                address,
-                            }))
-                        }
-                    }
-                }
-                "write" => {
-                    if let Ok(nid_memory) = line[3].parse::<Nid>() {
-                        if let Ok(nid_address) = line[4].parse::<Nid>() {
-                            if let Ok(nid_value) = line[5].parse::<Nid>() {
-                                let memory = self.process_node(nid_memory);
-                                let address = self.process_node(nid_address);
-                                let value = self.process_node(nid_value);
-                                current_node = Some(NodeRef::from(Node::Write {
-                                    nid,
-                                    memory,
-                                    address,
-                                    value,
-                                }))
-                            }
-                        }
-                    }
-                }
-                _ => {
-                    panic!("Unsupported BTOR2 operator: {}", operator_name);
-                }
             }
-            if let Some(answer) = current_node {
-                self.mapping.insert(nid, answer.clone());
-                return answer;
-            } else {
-                panic!("could not parse {:?}", line);
+            _ => {
+                panic!("Unsupported BTOR2 operator: {}", operator_name);
             }
         }
 
-        panic!("error parsing nid {} ", line[0]);
+        if let Some(answer) = current_node {
+            self.mapping.insert(nid, answer.clone());
+            answer
+        } else {
+            panic!("could not parse {:?}", line);
+        }
     }
 
     fn run_inits(&mut self) {
