@@ -1,4 +1,4 @@
-use crate::unicorn::{get_nodetype, Model, Nid, Node, NodeRef};
+use crate::unicorn::{get_nodetype, Model, Nid, Node, NodeRef, NodeType};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufRead};
@@ -68,6 +68,7 @@ impl BTOR2Parser {
             }
         }
     }
+
     fn parse_file(&mut self, path: &Path) {
         if let Ok(lines) = self.read_lines(path) {
             let flattened_lines: Vec<String> = lines.flatten().collect();
@@ -77,39 +78,49 @@ impl BTOR2Parser {
         }
     }
 
-    fn get_sort(&self, nid: Nid) -> usize {
+    fn get_sort(&self, nid: Nid) -> NodeType {
         let line = self.lines.get(&nid).unwrap().clone();
         if line[2] == "bitvec" {
             if let Ok(answer) = line[3].parse::<usize>() {
-                answer
-            } else {
-                panic!("Not valid sort: {:?}", line);
+                return get_nodetype(answer);
             }
+            panic!("Unsupported bitvec: {:?}", line);
+        } else if line[2] == "array" {
+            if let Ok(sort_idx) = line[3].parse::<Nid>() {
+                if let Ok(sort_val) = line[4].parse::<Nid>() {
+                    if self.get_sort(sort_idx) == NodeType::Word
+                        && self.get_sort(sort_val) == NodeType::Word
+                    {
+                        return NodeType::Memory;
+                    }
+                }
+            }
+            panic!("Unsupported array: {:?}", line);
         } else {
-            0
+            panic!("Invalid sort: {:?}", line);
         }
     }
 
     fn process_node(&mut self, nid: Nid) -> NodeRef {
         let mut current_node: Option<NodeRef> = None;
         let line = self.lines.get(&nid).unwrap().clone();
+        let operator_name = line[1].to_lowercase();
+
+        if self.mapping.contains_key(&nid) {
+            return self.mapping.get(&nid).unwrap().clone();
+        }
 
         if let Ok(sort_nid) = line[2].parse::<Nid>() {
-            let sort = self.get_sort(sort_nid);
-            if self.mapping.contains_key(&nid) {
-                return self.mapping.get(&nid).unwrap().clone();
-            }
-
-            let operator_name = line[1].to_lowercase();
+            let sort = if operator_name != "bad" {
+                self.get_sort(sort_nid)
+            } else {
+                NodeType::Bit
+            };
 
             match operator_name.as_str() {
                 "constd" => {
                     if let Ok(imm) = line[3].parse::<u64>() {
-                        current_node = Some(NodeRef::from(Node::Const {
-                            nid,
-                            sort: get_nodetype(sort),
-                            imm,
-                        }));
+                        current_node = Some(NodeRef::from(Node::Const { nid, sort, imm }));
                     } else {
                         panic!("not valid imm for const operator ({})", line[3]);
                     }
@@ -117,7 +128,7 @@ impl BTOR2Parser {
                 "input" => {
                     current_node = Some(NodeRef::from(Node::Input {
                         nid,
-                        sort: get_nodetype(sort),
+                        sort,
                         name: "input".to_string(),
                     }))
                 }
@@ -128,13 +139,14 @@ impl BTOR2Parser {
                             let value_ref = self.process_node(nid_value);
                             match &*state_ref.borrow() {
                                 Node::State { .. } => {
-                                    current_node = Some(NodeRef::from(Node::State {
+                                    let modified_state = NodeRef::from(Node::State {
                                         nid: nid_state,
-                                        sort: get_nodetype(sort),
+                                        sort,
                                         init: Some(value_ref),
                                         name: None,
-                                    }));
-                                    self.mapping.insert(nid_state, current_node.unwrap());
+                                    });
+                                    current_node = Some(modified_state.clone());
+                                    self.mapping.insert(nid_state, modified_state);
                                 }
                                 _ => {
                                     panic!("invalid init!");
@@ -142,13 +154,12 @@ impl BTOR2Parser {
                             };
                         }
                     }
-                    panic!("Error parsing init ({:?})", line);
                 }
                 "state" => {
                     let name = line.get(3).cloned();
                     current_node = Some(NodeRef::from(Node::State {
                         nid,
-                        sort: get_nodetype(sort),
+                        sort,
                         init: None,
                         name,
                     }));
@@ -156,11 +167,7 @@ impl BTOR2Parser {
                 "not" => {
                     if let Ok(nid_value) = line[3].parse::<Nid>() {
                         let value = self.process_node(nid_value);
-                        current_node = Some(NodeRef::from(Node::Not {
-                            nid,
-                            sort: get_nodetype(sort),
-                            value,
-                        }))
+                        current_node = Some(NodeRef::from(Node::Not { nid, sort, value }))
                     }
                 }
                 "bad" => {
@@ -185,7 +192,7 @@ impl BTOR2Parser {
 
                                 current_node = Some(NodeRef::from(Node::Ite {
                                     nid,
-                                    sort: get_nodetype(sort),
+                                    sort,
                                     cond,
                                     left,
                                     right,
@@ -210,13 +217,13 @@ impl BTOR2Parser {
                                 "eq" => Node::Eq { nid, left, right },
                                 "and" => Node::And {
                                     nid,
-                                    sort: get_nodetype(sort),
+                                    sort,
                                     left,
                                     right,
                                 },
                                 "next" => Node::Next {
                                     nid,
-                                    sort: get_nodetype(sort),
+                                    sort,
                                     state: left,
                                     next: right,
                                 },
@@ -232,7 +239,7 @@ impl BTOR2Parser {
                     if let Ok(nid_value) = line[3].parse::<Nid>() {
                         if let Ok(bits_ext) = line[4].parse::<usize>() {
                             let value = self.process_node(nid_value);
-                            let bits_dest = get_nodetype(sort).bitsize();
+                            let bits_dest = sort.bitsize();
                             let bits_src = bits_dest - bits_ext;
                             current_node = Some(NodeRef::from(Node::Ext {
                                 nid,
@@ -243,11 +250,11 @@ impl BTOR2Parser {
                     }
                 }
                 "read" | "write" => {
-                    // TODO implement these btor2 operators
-                    panic!("BTOR2 operator not implemented!");
+                    // TODO: Implement these btor2 operators
+                    unimplemented!("Missing read/write support: {}", operator_name);
                 }
                 _ => {
-                    panic!("Not supported btor2 operator {}", operator_name);
+                    panic!("Unsupported BTOR2 operator: {}", operator_name);
                 }
             }
             if let Some(answer) = current_node {
@@ -268,6 +275,7 @@ impl BTOR2Parser {
             }
         }
     }
+
     fn get_sequentials(&mut self) -> Vec<NodeRef> {
         let mut result: Vec<NodeRef> = Vec::new();
 
