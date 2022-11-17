@@ -5,15 +5,23 @@ use std::io::{self, BufRead};
 use std::ops::Range;
 use std::path::Path;
 
+//
+// Public Interface
+//
+
 pub fn parse_btor2_file(path: &Path) -> Model {
     let mut parser = BTOR2Parser::new();
     parser.parse_file(path);
     parser.run_inits();
+    let (bad_states_initial, bad_states_sequential) = parser
+        .get_bad_states()
+        .into_iter()
+        .partition(has_depth_in_name);
     Model {
         lines: Vec::new(),
         sequentials: parser.get_sequentials(),
-        bad_states_initial: parser.get_bad_state_sequentials(),
-        bad_states_sequential: Vec::new(),
+        bad_states_initial,
+        bad_states_sequential,
         data_range: Range { start: 0, end: 0 },
         heap_range: Range { start: 0, end: 0 },
         stack_range: Range { start: 0, end: 0 },
@@ -21,9 +29,24 @@ pub fn parse_btor2_file(path: &Path) -> Model {
     }
 }
 
+//
+// Private Implementation
+//
+
 struct BTOR2Parser {
     mapping: HashMap<Nid, NodeRef>,
     lines: HashMap<Nid, Vec<String>>,
+}
+
+fn has_depth_in_name(bad_state: &NodeRef) -> bool {
+    if let Node::Bad {
+        name: Some(name), ..
+    } = &*bad_state.borrow()
+    {
+        name.contains("[n=")
+    } else {
+        panic!("expecting 'Bad' node here");
+    }
 }
 
 impl BTOR2Parser {
@@ -313,7 +336,7 @@ impl BTOR2Parser {
         result
     }
 
-    fn get_bad_state_sequentials(&mut self) -> Vec<NodeRef> {
+    fn get_bad_states(&mut self) -> Vec<NodeRef> {
         let mut result: Vec<NodeRef> = Vec::new();
 
         for (nid, line) in self.lines.clone() {
@@ -339,7 +362,7 @@ mod tests_btor2_parser {
         Model {
             lines: Vec::new(),
             sequentials: parser.get_sequentials(),
-            bad_states_initial: parser.get_bad_state_sequentials(),
+            bad_states_initial: parser.get_bad_states(),
             bad_states_sequential: Vec::new(),
             data_range: Range { start: 0, end: 0 },
             heap_range: Range { start: 0, end: 0 },
