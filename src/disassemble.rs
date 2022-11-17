@@ -1,4 +1,4 @@
-//! # Disassemble RISC-U instructions
+//! # Disassemble RISC-V instructions
 
 use anyhow::Result;
 use log::info;

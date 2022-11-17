@@ -115,33 +115,6 @@ fn ensure_selfie_installed() -> PathBuf {
     }
 }
 
-/// Convert a dot file into a png file (depends on graphviz)
-#[allow(dead_code)]
-pub fn convert_dot_to_png_and_check<P>(source: P) -> Result<(), &'static str>
-where
-    P: AsRef<Path>,
-{
-    let output = source.as_ref().with_extension("png");
-
-    time("dot-to-png", || {
-        Command::new("dot")
-            .arg("-Tpng")
-            .arg(source.as_ref())
-            .arg("-o")
-            .arg(&output)
-            .output()
-            .map_err(|_| "Cannot convert CFG to png file (is graphviz installed?)")
-    })?;
-
-    assert!(
-        output.exists(),
-        "PNG could be created for {:?}",
-        source.as_ref()
-    );
-
-    Ok(())
-}
-
 pub fn time<F, R>(s: &str, mut f: F) -> R
 where
     F: FnMut() -> R,

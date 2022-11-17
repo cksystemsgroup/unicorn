@@ -68,7 +68,7 @@ data.csv: $(DATAS_FROM_C) $(DATAS_FROM_CNF)
 	$(eval UNROLL := $(shell grep -oP '// @UNROLL = \K\d+' $*.c))
 	$(UNICORN) qubot $< -o $@ -u $(UNROLL) -s boolector
 
-# (1) Pipeline starts from RISC-U binary:
+# (1) Pipeline starts from RISC-V binary:
 %.data1: %.btor2 %.cnf %.m
 	@echo name : $* > $@
 	@echo solutions : $(shell grep -oP '// @SOLUTIONS = \K\d+' $*.c) >> $@

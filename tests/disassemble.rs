@@ -5,7 +5,7 @@ mod utils;
 use utils::{compile_riscu, init, with_temp_dir};
 
 #[test]
-fn can_disassemble_risc_u_binary() {
+fn can_disassemble_riscu_binary() {
     init();
 
     with_temp_dir(|dir| {
