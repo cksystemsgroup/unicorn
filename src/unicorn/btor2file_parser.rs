@@ -138,12 +138,12 @@ impl BTOR2Parser {
                             let state_ref = self.process_node(nid_state);
                             let value_ref = self.process_node(nid_value);
                             match &*state_ref.borrow() {
-                                Node::State { .. } => {
+                                Node::State { name, .. } => {
                                     let modified_state = NodeRef::from(Node::State {
                                         nid: nid_state,
                                         sort,
                                         init: Some(value_ref),
-                                        name: None,
+                                        name: name.clone(),
                                     });
                                     current_node = Some(modified_state.clone());
                                     self.mapping.insert(nid_state, modified_state);
