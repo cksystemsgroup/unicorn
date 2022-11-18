@@ -18,7 +18,7 @@ pub fn stringify_program(program: &Program) -> String {
 
             let instruction = match decode(res) {
                 Ok(x) => format!("{:?}", x),
-                Err(_) => "UNKNOWN_INSTRUCTION".to_string(),
+                Err(_) => format!("{:032b} (could not decode)", res),
             };
 
             format!("0x{:x}: {}", i, instruction)

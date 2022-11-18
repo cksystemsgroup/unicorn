@@ -23,7 +23,7 @@ use crate::unicorn::bitblasting_printer::write_btor2_model;
 use crate::unicorn::btor2file_parser::parse_btor2_file;
 use crate::unicorn::builder::generate_model;
 use crate::unicorn::memory::replace_memory;
-use crate::unicorn::optimize::optimize_model;
+use crate::unicorn::optimize::{optimize_model, optimize_model_with_input};
 #[cfg(feature = "boolector")]
 use crate::unicorn::solver::boolector_impl;
 use crate::unicorn::solver::none_impl;
@@ -142,11 +142,6 @@ impl MyApp {
             }
             ui.checkbox(&mut self.from_beator, "Input is a BTOR2 file");
         });
-
-        // ui.add_space(5.0);
-        // ui.label("Arguments passed to emulated program");
-        // ui.text_edit_singleline(&mut self.extras);
-        // ui.add_space(5.0);
 
         let picked_path = self
             .picked_path
@@ -277,6 +272,16 @@ impl MyApp {
 
                             for n in 0..self.desired_unrolls {
                                 unroll_model(self.model.as_mut().unwrap(), n);
+                                if !self.extras.is_empty() {
+                                    optimize_model_with_input::<none_impl::NoneSolver>(
+                                        self.model.as_mut().unwrap(),
+                                        &mut self
+                                            .extras
+                                            .split(' ')
+                                            .map(|x| x.parse().unwrap_or(0))
+                                            .collect(),
+                                    )
+                                }
                             }
 
                             self.desired_unrolls = 0;
@@ -303,7 +308,7 @@ impl MyApp {
                     });
 
                     ui.add_space(10.0);
-                    ui.label("Solver:");
+                    ui.label("Optimizer:");
                     ui.horizontal_wrapped(|ui| {
                         ui.selectable_value(&mut self.solver, SmtType::Generic, "Generic");
                         #[cfg(feature = "boolector")]
@@ -311,7 +316,10 @@ impl MyApp {
                         #[cfg(feature = "z3")]
                         ui.selectable_value(&mut self.solver, SmtType::Z3, "Z3");
                     });
-                    ui.add_space(10.0);
+                    ui.add_space(5.0);
+                    ui.label("Concrete inputs passed to optimizer:");
+                    ui.text_edit_singleline(&mut self.extras);
+                    ui.add_space(5.0);
                 });
 
                 ui.add_enabled_ui(!(self.pruned || self.bit_blasted), |ui| {
