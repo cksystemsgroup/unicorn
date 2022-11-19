@@ -29,6 +29,26 @@ pub fn parse_btor2_file(path: &Path) -> Model {
     }
 }
 
+pub fn parse_btor2_string(string: &str) -> Model {
+    let mut parser = BTOR2Parser::new();
+    parser.parse_string(string);
+    parser.run_inits();
+    let (bad_states_initial, bad_states_sequential) = parser
+        .get_bad_states()
+        .into_iter()
+        .partition(has_depth_in_name);
+    Model {
+        lines: Vec::new(),
+        sequentials: parser.get_sequentials(),
+        bad_states_initial,
+        bad_states_sequential,
+        data_range: Range { start: 0, end: 0 },
+        heap_range: Range { start: 0, end: 0 },
+        stack_range: Range { start: 0, end: 0 },
+        memory_size: 0,
+    }
+}
+
 //
 // Private Implementation
 //
@@ -99,6 +119,11 @@ impl BTOR2Parser {
         } else {
             println!("Error reading file ({:?})", path);
         }
+    }
+
+    fn parse_string(&mut self, string: &str) {
+        let lines: Vec<String> = string.lines().map(String::from).collect();
+        self.parse_lines(&lines);
     }
 
     fn get_sort(&self, nid: Nid) -> NodeType {

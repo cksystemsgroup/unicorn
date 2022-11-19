@@ -16,7 +16,7 @@ pub enum LogLevel {
     Error,
 }
 
-#[derive(Debug, EnumString, EnumVariantNames, IntoStaticStr, PartialEq, Eq)]
+#[derive(Debug, EnumString, EnumVariantNames, IntoStaticStr, PartialEq, Eq, Clone)]
 #[strum(serialize_all = "kebab_case")]
 pub enum SmtType {
     Generic,

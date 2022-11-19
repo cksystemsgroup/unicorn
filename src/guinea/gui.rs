@@ -1,11 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
 use std::default::Default;
-use std::fs;
 use std::io::BufWriter;
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::mpsc::{Receiver, Sender};
+use std::thread::JoinHandle;
+use std::{fs, thread};
 
 use bytesize::ByteSize;
 use eframe::egui;
@@ -15,12 +17,12 @@ use riscu::load_object_file;
 
 use crate::cli::SmtType;
 use crate::guinea::design::get_frame_design;
-use crate::guinea::error_handling::unpanic;
+use crate::guinea::error_handling::{fix_memory, unpanic};
 use crate::guinea::print::{stringify_model, stringify_program};
 use crate::unicorn::bitblasting::{bitblast_model, GateModel};
 use crate::unicorn::bitblasting_dimacs::write_dimacs_model;
 use crate::unicorn::bitblasting_printer::write_btor2_model;
-use crate::unicorn::btor2file_parser::parse_btor2_file;
+use crate::unicorn::btor2file_parser::{parse_btor2_file, parse_btor2_string};
 use crate::unicorn::builder::generate_model;
 use crate::unicorn::memory::replace_memory;
 use crate::unicorn::optimize::{optimize_model, optimize_model_with_input};
@@ -52,9 +54,6 @@ pub fn gui() {
 struct MyApp {
     model: Option<Model>,
     bit_model: Option<GateModel>,
-    memory_size: u64,
-    max_heap: u32,
-    max_stack: u32,
     picked_path: Option<String>,
     output: Option<String>,
     model_created: bool,
@@ -68,6 +67,26 @@ struct MyApp {
     solver: SmtType,
     error_message: Option<String>,
     error_occurred: bool,
+    unroller: Option<JoinHandle<String>>,
+    memory_data: MemoryData,
+    loading_data: LoadingData,
+}
+
+#[derive(Clone)]
+pub struct MemoryData {
+    pub memory_size: u64,
+    pub max_heap: u32,
+    pub max_stack: u32,
+    pub data_start: u64,
+    pub data_end: u64,
+}
+
+#[derive(Default)]
+struct LoadingData {
+    message: String,
+    progress: f32,
+    maximum: f32,
+    progress_receiver: Option<Receiver<f32>>,
 }
 
 impl Default for MyApp {
@@ -75,9 +94,6 @@ impl Default for MyApp {
         Self {
             model: None,
             bit_model: None,
-            memory_size: 1,
-            max_heap: 8,
-            max_stack: 32,
             picked_path: None,
             output: None,
             model_created: false,
@@ -91,6 +107,15 @@ impl Default for MyApp {
             solver: SmtType::Generic,
             error_message: None,
             error_occurred: false,
+            unroller: None,
+            memory_data: MemoryData {
+                memory_size: 1,
+                data_start: 0,
+                data_end: 0,
+                max_heap: 8,
+                max_stack: 32,
+            },
+            loading_data: LoadingData::default(),
         }
     }
 }
@@ -98,6 +123,19 @@ impl Default for MyApp {
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let error_msg = self.error_message.clone();
+
+        if self.unroller.is_some() && self.unroller.as_ref().unwrap().is_finished() {
+            let unroller = std::mem::replace(&mut self.unroller, None);
+            let serial_model = unroller.unwrap().join().unwrap();
+            let mut model = parse_btor2_string(&serial_model);
+            fix_memory(&mut model, &self.memory_data);
+            renumber_model(&mut model);
+
+            self.unroller = None;
+            self.model = Some(model);
+            self.output = Some(stringify_model(self.model.as_ref().unwrap()));
+        }
+
         egui::Window::new("Error Occured")
             .open(&mut self.error_occurred)
             .fixed_pos((350.0, 200.0))
@@ -168,7 +206,8 @@ impl MyApp {
                         }
                     };
                 } else {
-                    let model = parse_btor2_file(&path);
+                    let mut model = parse_btor2_file(&path);
+                    renumber_model(&mut model);
                     self.output = Some(stringify_model(&model));
                 }
             }
@@ -180,15 +219,18 @@ impl MyApp {
             ui.add_enabled_ui(!self.model_created, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     ui.label("Number of machine-words usable as heap.");
-                    ui.add(egui::DragValue::new(&mut self.max_heap));
+                    ui.add(egui::DragValue::new(&mut self.memory_data.max_heap));
                 });
                 ui.horizontal_wrapped(|ui| {
                     ui.label("Number of machine-words usable as stack.");
-                    ui.add(egui::DragValue::new(&mut self.max_stack));
+                    ui.add(egui::DragValue::new(&mut self.memory_data.max_stack));
                 });
                 ui.horizontal_wrapped(|ui| {
                     ui.label("Total size of memory in MiB.");
-                    ui.add(egui::DragValue::new(&mut self.memory_size).clamp_range(1..=1024));
+                    ui.add(
+                        egui::DragValue::new(&mut self.memory_data.memory_size)
+                            .clamp_range(1..=1024),
+                    );
                 });
             });
 
@@ -216,11 +258,14 @@ impl MyApp {
                                     self.extras.split(' ').map(String::from).collect(),
                                 ]
                                 .concat();
+                                self.memory_data.data_start = program.data.address;
+                                self.memory_data.data_end =
+                                    program.data.address + program.data.content.len() as u64;
                                 generate_model(
                                     &program,
-                                    ByteSize::mib(self.memory_size).as_u64(),
-                                    self.max_heap,
-                                    self.max_stack,
+                                    ByteSize::mib(self.memory_data.memory_size).as_u64(),
+                                    self.memory_data.max_heap,
+                                    self.memory_data.max_stack,
                                     &argv,
                                 )
                             }),
@@ -265,44 +310,72 @@ impl MyApp {
                         ui.label("Number of unrolls:");
                         ui.add(egui::DragValue::new(&mut self.desired_unrolls));
                         if ui.button("Do Unrolls").clicked() {
-                            self.model.as_mut().unwrap().lines.clear();
-                            replace_memory(self.model.as_mut().unwrap());
+                            let serial_model = stringify_model(self.model.as_ref().unwrap());
+                            let desired_unrolls = self.desired_unrolls;
+                            let extras = self.extras.clone();
+                            let solver = self.solver.clone();
+                            let memory_data = self.memory_data.clone();
+
+                            self.loading_data.maximum = self.desired_unrolls as f32;
+                            self.loading_data.message = "Unrolling Model".to_string();
 
                             self.times_unrolled += self.desired_unrolls;
-
-                            for n in 0..self.desired_unrolls {
-                                unroll_model(self.model.as_mut().unwrap(), n);
-                                if !self.extras.is_empty() {
-                                    optimize_model_with_input::<none_impl::NoneSolver>(
-                                        self.model.as_mut().unwrap(),
-                                        &mut self
-                                            .extras
-                                            .split(' ')
-                                            .map(|x| x.parse().unwrap_or(0))
-                                            .collect(),
-                                    )
-                                }
-                            }
-
                             self.desired_unrolls = 0;
+                            self.output = None;
+                            self.model = None;
 
-                            match self.solver {
-                                SmtType::Generic => optimize_model::<none_impl::NoneSolver>(
-                                    self.model.as_mut().unwrap(),
-                                ),
-                                #[cfg(feature = "boolector")]
-                                SmtType::Boolector => {
-                                    optimize_model::<boolector_impl::BoolectorSolver>(
-                                        self.model.as_mut().unwrap(),
-                                    )
-                                }
-                                #[cfg(feature = "z3")]
-                                SmtType::Z3 => optimize_model::<z3solver_impl::Z3SolverWrapper>(
-                                    self.model.as_mut().unwrap(),
-                                ),
-                            }
-                            renumber_model(self.model.as_mut().unwrap());
-                            self.output = Some(stringify_model(self.model.as_ref().unwrap()));
+                            let (sender, receiver): (Sender<f32>, Receiver<f32>) =
+                                std::sync::mpsc::channel();
+                            self.loading_data.progress_receiver = Some(receiver);
+
+                            self.unroller = Some(
+                                thread::Builder::new()
+                                    .stack_size(64 * 1024 * 1024) // increase thread stack size to avoid stack overflow
+                                    .spawn(move || {
+                                        let mut model = parse_btor2_string(&serial_model);
+                                        fix_memory(&mut model, &memory_data);
+                                        model.lines.clear();
+                                        replace_memory(&mut model);
+
+                                        for n in 0..desired_unrolls {
+                                            unroll_model(&mut model, n);
+                                            if !extras.is_empty() {
+                                                optimize_model_with_input::<none_impl::NoneSolver>(
+                                                    &mut model,
+                                                    &mut extras
+                                                        .split(' ')
+                                                        .map(|x| x.parse().unwrap_or(0))
+                                                        .collect(),
+                                                )
+                                            }
+                                            sender
+                                                .send(n as f32)
+                                                .expect("Could not send progress.");
+                                        }
+
+                                        match solver {
+                                            SmtType::Generic => {
+                                                optimize_model::<none_impl::NoneSolver>(&mut model)
+                                            }
+                                            #[cfg(feature = "boolector")]
+                                            SmtType::Boolector => {
+                                                optimize_model::<boolector_impl::BoolectorSolver>(
+                                                    &mut model,
+                                                )
+                                            }
+                                            #[cfg(feature = "z3")]
+                                            SmtType::Z3 => {
+                                                optimize_model::<z3solver_impl::Z3SolverWrapper>(
+                                                    &mut model,
+                                                )
+                                            }
+                                        }
+
+                                        renumber_model(&mut model);
+                                        stringify_model(&model)
+                                    })
+                                    .unwrap(),
+                            );
                         }
                         ui.label(format!("({} done so far)", self.times_unrolled));
                     });
@@ -400,23 +473,54 @@ impl MyApp {
         });
     }
 
-    fn output_window(&self, ui: &mut Ui) {
+    fn output_window(&mut self, ui: &mut Ui) {
         ui.heading("Output");
         ui.separator();
         ui.separator();
 
-        egui::ScrollArea::vertical()
-            .auto_shrink([false; 2])
-            .show(ui, |ui| match &self.output {
-                Some(output) => ui
-                    .with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
-                        ui.monospace(output)
-                    }),
-                _ => ui.with_layout(
-                    egui::Layout::centered_and_justified(egui::Direction::TopDown),
-                    |ui| ui.label("Nothing to show."),
-                ),
+        if self.unroller.is_some() {
+            ui.vertical_centered_justified(|ui| {
+                ui.add(egui::Spinner::new());
+                ui.label(format!(
+                    "{}... ({}/{})",
+                    self.loading_data.message,
+                    self.loading_data.progress,
+                    self.loading_data.maximum
+                ));
+                self.loading_data.progress = self
+                    .loading_data
+                    .progress_receiver
+                    .as_ref()
+                    .unwrap()
+                    .try_recv()
+                    .unwrap_or(self.loading_data.progress);
+
+                if self.loading_data.progress >= self.loading_data.maximum - 2.0 {
+                    self.loading_data.message = "Renumbering model".to_string();
+                }
+
+                ui.add(
+                    egui::ProgressBar::new(self.loading_data.progress / self.loading_data.maximum)
+                        .show_percentage()
+                        .desired_width(200.0),
+                );
             });
+        } else {
+            egui::ScrollArea::vertical()
+                .auto_shrink([false; 2])
+                .show(ui, |ui| {
+                    match &self.output {
+                        Some(output) => ui
+                            .with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+                                ui.monospace(output)
+                            }),
+                        _ => ui.with_layout(
+                            egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                            |ui| ui.label("Nothing to show."),
+                        ),
+                    };
+                });
+        }
     }
 
     fn reset_model_params(&mut self) {
@@ -424,5 +528,8 @@ impl MyApp {
         self.bit_blasted = false;
         self.pruned = false;
         self.times_unrolled = 0;
+        self.unroller = None;
+        self.model = None;
+        self.output = None;
     }
 }
