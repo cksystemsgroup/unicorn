@@ -815,8 +815,10 @@ impl<'a> QuantumCircuit<'a> {
         prefix: String,
     ) -> Vec<QubitRef> {
         assert!(left_operand.len() == right_operand.len());
+        let mut local_gates: Vec<UnitaryRef> = vec![];
+        let mut used_qubits = 0;
         let mut controls: Vec<QubitRef> = vec![];
-        for (i, (l_qubit, r_qubit)) in left_operand.iter().zip(right_operand.iter()).enumerate() {
+        for (_i, (l_qubit, r_qubit)) in left_operand.iter().zip(right_operand.iter()).enumerate() {
             let const_l = get_constant(l_qubit);
             let const_r = get_constant(r_qubit);
 
@@ -837,17 +839,29 @@ impl<'a> QuantumCircuit<'a> {
                     l_qubit.clone()
                 };
 
-                let target: QubitRef = if self.use_dynamic_memory {
-                    self.get_memory(1)[0].clone()
-                } else {
-                    let name = format!("{}{}_eq_{}", prefix, nid, self.current_n);
-                    QubitRef::from(Qubit::QBit {
-                        name,
-                        dependency: None,
-                    })
-                };
+                let target: QubitRef = self.get_memory(1)[0].clone();
+
+                // let target: QubitRef = if self.use_dynamic_memory {
+                //     self.get_memory(1)[0].clone()
+                // } else {
+                //     let name = format!("{}{}_eq_{}", prefix, nid, self.current_n);
+                //     QubitRef::from(Qubit::QBit {
+                //         name,
+                //         dependency: None,
+                //     })
+                // };
                 controls.push(target.clone());
                 assert!(!is_constant(&target));
+
+                used_qubits += 1;
+                local_gates.push(UnitaryRef::from(Unitary::Not {
+                    input: target.clone(),
+                }));
+                local_gates.push(UnitaryRef::from(Unitary::Cnot {
+                    control: control.clone(),
+                    target: target.clone(),
+                }));
+
                 self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
                     input: target.clone(),
                 }));
@@ -857,16 +871,20 @@ impl<'a> QuantumCircuit<'a> {
                 }));
             } else {
                 // no constants
-                let target: QubitRef = if self.use_dynamic_memory {
-                    self.get_memory(1)[0].clone()
-                } else {
-                    let name = format!("{}{}_eq{}_{}", prefix, nid, i, self.current_n);
-                    QubitRef::from(Qubit::QBit {
-                        name,
-                        dependency: None,
-                    })
-                };
+                // let target: QubitRef = if self.use_dynamic_memory {
+                //     self.get_memory(1)[0].clone()
+                // } else {
+                //     let name = format!("{}{}_eq{}_{}", prefix, nid, i, self.current_n);
+                //     QubitRef::from(Qubit::QBit {
+                //         name,
+                //         dependency: None,
+                //     })
+                // };
+
+                let target: QubitRef = self.get_memory(1)[0].clone();
+                used_qubits += 1;
                 controls.push(target.clone());
+
                 self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot {
                     control: l_qubit.clone(),
                     target: target.clone(),
@@ -876,8 +894,20 @@ impl<'a> QuantumCircuit<'a> {
                     target: target.clone(),
                 }));
                 assert!(!is_constant(&target));
-                self.circuit_stack
-                    .push(UnitaryRef::from(Unitary::Not { input: target }));
+                self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
+                    input: target.clone(),
+                }));
+
+                // local gates
+                local_gates.push(UnitaryRef::from(Unitary::Cnot {
+                    control: l_qubit.clone(),
+                    target: target.clone(),
+                }));
+                local_gates.push(UnitaryRef::from(Unitary::Cnot {
+                    control: r_qubit.clone(),
+                    target: target.clone(),
+                }));
+                local_gates.push(UnitaryRef::from(Unitary::Not { input: target }));
             }
         }
         let replacement: Vec<QubitRef>;
@@ -906,7 +936,11 @@ impl<'a> QuantumCircuit<'a> {
             self.circuit_stack
                 .push(UnitaryRef::from(Unitary::Mcx { controls, target }));
         }
-        // TODO: there is uncomputing that can be done here
+        self.dm_index -= used_qubits;
+        for gate in local_gates.iter().rev() {
+            self.circuit_stack.push(gate.clone());
+        }
+
         assert!(replacement.len() == 1);
         replacement
     }
