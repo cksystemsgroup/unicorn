@@ -47,7 +47,7 @@ pyo3 = { version = "~0.17", features = ["auto-initialize"] }
 riscu = { git = 'https://github.com/cksystemsgroup/riscu' }
 
 [dev-dependencies]
-rayon = "~1.5"
+rayon = "~1.6"
 tempfile = "~3.3"
 which = "~4.3"
 log = "~0.4"
