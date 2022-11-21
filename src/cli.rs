@@ -181,6 +181,15 @@ pub fn args() -> Command {
                         .default_value(Into::<&str>::into(SmtType::Generic)),
                 )
                 .arg(
+                    Arg::new("solver-timeout")
+                        .help("Timeout for each SMT solver query in milliseconds")
+                        .short('t')
+                        .long("timeout")
+                        .num_args(1)
+                        .value_name("NUMBER")
+                        .value_parser(value_parser!(u64)),
+                )
+                .arg(
                     Arg::new("unroll-model")
                         .help("Number of instructions to unroll from model")
                         .short('u')
@@ -272,6 +281,15 @@ pub fn args() -> Command {
                         .value_name("SOLVER")
                         .value_parser(value_parser_smt_type())
                         .default_value(Into::<&str>::into(SmtType::Generic)),
+                )
+                .arg(
+                    Arg::new("solver-timeout")
+                        .help("Timeout for each SMT solver query in milliseconds")
+                        .short('t')
+                        .long("timeout")
+                        .num_args(1)
+                        .value_name("NUMBER")
+                        .value_parser(value_parser!(u64)),
                 )
                 .arg(
                     Arg::new("unroll-model")

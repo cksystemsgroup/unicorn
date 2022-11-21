@@ -1,4 +1,4 @@
-use crate::unicorn::solver::{Solution, Solver};
+use crate::unicorn::solver::{none_impl, Solution, Solver};
 use crate::unicorn::{HashableNodeRef, Model, Node, NodeRef, NodeType};
 use log::{debug, trace, warn};
 use std::cell::RefCell;
@@ -6,27 +6,33 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::convert::TryInto;
 use std::rc::Rc;
+use std::time::Duration;
 
 //
 // Public Interface
 //
 
-pub fn optimize_model<S: Solver>(model: &mut Model) {
+pub fn optimize_model_with_solver<S: Solver>(model: &mut Model, timeout: Option<Duration>) {
     debug!("Optimizing model using '{}' SMT solver ...", S::name());
-    optimize_model_impl::<S>(model, &mut vec![]);
+    debug!("Setting SMT solver timeout to {:?} per query ...", timeout);
+    optimize_model_impl::<S>(model, &mut vec![], timeout);
 }
 
-pub fn optimize_model_with_input<S: Solver>(model: &mut Model, inputs: &mut Vec<u64>) {
+pub fn optimize_model_with_input(model: &mut Model, inputs: &mut Vec<u64>) {
     debug!("Optimizing model with {} concrete inputs ...", inputs.len());
-    optimize_model_impl::<S>(model, inputs);
+    optimize_model_impl::<none_impl::NoneSolver>(model, inputs, None);
 }
 
 //
 // Private Implementation
 //
 
-fn optimize_model_impl<S: Solver>(model: &mut Model, inputs: &mut Vec<u64>) {
-    let mut constant_folder = ConstantFolder::<S>::new(inputs);
+fn optimize_model_impl<S: Solver>(
+    model: &mut Model,
+    inputs: &mut Vec<u64>,
+    timeout: Option<Duration>,
+) {
+    let mut constant_folder = ConstantFolder::<S>::new(inputs, timeout);
     model
         .sequentials
         .retain(|s| constant_folder.should_retain_sequential(s));
@@ -88,9 +94,9 @@ fn new_const(imm: u64) -> NodeRef {
 }
 
 impl<'a, S: Solver> ConstantFolder<'a, S> {
-    fn new(concrete_inputs: &'a mut Vec<u64>) -> Self {
+    fn new(concrete_inputs: &'a mut Vec<u64>, timeout: Option<Duration>) -> Self {
         Self {
-            smt_solver: S::new(),
+            smt_solver: S::new(timeout),
             marks: HashSet::new(),
             mapping: HashMap::new(),
             const_false: new_const_with_type(0, NodeType::Bit),
