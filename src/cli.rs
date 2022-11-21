@@ -373,11 +373,6 @@ pub fn args() -> Command {
                     .value_name("NUMBER")
                     .value_parser(value_parser!(usize)),
             )
-            .arg(
-                Arg::new("from-dimacs")
-                    .help("Consume DIMACS instead of RISC-U inputs")
-                    .long("from-dimacs")
-            )
         )
         .subcommand(
             Command::new("dwave")
