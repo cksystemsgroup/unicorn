@@ -137,6 +137,16 @@ impl ModelRenumberer {
                 self.visit(right);
                 self.next_nid(nid);
             }
+            Node::Sll { ref mut nid, ref left, ref right, .. } => {
+                self.visit(left);
+                self.visit(right);
+                self.next_nid(nid);
+            }
+            Node::Srl { ref mut nid, ref left, ref right, .. } => {
+                self.visit(left);
+                self.visit(right);
+                self.next_nid(nid);
+            }
             Node::Ult { ref mut nid, ref left, ref right, .. } => {
                 self.visit(left);
                 self.visit(right);
@@ -268,6 +278,20 @@ impl ModelUnroller {
                     right: self.unroll(right),
                 }))
             }
+            Node::Sll { left, right, .. } => {
+                Rc::new(RefCell::new(Node::Sll {
+                    nid: 0,
+                    left: self.unroll(left),
+                    right: self.unroll(right),
+                }))
+            }
+            Node::Srl { left, right, .. } => {
+                Rc::new(RefCell::new(Node::Srl {
+                    nid: 0,
+                    left: self.unroll(left),
+                    right: self.unroll(right),
+                }))
+            }
             Node::Ult { left, right, .. } => {
                 Rc::new(RefCell::new(Node::Ult {
                     nid: 0,
@@ -298,16 +322,18 @@ impl ModelUnroller {
                     right: self.unroll(right),
                 }))
             }
-            Node::And { left, right, .. } => {
+            Node::And { sort, left, right, .. } => {
                 Rc::new(RefCell::new(Node::And {
                     nid: 0,
+                    sort: sort.clone(),
                     left: self.unroll(left),
                     right: self.unroll(right),
                 }))
             }
-            Node::Not { value, .. } => {
+            Node::Not { sort, value, .. } => {
                 Rc::new(RefCell::new(Node::Not {
                     nid: 0,
+                    sort: sort.clone(),
                     value: self.unroll(value),
                 }))
             }

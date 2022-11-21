@@ -49,6 +49,10 @@ pub fn load_model_into_emulator(emulator: &mut EmulatorState, model: &Model) {
                     }
                     continue;
                 }
+                if name.starts_with("dynamic-dispatch-on") {
+                    // Nothing to do here.
+                    continue;
+                }
                 panic!("unhandled state: {}", name);
             } else {
                 panic!("expecting 'State' node here");

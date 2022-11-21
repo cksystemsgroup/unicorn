@@ -16,8 +16,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        toolchain: [1.57.0]
-        os: [ubuntu-20.04, macos-10.15, windows-2019]
+        toolchain: [1.60.0]
+        os: [ubuntu-20.04, macos-11, windows-2019]
         include:
           - platform: linux
             os: ubuntu-20.04
@@ -25,7 +25,7 @@ jobs:
             target: x86_64-unknown-linux-gnu
             extension: ""
           - platform: macos
-            os: macos-10.15
+            os: macos-11
             features: z3,boolector
             target: x86_64-apple-darwin
             extension: ""
@@ -36,7 +36,7 @@ jobs:
             extension: ".exe"
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Install Rust ${{ matrix.toolchain }}
         uses: actions-rs/toolchain@v1
@@ -81,7 +81,7 @@ jobs:
         run: mv target/${{ matrix.target }}/release/monster${{ matrix.extension }} ./monster-${{ matrix.target }}${{ matrix.extension }}
 
       - name: Upload Binary Artifact
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: monster-${{ matrix.platform }}
           path: monster-${{ matrix.target }}${{ matrix.extension }}
@@ -103,7 +103,7 @@ jobs:
       GIT_COMMITTER_EMAIL: "action@github.com"
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           # use credentials, that are allowed to commit to release branch
           ssh-key: ${{ secrets.ACTIONS_DEPLOY_KEY }}
@@ -114,7 +114,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: 1.57.0
+          toolchain: 1.60.0
           override: true
 
       - name: Install Semantic Release for Rust
@@ -131,15 +131,15 @@ jobs:
           args: --release --all-features --locked
 
       # Download all binary artifacts to release
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v3
         with:
           name: monster-linux
 
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v3
         with:
           name: monster-windows
 
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v3
         with:
           name: monster-macos
 
@@ -175,7 +175,7 @@ jobs:
     runs-on: ubuntu-20.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           # use credentials, that are allowed to commit to gh-pages branch
           ssh-key: ${{ secrets.ACTIONS_DEPLOY_KEY }}

@@ -17,7 +17,7 @@ jobs:
     name: Security Scan of Dependencies
     runs-on: ubuntu-20.04
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: Check Github Permissions
         id: check-permissions
@@ -38,15 +38,15 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        toolchain: [1.57.0]
-        os: [ubuntu-20.04, macos-10.15, windows-2019]
+        toolchain: [1.60.0]
+        os: [ubuntu-20.04, macos-11, windows-2019]
         experimental: [false]
         include:
           - platform: Linux
             os: ubuntu-20.04
             features: z3,boolector
           - platform: MacOs
-            os: macos-10.15
+            os: macos-11
             features: z3,boolector
           - platform: Windows
             os: windows-2019
@@ -59,7 +59,7 @@ jobs:
             features: z3,boolector
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Install Rust ${{ matrix.toolchain }}
         uses: actions-rs/toolchain@v1
@@ -79,7 +79,9 @@ jobs:
           echo "TEMP=$env:USERPROFILE\AppData\Local\Temp" >> $env:GITHUB_ENV
           echo "TMP=$env:USERPROFILE\AppData\Local\Temp" >> $env:GITHUB_ENV
           choco upgrade cygwin -y --no-progress
-          choco install gcc-core make -y --no-progress --source=cygwin
+          # Workaround for Chocolatey 1.2.0, what we really want is:
+          # choco install gcc-core make -y --no-progress --source=cygwin
+          C:\tools\cygwin\cygwinsetup.exe -q -d -N -R C:\tools\cygwin -l C:\tools\cygwin\packages -P gcc-core,make | Out-Default
           echo 'C:\tools\cygwin\bin' >> $env:GITHUB_PATH
 
       - name: Check Github Permissions
@@ -91,7 +93,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cache Cargo Dependencies
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         env:
           cache-name: cache-cargo-dependencies
         # disable cache for scheduled builds

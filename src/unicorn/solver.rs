@@ -12,6 +12,9 @@ pub enum Solution {
     Timeout,
 }
 
+// TODO: Clippy in Rust 1.60.0 is overly pedantic. Revisit this on Rust
+// upgrades to an even higher version number.
+#[allow(clippy::wrong_self_convention)]
 pub trait Solver {
     fn new() -> Self;
     fn name() -> &'static str;
@@ -175,6 +178,8 @@ pub mod boolector_impl {
                     let bv_right = self.visit(right);
                     bv_left.urem(&bv_right)
                 }
+                Node::Sll { .. } => todo!("implement SLL"),
+                Node::Srl { .. } => todo!("implement SRL"),
                 Node::Ult { left, right, .. } => {
                     let bv_left = self.visit(left);
                     let bv_right = self.visit(right);
@@ -336,12 +341,14 @@ pub mod z3solver_impl {
                     let z3_right = self.visit(right).as_bv().expect("bv");
                     z3_left.bvmul(&z3_right).into()
                 }
-                Node::Div { .. } => panic!("implement DIV"),
+                Node::Div { .. } => todo!("implement DIV"),
                 Node::Rem { left, right, .. } => {
                     let z3_left = self.visit(left).as_bv().expect("bv");
                     let z3_right = self.visit(right).as_bv().expect("bv");
                     z3_left.bvurem(&z3_right).into()
                 }
+                Node::Sll { .. } => todo!("implement SLL"),
+                Node::Srl { .. } => todo!("implement SRL"),
                 Node::Ult { left, right, .. } => {
                     let z3_left = self.visit(left).as_bv().expect("bv");
                     let z3_right = self.visit(right).as_bv().expect("bv");

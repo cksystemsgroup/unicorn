@@ -70,6 +70,16 @@ pub enum Node {
         left: NodeRef,
         right: NodeRef,
     },
+    Sll {
+        nid: Nid,
+        left: NodeRef,
+        right: NodeRef,
+    },
+    Srl {
+        nid: Nid,
+        left: NodeRef,
+        right: NodeRef,
+    },
     Ult {
         nid: Nid,
         left: NodeRef,
@@ -94,11 +104,13 @@ pub enum Node {
     },
     And {
         nid: Nid,
+        sort: NodeType,
         left: NodeRef,
         right: NodeRef,
     },
     Not {
         nid: Nid,
+        sort: NodeType,
         value: NodeRef,
     },
     State {
@@ -221,6 +233,10 @@ where
                 writeln!(out, "{} udiv 2 {} {}", nid, get_nid(left), get_nid(right))?,
             Node::Rem { nid, left, right } =>
                 writeln!(out, "{} urem 2 {} {}", nid, get_nid(left), get_nid(right))?,
+            Node::Sll { nid, left, right } =>
+                writeln!(out, "{} sll 2 {} {}", nid, get_nid(left), get_nid(right))?,
+            Node::Srl { nid, left, right } =>
+                writeln!(out, "{} srl 2 {} {}", nid, get_nid(left), get_nid(right))?,
             Node::Ult { nid, left, right } =>
                 writeln!(out, "{} ult 1 {} {}", nid, get_nid(left), get_nid(right))?,
             Node::Ext { nid, from, value } =>
@@ -229,10 +245,10 @@ where
                 writeln!(out, "{} ite {} {} {} {}", nid, get_sort(sort), get_nid(cond), get_nid(left), get_nid(right))?,
             Node::Eq { nid, left, right } =>
                 writeln!(out, "{} eq 1 {} {}", nid, get_nid(left), get_nid(right))?,
-            Node::And { nid, left, right } =>
-                writeln!(out, "{} and 1 {} {}", nid, get_nid(left), get_nid(right))?,
-            Node::Not { nid, value } =>
-                writeln!(out, "{} not 1 {}", nid, get_nid(value))?,
+            Node::And { nid, sort, left, right } =>
+                writeln!(out, "{} and {} {} {}", nid, get_sort(sort), get_nid(left), get_nid(right))?,
+            Node::Not { nid, sort, value } =>
+                writeln!(out, "{} not {} {}", nid, get_sort(sort), get_nid(value))?,
             Node::State { nid, sort, init, name } => {
                 writeln!(out, "{} state {} {}", nid, get_sort(sort), name.as_deref().unwrap_or("?"))?;
                 if let Some(value) = init {
@@ -267,6 +283,8 @@ pub fn get_nid(node: &NodeRef) -> Nid {
         Node::Mul { nid, .. } => nid,
         Node::Div { nid, .. } => nid,
         Node::Rem { nid, .. } => nid,
+        Node::Sll { nid, .. } => nid,
+        Node::Srl { nid, .. } => nid,
         Node::Ult { nid, .. } => nid,
         Node::Ext { nid, .. } => nid,
         Node::Ite { nid, .. } => nid,

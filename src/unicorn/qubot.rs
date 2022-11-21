@@ -812,19 +812,13 @@ impl InputEvaluator {
                 let dividend_value = self.get_numeric_value(dividend, qubo);
                 let divisor_value = self.get_numeric_value(divisor, qubo);
 
-                let mut result: u64;
-
-                match current_rule {
-                    Rule::Quotient { .. } => {
-                        result = dividend_value / divisor_value;
-                    }
-                    Rule::Remainder { .. } => {
-                        result = dividend_value % divisor_value;
-                    }
+                let mut result: u64 = match current_rule {
+                    Rule::Quotient { .. } => dividend_value / divisor_value,
+                    Rule::Remainder { .. } => dividend_value % divisor_value,
                     _ => {
                         panic!("[RULE DIVISION/REMAINDER]this should not happen!");
                     }
-                }
+                };
 
                 for _ in 0..*index {
                     result /= 2
