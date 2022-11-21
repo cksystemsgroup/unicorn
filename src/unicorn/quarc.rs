@@ -2305,8 +2305,7 @@ mod tests {
         for cond in 0..2 {
             for true_part in 0..256 {
                 for false_part in 0..256 {
-                    let (_, assignments) =
-                        qc.evaluate_input(&[cond, true_part, false_part]);
+                    let (_, assignments) = qc.evaluate_input(&[cond, true_part, false_part]);
                     let circuit_value = qc._get_value_from_nid(10, &assignments).unwrap();
                     if cond == 1 {
                         assert!(circuit_value == true_part);
