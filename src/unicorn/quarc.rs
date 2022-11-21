@@ -2041,7 +2041,7 @@ mod tests {
                 assert!(oracle_val);
 
                 let circuit_value = qc._get_value_from_nid(4, &assignments);
-                assert!(!circuit_value.is_none());
+                assert!(circuit_value.is_some());
                 assert!(result == circuit_value.unwrap());
             }
         }
@@ -2063,7 +2063,7 @@ mod tests {
             assert!(oracle_val);
 
             let circuit_value = qc._get_value_from_nid(4, &assignments);
-            assert!(!circuit_value.is_none());
+            assert!(circuit_value.is_some());
             assert!(result == circuit_value.unwrap());
         }
     }
@@ -2079,11 +2079,11 @@ mod tests {
         for i in 0..256 {
             let result = (255 - i) & 255;
 
-            let (oracle_val, assignments) = qc.evaluate_input(&[i]);
+            let (_, assignments) = qc.evaluate_input(&[i]);
             // assert!(oracle_val);
 
             let circuit_value = qc._get_value_from_nid(4, &assignments);
-            assert!(!circuit_value.is_none());
+            assert!(circuit_value.is_some());
             println!("{} {} {}", i, result, circuit_value.unwrap());
             assert!(result == circuit_value.unwrap());
         }
@@ -2105,7 +2105,7 @@ mod tests {
                 let (oracle_val, assignments) = qc.evaluate_input(&[i, j]);
                 assert!(oracle_val);
                 let circuit_value = qc._get_value_from_nid(4, &assignments);
-                assert!(!circuit_value.is_none());
+                assert!(circuit_value.is_some());
                 assert!(result == circuit_value.unwrap());
             }
         }
@@ -2126,7 +2126,7 @@ mod tests {
             let (oracle_val, assignments) = qc.evaluate_input(&[i]);
             assert!(oracle_val);
             let circuit_value = qc._get_value_from_nid(4, &assignments);
-            assert!(!circuit_value.is_none());
+            assert!(circuit_value.is_some());
             println!("{} {}", i, circuit_value.unwrap());
             assert!(result == circuit_value.unwrap());
         }
@@ -2241,7 +2241,7 @@ mod tests {
                 assert!(oracle_val);
 
                 let circuit_value = qc._get_value_from_nid(4, &assignments);
-                assert!(!circuit_value.is_none());
+                assert!(circuit_value.is_some());
                 assert!(result == circuit_value.unwrap());
             }
         }
@@ -2305,7 +2305,7 @@ mod tests {
         for cond in 0..2 {
             for true_part in 0..256 {
                 for false_part in 0..256 {
-                    let (oracle_val, assignments) =
+                    let (_, assignments) =
                         qc.evaluate_input(&[cond, true_part, false_part]);
                     let circuit_value = qc._get_value_from_nid(10, &assignments).unwrap();
                     if cond == 1 {
@@ -2354,7 +2354,7 @@ mod tests {
             assert!(oracle_val);
 
             let circuit_value = qc._get_value_from_nid(3, &assignments);
-            assert!(!circuit_value.is_none());
+            assert!(circuit_value.is_some());
             assert!(result == circuit_value.unwrap());
         }
     }
@@ -2376,7 +2376,7 @@ mod tests {
                 assert!(oracle_val);
 
                 let circuit_value = qc._get_value_from_nid(4, &assignments);
-                assert!(!circuit_value.is_none());
+                assert!(circuit_value.is_some());
                 assert!(result == circuit_value.unwrap());
             }
         }
@@ -2398,7 +2398,7 @@ mod tests {
             assert!(oracle_val);
 
             let circuit_value = qc._get_value_from_nid(4, &assignments);
-            assert!(!circuit_value.is_none());
+            assert!(circuit_value.is_some());
             // println!("{} {}", i, circuit_value.unwrap());
             assert!(result == circuit_value.unwrap());
         }
@@ -2428,7 +2428,7 @@ mod tests {
                     //     get_word_value(&qc.temp, &assignments).unwrap()
                     // );
                     assert!(oracle_val);
-                    assert!(!circuit_value.is_none());
+                    assert!(circuit_value.is_some());
                     assert!(result == circuit_value.unwrap());
                 }
             }
@@ -2453,7 +2453,7 @@ mod tests {
                 let result = (i / 50) & 255;
                 // println!("{}/50 = {},  got {}", i, result, circuit_value.unwrap());
                 assert!(oracle_val);
-                assert!(!circuit_value.is_none());
+                assert!(circuit_value.is_some());
                 assert!(result == circuit_value.unwrap());
             }
             // else {
@@ -2477,7 +2477,7 @@ mod tests {
                 if j != 0 {
                     let result = (i % j) & 255;
                     assert!(oracle_val);
-                    assert!(!circuit_value.is_none());
+                    assert!(circuit_value.is_some());
                     // println!("{} {}, {} {}", i, j, result, circuit_value.unwrap());
                     assert!(result == circuit_value.unwrap());
                 }
