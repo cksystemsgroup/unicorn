@@ -562,7 +562,7 @@ fn exec_addiw(state: &mut EmulatorState, itype: IType) {
 fn exec_sltiu(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
     let condition = rs1_value < (itype.imm() as u64);
-    let rd_value = if condition { 1 } else { 0 };
+    let rd_value = EmulatorValue::from(condition);
     trace_itype(state, "sltiu", itype, rd_value);
     state.set_reg(itype.rd(), rd_value);
     state.pc_next();
@@ -753,7 +753,7 @@ fn exec_sltu(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
     let rs2_value = state.get_reg(rtype.rs2());
     let condition = rs1_value < rs2_value;
-    let rd_value = if condition { 1 } else { 0 };
+    let rd_value = EmulatorValue::from(condition);
     trace_rtype(state, "sltu", rtype, rd_value);
     state.set_reg(rtype.rd(), rd_value);
     state.pc_next();

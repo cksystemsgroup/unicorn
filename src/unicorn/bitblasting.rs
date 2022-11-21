@@ -1222,7 +1222,7 @@ mod tests {
         let v = "v".to_string();
         assert!(get_constant(&GateRef::from(Gate::ConstFalse)) == Some(false));
         assert!(get_constant(&GateRef::from(Gate::ConstTrue)) == Some(true));
-        assert!(get_constant(&GateRef::from(Gate::InputBit { name: v })) == None);
+        assert!(get_constant(&GateRef::from(Gate::InputBit { name: v })).is_none());
     }
 
     #[test]
@@ -1230,7 +1230,7 @@ mod tests {
         let v = "v".to_string();
         assert!(get_numeric_from_gate(&GateRef::from(Gate::ConstFalse)) == Some(0));
         assert!(get_numeric_from_gate(&GateRef::from(Gate::ConstTrue)) == Some(1));
-        assert!(get_numeric_from_gate(&GateRef::from(Gate::InputBit { name: v })) == None);
+        assert!(get_numeric_from_gate(&GateRef::from(Gate::InputBit { name: v })).is_none());
     }
 
     #[test]
