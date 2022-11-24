@@ -12,15 +12,20 @@ use std::time::Duration;
 // Public Interface
 //
 
-pub fn optimize_model_with_solver<S: Solver>(model: &mut Model, timeout: Option<Duration>) {
+pub fn optimize_model_with_solver<S: Solver>(
+    model: &mut Model,
+    timeout: Option<Duration>,
+    minimize: bool,
+) {
     debug!("Optimizing model using '{}' SMT solver ...", S::name());
     debug!("Setting SMT solver timeout to {:?} per query ...", timeout);
-    optimize_model_impl::<S>(model, &mut vec![], timeout);
+    debug!("Using SMT solver to minimize graph: {} ...", minimize);
+    optimize_model_impl::<S>(model, &mut vec![], timeout, minimize);
 }
 
 pub fn optimize_model_with_input(model: &mut Model, inputs: &mut Vec<u64>) {
     debug!("Optimizing model with {} concrete inputs ...", inputs.len());
-    optimize_model_impl::<none_impl::NoneSolver>(model, inputs, None);
+    optimize_model_impl::<none_impl::NoneSolver>(model, inputs, None, false);
 }
 
 //
@@ -31,8 +36,9 @@ fn optimize_model_impl<S: Solver>(
     model: &mut Model,
     inputs: &mut Vec<u64>,
     timeout: Option<Duration>,
+    minimize: bool,
 ) {
-    let mut constant_folder = ConstantFolder::<S>::new(inputs, timeout);
+    let mut constant_folder = ConstantFolder::<S>::new(inputs, timeout, minimize);
     model
         .sequentials
         .retain(|s| constant_folder.should_retain_sequential(s));
@@ -54,6 +60,7 @@ struct ConstantFolder<'a, S> {
     const_false: NodeRef,
     const_true: NodeRef,
     concrete_inputs: &'a mut Vec<u64>,
+    minimize_with_solver: bool,
 }
 
 fn ones(sort: &NodeType) -> u64 {
@@ -94,7 +101,11 @@ fn new_const(imm: u64) -> NodeRef {
 }
 
 impl<'a, S: Solver> ConstantFolder<'a, S> {
-    fn new(concrete_inputs: &'a mut Vec<u64>, timeout: Option<Duration>) -> Self {
+    fn new(
+        concrete_inputs: &'a mut Vec<u64>,
+        timeout: Option<Duration>,
+        minimize_with_solver: bool,
+    ) -> Self {
         Self {
             smt_solver: S::new(timeout),
             marks: HashSet::new(),
@@ -102,6 +113,7 @@ impl<'a, S: Solver> ConstantFolder<'a, S> {
             const_false: new_const_with_type(0, NodeType::Bit),
             const_true: new_const_with_type(1, NodeType::Bit),
             concrete_inputs,
+            minimize_with_solver,
         }
     }
 
@@ -595,9 +607,15 @@ impl<'a, S: Solver> ConstantFolder<'a, S> {
     }
 
     fn process(&mut self, node: &NodeRef) -> Option<NodeRef> {
-        // First try to constant-fold nodes and only invoke the SMT solver on
-        // some specific boolean operations in case constant-folding fails.
-        self.process_fold(node).or_else(|| self.process_solve(node))
+        if self.minimize_with_solver {
+            // First try to constant-fold nodes and only invoke the SMT solver on
+            // some specific boolean operations in case constant-folding fails.
+            self.process_fold(node).or_else(|| self.process_solve(node))
+        } else {
+            // Only constant-fold nodes, the solver is reserved for queries that
+            // check bad states on the resulting graph.
+            self.process_fold(node)
+        }
     }
 
     fn should_retain_bad_state(&mut self, bad_state: &NodeRef, use_smt: bool) -> bool {

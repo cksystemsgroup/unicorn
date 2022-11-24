@@ -77,6 +77,7 @@ fn main() -> Result<()> {
             let has_concrete_inputs = is_beator && args.contains_id("inputs");
             let inputs = expect_optional_arg::<String>(args, "inputs")?;
             let prune = !is_beator || args.get_flag("prune-model");
+            let minimize = is_beator && !args.get_flag("fast-minimize");
             let renumber = !is_beator || output.is_some();
             let input_is_btor2 = args.get_flag("from-btor2");
             let input_is_dimacs = !is_beator && args.get_flag("from-dimacs");
@@ -124,17 +125,17 @@ fn main() -> Result<()> {
                     match solver {
                         #[rustfmt::skip]
                         SmtType::Generic => {
-                            optimize_model_with_solver::<none_impl::NoneSolver>(&mut model, timeout)
+                            optimize_model_with_solver::<none_impl::NoneSolver>(&mut model, timeout, minimize)
                         },
                         #[rustfmt::skip]
                         #[cfg(feature = "boolector")]
                         SmtType::Boolector => {
-                            optimize_model_with_solver::<boolector_impl::BoolectorSolver>(&mut model, timeout)
+                            optimize_model_with_solver::<boolector_impl::BoolectorSolver>(&mut model, timeout, minimize)
                         },
                         #[rustfmt::skip]
                         #[cfg(feature = "z3")]
                         SmtType::Z3 => {
-                            optimize_model_with_solver::<z3solver_impl::Z3SolverWrapper>(&mut model, timeout)
+                            optimize_model_with_solver::<z3solver_impl::Z3SolverWrapper>(&mut model, timeout, minimize)
                         },
                     }
                     if renumber {
