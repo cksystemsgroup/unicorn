@@ -358,7 +358,11 @@ pub mod z3solver_impl {
                     let z3_right = self.visit(right).as_bv().expect("bv");
                     z3_left.bvmul(&z3_right).into()
                 }
-                Node::Div { .. } => todo!("implement DIV"),
+                Node::Div { left, right, .. } => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvudiv(&z3_right).into()
+                }
                 Node::Rem { left, right, .. } => {
                     let z3_left = self.visit(left).as_bv().expect("bv");
                     let z3_right = self.visit(right).as_bv().expect("bv");
