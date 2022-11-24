@@ -1,6 +1,6 @@
 // cksystemsgroup.github.io/unicorn
 // @SOLUTIONS = 1
-// @UNROLL = 190
+// @UNROLL = 281
 
 uint64_t main() {
   uint64_t* x;
@@ -24,13 +24,11 @@ uint64_t main() {
     j = 0;
 
     // Read the x-coordinate of the i-th queen.
-    *xi = 0;  // touch memory
-    read(0, xi, 1);
+    *xi = VERIFIER_nondet_uchar();
     if (*xi >= n) return 0;
 
     // Read the y-coordinate of the i-th queen.
-    *yi = 0;  // touch memory
-    read(0, yi, 1);
+    *yi = VERIFIER_nondet_uchar();
     if (*yi >= n) return 0;
 
     // Check for conflict with all previous queens.
@@ -49,5 +47,5 @@ uint64_t main() {
     i = i + 1;
   }
 
-  return 1;
+  VERIFIER_error();
 }

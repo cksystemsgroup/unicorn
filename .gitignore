@@ -8,11 +8,11 @@
 **/*.s
 .DS_Store
 .z3-trace
+lion/*.bc
 lion/*.btor2
 lion/*.cnf
-lion/*.data?
+lion/*.data
 lion/*.m
 lion/data.csv
-monster-x86_64-apple-darwin
-monster-x86_64-pc-windows-msvc.exe
-monster-x86_64-unknown-linux-gnu
+lion/klee-last
+lion/klee-out-*
