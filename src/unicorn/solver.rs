@@ -1,4 +1,5 @@
 use crate::unicorn::NodeRef;
+use std::time::Duration;
 
 //
 // Public Interface
@@ -16,7 +17,7 @@ pub enum Solution {
 // upgrades to an even higher version number.
 #[allow(clippy::wrong_self_convention)]
 pub trait Solver {
-    fn new() -> Self;
+    fn new(timeout: Option<Duration>) -> Self;
     fn name() -> &'static str;
     fn solve(&mut self, root: &NodeRef) -> Solution;
     fn is_always_true(&mut self, node: &NodeRef) -> bool;
@@ -32,6 +33,7 @@ pub trait Solver {
 pub mod none_impl {
     use crate::unicorn::solver::{Solution, Solver};
     use crate::unicorn::NodeRef;
+    use std::time::Duration;
 
     pub struct NoneSolver {}
 
@@ -40,7 +42,7 @@ pub mod none_impl {
             "None"
         }
 
-        fn new() -> Self {
+        fn new(_timeout: Option<Duration>) -> Self {
             Self {}
         }
 
@@ -71,8 +73,10 @@ pub mod boolector_impl {
         option::{BtorOption, ModelGen, OutputFileFormat},
         Btor, SolverResult, BV,
     };
+    use log::debug;
     use std::collections::HashMap;
     use std::rc::Rc;
+    use std::time::Duration;
 
     type BVRef = BV<Rc<Btor>>;
 
@@ -86,12 +90,13 @@ pub mod boolector_impl {
             "Boolector"
         }
 
-        fn new() -> Self {
+        fn new(timeout: Option<Duration>) -> Self {
             let solver = Rc::new(Btor::new());
             // TODO: Properly configure the below options.
             solver.set_opt(BtorOption::ModelGen(ModelGen::All));
             solver.set_opt(BtorOption::Incremental(true));
             solver.set_opt(BtorOption::OutputFileFormat(OutputFileFormat::SMTLIBv2));
+            solver.set_opt(BtorOption::SolverTimeout(timeout));
             Self {
                 solver,
                 mapping: HashMap::new(),
@@ -131,6 +136,9 @@ pub mod boolector_impl {
                 SolverResult::Unknown => Solution::Timeout,
             };
             self.solver.pop(1);
+            if solution == Solution::Timeout {
+                debug!("Query timeout was reached by Boolector");
+            }
             solution
         }
 
@@ -235,7 +243,10 @@ pub mod boolector_impl {
 pub mod z3solver_impl {
     use crate::unicorn::solver::{Solution, Solver};
     use crate::unicorn::{HashableNodeRef, Node, NodeRef, NodeType};
+    use log::debug;
     use std::collections::HashMap;
+    use std::convert::TryInto;
+    use std::time::Duration;
     use z3_solver::{
         ast::{Ast, Bool, Dynamic, BV},
         Config, Context, SatResult, Solver as Z3Solver,
@@ -254,8 +265,11 @@ pub mod z3solver_impl {
             "Z3"
         }
 
-        fn new() -> Self {
-            let config = Config::new();
+        fn new(timeout: Option<Duration>) -> Self {
+            let mut config = Config::new();
+            if let Some(duration) = timeout {
+                config.set_timeout_msec(duration.as_millis().try_into().expect("fits in u64"));
+            }
             let context = Context::new(&config);
             // TODO: This is very funky, avoid leaking context.
             let leak: &'ctx Context = Box::leak(Box::new(context));
@@ -301,6 +315,9 @@ pub mod z3solver_impl {
                 SatResult::Unknown => Solution::Timeout,
             };
             self.solver.pop(1);
+            if solution == Solution::Timeout {
+                debug!("Query timeout was reached by Z3");
+            }
             solution
         }
 
@@ -341,7 +358,11 @@ pub mod z3solver_impl {
                     let z3_right = self.visit(right).as_bv().expect("bv");
                     z3_left.bvmul(&z3_right).into()
                 }
-                Node::Div { .. } => todo!("implement DIV"),
+                Node::Div { left, right, .. } => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvudiv(&z3_right).into()
+                }
                 Node::Rem { left, right, .. } => {
                     let z3_left = self.visit(left).as_bv().expect("bv");
                     let z3_right = self.visit(right).as_bv().expect("bv");
@@ -374,10 +395,15 @@ pub mod z3solver_impl {
                     let z3_right = self.visit(right).as_bv().expect("bv");
                     z3_left._eq(&z3_right).into()
                 }
-                Node::And { left, right, .. } => {
+                Node::And { sort: NodeType::Bit, left, right, .. } => {
                     let z3_left = self.visit(left).as_bool().expect("bool");
                     let z3_right = self.visit(right).as_bool().expect("bool");
                     Bool::and(self.context, &[&z3_left, &z3_right]).into()
+                }
+                Node::And { left, right, .. } => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvand(&z3_right).into()
                 }
                 Node::Not { value, .. } => {
                     let z3_value = self.visit(value).as_bool().expect("bool");

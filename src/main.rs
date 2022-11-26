@@ -15,7 +15,7 @@ use crate::unicorn::codegen::compile_model_into_program;
 use crate::unicorn::dimacs_parser::load_dimacs_as_gatemodel;
 use crate::unicorn::emulate_loader::load_model_into_emulator;
 use crate::unicorn::memory::replace_memory;
-use crate::unicorn::optimize::{optimize_model, optimize_model_with_input};
+use crate::unicorn::optimize::{optimize_model_with_input, optimize_model_with_solver};
 use crate::unicorn::qubot::{InputEvaluator, Qubot};
 use crate::unicorn::solver::*;
 use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
@@ -34,6 +34,7 @@ use std::{
     io::{stdout, Write},
     path::PathBuf,
     str::FromStr,
+    time::Duration,
 };
 
 fn main() -> Result<()> {
@@ -72,12 +73,15 @@ fn main() -> Result<()> {
             let output = expect_optional_arg::<PathBuf>(args, "output-file")?;
             let unroll = args.get_one::<usize>("unroll-model").cloned();
             let solver = expect_arg::<SmtType>(args, "solver")?;
+            let solver_timeout = args.get_one::<u64>("solver-timeout");
             let max_heap = *args.get_one::<u32>("max-heap").unwrap();
             let max_stack = *args.get_one::<u32>("max-stack").unwrap();
             let memory_size = ByteSize::mib(*args.get_one("memory").unwrap()).as_u64();
             let has_concrete_inputs = is_beator && args.contains_id("inputs");
             let inputs = expect_optional_arg::<String>(args, "inputs")?;
             let prune = !is_beator || args.get_flag("prune-model");
+            let minimize = is_beator && !args.get_flag("fast-minimize");
+            let renumber = !is_beator || output.is_some();
             let input_is_btor2 = args.get_flag("from-btor2");
             let input_is_dimacs = !is_beator && args.get_flag("from-dimacs");
             let compile_model = is_beator && args.get_flag("compile");
@@ -114,25 +118,32 @@ fn main() -> Result<()> {
                     for n in 0..unroll_depth {
                         unroll_model(&mut model, n);
                         if has_concrete_inputs {
-                            optimize_model_with_input::<none_impl::NoneSolver>(
-                                &mut model,
-                                &mut input_values,
-                            )
+                            optimize_model_with_input(&mut model, &mut input_values)
                         }
                     }
                     if prune {
                         prune_model(&mut model);
                     }
+                    let timeout = solver_timeout.map(|&ms| Duration::from_millis(ms));
                     match solver {
-                        SmtType::Generic => optimize_model::<none_impl::NoneSolver>(&mut model),
+                        #[rustfmt::skip]
+                        SmtType::Generic => {
+                            optimize_model_with_solver::<none_impl::NoneSolver>(&mut model, timeout, minimize)
+                        },
+                        #[rustfmt::skip]
                         #[cfg(feature = "boolector")]
                         SmtType::Boolector => {
-                            optimize_model::<boolector_impl::BoolectorSolver>(&mut model)
-                        }
+                            optimize_model_with_solver::<boolector_impl::BoolectorSolver>(&mut model, timeout, minimize)
+                        },
+                        #[rustfmt::skip]
                         #[cfg(feature = "z3")]
-                        SmtType::Z3 => optimize_model::<z3solver_impl::Z3SolverWrapper>(&mut model),
+                        SmtType::Z3 => {
+                            optimize_model_with_solver::<z3solver_impl::Z3SolverWrapper>(&mut model, timeout, minimize)
+                        },
                     }
-                    renumber_model(&mut model);
+                    if renumber {
+                        renumber_model(&mut model);
+                    }
                 }
 
                 Some(model)
@@ -173,26 +184,30 @@ fn main() -> Result<()> {
             if is_beator {
                 let bitblast = args.get_flag("bitblast");
                 let dimacs = args.get_flag("dimacs");
+                let output_to_stdout =
+                    output == Some(PathBuf::from("")) || output == Some(PathBuf::from("-"));
 
                 if bitblast {
                     let gate_model = bitblast_model(&model.unwrap(), true, 64);
-                    if let Some(ref output_path) = output {
+                    if output_to_stdout {
+                        if dimacs {
+                            write_dimacs_model(&gate_model, stdout())?;
+                        } else {
+                            write_btor2_model(&gate_model, stdout())?;
+                        }
+                    } else if let Some(ref output_path) = output {
                         let file = File::create(output_path)?;
                         if dimacs {
                             write_dimacs_model(&gate_model, file)?;
                         } else {
                             write_btor2_model(&gate_model, file)?;
                         }
-                    } else if dimacs {
-                        write_dimacs_model(&gate_model, stdout())?;
-                    } else {
-                        write_btor2_model(&gate_model, stdout())?;
                     }
+                } else if output_to_stdout {
+                    write_model(&model.unwrap(), stdout())?;
                 } else if let Some(ref output_path) = output {
                     let file = File::create(output_path)?;
                     write_model(&model.unwrap(), file)?;
-                } else {
-                    write_model(&model.unwrap(), stdout())?;
                 }
             } else {
                 let is_ising = args.get_flag("ising");

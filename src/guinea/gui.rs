@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread::JoinHandle;
+use std::time::Duration;
 use std::{fs, thread};
 
 use bytesize::ByteSize;
@@ -25,7 +26,7 @@ use crate::unicorn::bitblasting_printer::write_btor2_model;
 use crate::unicorn::btor2file_parser::{parse_btor2_file, parse_btor2_string};
 use crate::unicorn::builder::generate_model;
 use crate::unicorn::memory::replace_memory;
-use crate::unicorn::optimize::{optimize_model, optimize_model_with_input};
+use crate::unicorn::optimize::{optimize_model_with_input, optimize_model_with_solver};
 #[cfg(feature = "boolector")]
 use crate::unicorn::solver::boolector_impl;
 use crate::unicorn::solver::none_impl;
@@ -35,9 +36,7 @@ use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
 use crate::unicorn::Model;
 
 // TODO:
-//   -e, --emulate             Start emulation from created model (leave out)
-//   -c, --compile             Compile program from created model (leave out)
-//   -i, --inputs <inputs>     Concrete inputs to specialize the model
+//   minimize input
 
 pub fn gui() {
     let options = eframe::NativeOptions {
@@ -70,6 +69,8 @@ struct MyApp {
     unroller: Option<JoinHandle<String>>,
     memory_data: MemoryData,
     loading_data: LoadingData,
+    minimize: bool,
+    timeout: Option<Duration>,
 }
 
 #[derive(Clone)]
@@ -116,6 +117,8 @@ impl Default for MyApp {
                 max_stack: 32,
             },
             loading_data: LoadingData::default(),
+            minimize: false,
+            timeout: None,
         }
     }
 }
@@ -315,6 +318,8 @@ impl MyApp {
                             let extras = self.extras.clone();
                             let solver = self.solver.clone();
                             let memory_data = self.memory_data.clone();
+                            let minimize = self.minimize;
+                            let timeout = self.timeout;
 
                             self.loading_data.maximum = self.desired_unrolls as f32;
                             self.loading_data.message = "Unrolling Model".to_string();
@@ -340,7 +345,7 @@ impl MyApp {
                                         for n in 0..desired_unrolls {
                                             unroll_model(&mut model, n);
                                             if !extras.is_empty() {
-                                                optimize_model_with_input::<none_impl::NoneSolver>(
+                                                optimize_model_with_input(
                                                     &mut model,
                                                     &mut extras
                                                         .split(' ')
@@ -355,20 +360,22 @@ impl MyApp {
 
                                         match solver {
                                             SmtType::Generic => {
-                                                optimize_model::<none_impl::NoneSolver>(&mut model)
+                                                optimize_model_with_solver::<none_impl::NoneSolver>(
+                                                    &mut model, timeout, minimize,
+                                                )
                                             }
                                             #[cfg(feature = "boolector")]
-                                            SmtType::Boolector => {
-                                                optimize_model::<boolector_impl::BoolectorSolver>(
-                                                    &mut model,
-                                                )
-                                            }
+                                            SmtType::Boolector => optimize_model_with_solver::<
+                                                boolector_impl::BoolectorSolver,
+                                            >(
+                                                &mut model, timeout, minimize
+                                            ),
                                             #[cfg(feature = "z3")]
-                                            SmtType::Z3 => {
-                                                optimize_model::<z3solver_impl::Z3SolverWrapper>(
-                                                    &mut model,
-                                                )
-                                            }
+                                            SmtType::Z3 => optimize_model_with_solver::<
+                                                z3solver_impl::Z3SolverWrapper,
+                                            >(
+                                                &mut model, timeout, minimize
+                                            ),
                                         }
 
                                         renumber_model(&mut model);
@@ -401,19 +408,29 @@ impl MyApp {
                         prune_model(self.model.as_mut().unwrap());
 
                         match self.solver {
-                            SmtType::Generic => optimize_model::<none_impl::NoneSolver>(
-                                self.model.as_mut().unwrap(),
-                            ),
+                            SmtType::Generic => {
+                                optimize_model_with_solver::<none_impl::NoneSolver>(
+                                    self.model.as_mut().unwrap(),
+                                    self.timeout,
+                                    self.minimize,
+                                )
+                            }
                             #[cfg(feature = "boolector")]
                             SmtType::Boolector => {
-                                optimize_model::<boolector_impl::BoolectorSolver>(
+                                optimize_model_with_solver::<boolector_impl::BoolectorSolver>(
                                     self.model.as_mut().unwrap(),
+                                    self.timeout,
+                                    self.minimize,
                                 )
                             }
                             #[cfg(feature = "z3")]
-                            SmtType::Z3 => optimize_model::<z3solver_impl::Z3SolverWrapper>(
-                                self.model.as_mut().unwrap(),
-                            ),
+                            SmtType::Z3 => {
+                                optimize_model_with_solver::<z3solver_impl::Z3SolverWrapper>(
+                                    self.model.as_mut().unwrap(),
+                                    self.timeout,
+                                    self.minimize,
+                                )
+                            }
                         }
                         renumber_model(self.model.as_mut().unwrap());
                         self.output = Some(stringify_model(self.model.as_ref().unwrap()));
