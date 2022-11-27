@@ -15,6 +15,7 @@ default = []
 z3 = ["z3-solver", "z3-sys"]
 boolector = ["boolector-solver", "boolector-sys"]
 true-rng = []
+#kissat = ["kissat-rs"]
 
 [lib]
 name = "unicorn"
