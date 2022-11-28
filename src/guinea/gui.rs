@@ -13,6 +13,7 @@ use std::{fs, thread};
 use bytesize::ByteSize;
 use eframe::egui;
 use egui::Ui;
+use image;
 use rfd;
 use riscu::load_object_file;
 
@@ -39,8 +40,18 @@ use crate::unicorn::Model;
 //   minimize input
 
 pub fn gui() {
+    let icon = image::open("src/guinea/icon.png")
+        .expect("Failed to open icon path")
+        .to_rgba8();
+    let (icon_width, icon_height) = icon.dimensions();
+
     let options = eframe::NativeOptions {
         initial_window_size: Some(egui::vec2(1000.0, 600.0)),
+        icon_data: Some(eframe::IconData {
+            rgba: icon.into_raw(),
+            width: icon_width,
+            height: icon_height,
+        }),
         ..Default::default()
     };
     eframe::run_native(

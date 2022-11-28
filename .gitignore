@@ -16,3 +16,5 @@ lion/*.m
 lion/data.csv
 lion/klee-last
 lion/klee-out-*
+
+!src/guinea/icon.png
