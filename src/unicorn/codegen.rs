@@ -2,7 +2,7 @@ use crate::unicorn::emulate_loader::{name_to_pc_value, name_to_register};
 use crate::unicorn::{Model, Node, NodeRef, NodeType};
 use byteorder::{ByteOrder, LittleEndian};
 use log::{debug, info, trace, warn};
-use riscu::{DecodedProgram, Instruction, Program, ProgramSegment, Register};
+use riscu::{decode, DecodedProgram, Instruction, Program, ProgramSegment, Register};
 use unicorn::disassemble::Disassembly;
 use unicorn::emulate::{EmulatorState, EmulatorValue};
 use unicorn::engine::system::NUMBER_OF_REGISTERS;
@@ -31,7 +31,7 @@ const WORD_SIZE: u64 = riscu::WORD_SIZE as u64;
 struct CodeGenerator<'a> {
     source_state: &'a mut EmulatorState,
     target_state: &'a SymbolicState,
-    code: Vec<Instruction>,
+    code: Vec<u8>,
     code_start: u64,
 }
 
@@ -150,23 +150,29 @@ impl<'a> CodeGenerator<'a> {
         info!("dissasembly of added code:\n{}", disassembly);
     }
 
+    /// Append an instruction to the encoded code segment
+    fn push_instruction(&mut self, instr: Instruction) {
+        self.code.extend_from_slice(&u32::from(instr).to_le_bytes());
+    }
+
     fn emit_addi(&mut self, rd: Register, rs1: Register, imm: i32) {
         if rd == rs1 && imm == 0 {
             return; // skip a nop
         }
-        self.code.push(Instruction::new_addi(rd, rs1, imm));
+
+        self.push_instruction(Instruction::new_addi(rd, rs1, imm));
     }
 
     fn emit_jal(&mut self, rd: Register, imm: i32) {
-        self.code.push(Instruction::new_jal(rd, imm));
+        self.push_instruction(Instruction::new_jal(rd, imm));
     }
 
     fn emit_lui(&mut self, rd: Register, imm: i32) {
-        self.code.push(Instruction::new_lui(rd, imm));
+        self.push_instruction(Instruction::new_lui(rd, imm));
     }
 
     fn emit_sd(&mut self, rs1: Register, rs2: Register, imm: i32) {
-        self.code.push(Instruction::new_sd(rs1, rs2, imm));
+        self.push_instruction(Instruction::new_sd(rs1, rs2, imm));
     }
 
     fn load_integer(&mut self, reg: Register, imm: u64) {
@@ -288,7 +294,9 @@ impl<'a> CodeGenerator<'a> {
     fn patch_emulator_state(&mut self) {
         self.patch_entry_jump();
         for i in 0..self.code.len() {
-            let instr = self.code[i];
+            let instr =
+                decode(LittleEndian::read_u32(&self.code[i..i + 4])).expect("valid instruction");
+            // FIXME: does this code assume u32 alignment? Is the assumption valid?
             let pc = self.code_start + i as u64 * INSTRUCTION_SIZE;
             self.patch_instruction(pc, instr);
         }

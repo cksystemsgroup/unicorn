@@ -51,24 +51,22 @@ impl From<Disassembly> for DecodedProgram {
 
 impl fmt::Display for Disassembly {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        enumarte_with(
-            self.decoded.code.content.as_slice().iter(),
-            self.decoded.code.address,
-            size_of::<u32>() as u64,
-        )
-        .try_for_each(|(pc, i)| print_instruction(f, pc, *i))
-        .and_then(|_| {
-            enumarte_with(
-                self.decoded.data.content.as_slice().iter(),
-                self.decoded.data.address,
-                size_of::<u64>() as u64,
-            )
-            .try_for_each(|(pc, d)| writeln!(f, "{:#x}: .8byte {:#x}", pc, d))
-        })
+        self.decoded
+            .iter_locations()
+            .zip(self.decoded.iter_instructions())
+            .try_for_each(|(pc, i)| print_instruction(f, pc, i))
+            .and_then(|_| {
+                enumerate_with(
+                    self.decoded.data.content.as_slice().iter(),
+                    self.decoded.data.address,
+                    size_of::<u64>() as u64,
+                )
+                .try_for_each(|(pc, d)| writeln!(f, "{:#x}: .8byte {:#x}", pc, d))
+            })
     }
 }
 
-fn enumarte_with<T>(
+fn enumerate_with<T>(
     iter: impl Iterator<Item = T>,
     start: u64,
     distance: u64,
