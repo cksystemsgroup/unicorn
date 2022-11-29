@@ -123,6 +123,12 @@ pub fn args() -> Command {
                         .num_args(0)
                 )
                 .arg(
+                    Arg::new("fast-minimize")
+                        .help("Skip solver during graph minimization")
+                        .long("fast-minimize")
+                        .num_args(0)
+                )
+                .arg(
                     Arg::new("max-heap")
                         .help("Number of machine-words usable as heap")
                         .long("max-heap")

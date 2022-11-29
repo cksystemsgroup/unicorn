@@ -358,7 +358,11 @@ pub mod z3solver_impl {
                     let z3_right = self.visit(right).as_bv().expect("bv");
                     z3_left.bvmul(&z3_right).into()
                 }
-                Node::Div { .. } => todo!("implement DIV"),
+                Node::Div { left, right, .. } => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvudiv(&z3_right).into()
+                }
                 Node::Rem { left, right, .. } => {
                     let z3_left = self.visit(left).as_bv().expect("bv");
                     let z3_right = self.visit(right).as_bv().expect("bv");
@@ -391,10 +395,15 @@ pub mod z3solver_impl {
                     let z3_right = self.visit(right).as_bv().expect("bv");
                     z3_left._eq(&z3_right).into()
                 }
-                Node::And { left, right, .. } => {
+                Node::And { sort: NodeType::Bit, left, right, .. } => {
                     let z3_left = self.visit(left).as_bool().expect("bool");
                     let z3_right = self.visit(right).as_bool().expect("bool");
                     Bool::and(self.context, &[&z3_left, &z3_right]).into()
+                }
+                Node::And { left, right, .. } => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvand(&z3_right).into()
                 }
                 Node::Not { value, .. } => {
                     let z3_value = self.visit(value).as_bool().expect("bool");
