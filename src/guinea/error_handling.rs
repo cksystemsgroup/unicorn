@@ -1,4 +1,4 @@
-use crate::guinea::gui::MemoryData;
+use crate::guinea::MemoryData;
 use crate::unicorn::Model;
 use bytesize::ByteSize;
 use std::mem::size_of;
