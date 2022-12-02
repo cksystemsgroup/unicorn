@@ -705,6 +705,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "egui_node_graph"
+version = "0.3.0"
+source = "git+https://github.com/setzer22/egui_node_graph#070ff85bd3990be0224831a27507a330cd68331d"
+dependencies = [
+ "egui",
+ "slotmap",
+ "smallvec",
+ "thiserror",
+]
+
+[[package]]
 name = "either"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2413,6 +2424,7 @@ dependencies = [
  "clap 4.0.10",
  "eframe",
  "egui",
+ "egui_node_graph",
  "env_logger 0.9.1",
  "image",
  "log",

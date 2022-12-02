@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
 use crate::guinea::design::get_frame_design;
-use crate::guinea::{cli2gui, Guineacorn};
+use crate::guinea::{cli2gui, model2graph, Guineacorn, Use};
 use eframe::egui;
 use image;
 use std::default::Default;
@@ -13,7 +13,7 @@ pub fn gui() {
     let (icon_width, icon_height) = icon.dimensions();
 
     let options = eframe::NativeOptions {
-        initial_window_size: Some(egui::vec2(1000.0, 600.0)),
+        initial_window_size: Some(egui::vec2(1000.0, 650.0)),
         icon_data: Some(eframe::IconData {
             rgba: icon.into_raw(),
             width: icon_width,
@@ -40,20 +40,33 @@ impl eframe::App for Guineacorn {
             .open(&mut self.error_occurred)
             .show(ctx, |ui| ui.label(error_msg.unwrap()));
 
+        //
+        egui::TopBottomPanel::top("Use")
+            .frame(get_frame_design())
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.selectable_value(&mut self.using, Use::Cli2Gui, "Cli2Gui");
+                    ui.selectable_value(&mut self.using, Use::NodeGraph, "Node Graph");
+                })
+            });
+
         // left side
         egui::SidePanel::left("Selection")
             .frame(get_frame_design())
             .resizable(false)
             .width_range(400.0..=400.0)
-            .show(ctx, |ui| {
-                cli2gui::input_window(self, ui);
+            .show(ctx, |ui| match self.using {
+                Use::Cli2Gui => cli2gui::input_window(self, ui),
+                Use::NodeGraph => model2graph::input_window(self, ui),
             });
 
         // right side
         egui::CentralPanel::default()
             .frame(get_frame_design())
-            .show(ctx, |ui| {
-                cli2gui::output_window(self, ui);
+            .show(ctx, |ui| match self.using {
+                Use::Cli2Gui => cli2gui::output_window(self, ui),
+                Use::NodeGraph => model2graph::output_window(self, ui),
             });
     }
 }

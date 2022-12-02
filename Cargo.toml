@@ -1,4 +1,4 @@
-[package] 
+[package]
 name = "unicorn-rs"
 description = "Unicorn is a compiler and runtime system for quantum computing"
 authors = ["Michael Starzinger <michael.starzinger@antforge.org>", "Stefanie Muroya"]
@@ -8,12 +8,12 @@ license = "MIT"
 categories = ["command-line-utilities", "development-tools::testing", "science", "simulation"]
 keywords = ["quantum-annealing", "quantum-computing", "bounded-model-checking", "symbolic-execution", "smt", "sat"]
 edition = "2018"
-version ="0.4.1"
+version = "0.4.1"
 
 [features]
 default = []
 true-rng = []
-gui = ["egui", "eframe", "rfd", "image"]
+gui = ["egui", "eframe", "rfd", "image", "egui_node_graph"]
 
 [target.'cfg(not(target_os = "windows"))'.features]
 z3 = ["z3-solver", "z3-sys"]
@@ -43,6 +43,7 @@ egui = { version = "0.19.0", optional = true }
 eframe = { version = "0.19.0", optional = true }
 rfd = { version = "0.10.0", optional = true }
 image = { version = "0.24.5", optional = true }
+egui_node_graph = { version = "0.3.0", optional = true }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 boolector-solver = { package = "boolector", version = "~0.4", features = ["vendor-lgl"], optional = true }
@@ -54,6 +55,7 @@ z3-sys = { version = "~0", features = ["static-link-z3"], optional = true }
 # TODO: Allows us to work on `riscu` and `unicorn` in parallel. Remove
 # once `riscu` stabilizes and we made another crates.io release of it.
 riscu = { git = 'https://github.com/cksystemsgroup/riscu' }
+egui_node_graph = { git = "https://github.com/setzer22/egui_node_graph" }
 
 [dev-dependencies]
 rayon = "~1.6"

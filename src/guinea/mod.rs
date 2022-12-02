@@ -1,4 +1,5 @@
 use crate::guinea::cli2gui::Cli2Gui;
+use crate::guinea::graph::NodeGraph;
 use crate::unicorn::Model;
 use std::sync::mpsc::Receiver;
 
@@ -9,7 +10,11 @@ mod design;
 #[cfg(feature = "gui")]
 mod error_handling;
 #[cfg(feature = "gui")]
+mod graph;
+#[cfg(feature = "gui")]
 pub mod gui;
+#[cfg(feature = "gui")]
+mod model2graph;
 #[cfg(feature = "gui")]
 mod print;
 
@@ -40,6 +45,7 @@ pub struct Guineacorn {
     pub picked_path: Option<String>,
     pub output: Option<String>,
     pub model_created: bool,
+    pub using: Use,
 
     pub error_message: Option<String>,
     pub error_occurred: bool,
@@ -47,6 +53,7 @@ pub struct Guineacorn {
     pub memory_data: MemoryData,
     pub loading_data: LoadingData,
     pub cli2gui: Cli2Gui,
+    pub node_graph: NodeGraph,
 }
 
 #[derive(Default)]
@@ -67,4 +74,11 @@ impl Guineacorn {
         self.model = None;
         self.output = None;
     }
+}
+
+#[derive(Default, PartialEq, Eq)]
+pub enum Use {
+    #[default]
+    Cli2Gui,
+    NodeGraph,
 }
