@@ -12,6 +12,8 @@ mod error_handling;
 #[cfg(feature = "gui")]
 mod graph;
 #[cfg(feature = "gui")]
+mod graph_util;
+#[cfg(feature = "gui")]
 pub mod gui;
 #[cfg(feature = "gui")]
 mod model2graph;

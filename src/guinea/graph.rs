@@ -5,8 +5,6 @@ use crate::guinea::graph::ConcSymb::Concrete;
 use crate::guinea::graph::Sort::{Bitvec, Boolean, Immediate};
 use egui_node_graph::*;
 
-// ========= First, define your user data types =============
-
 #[derive(Clone, Debug, Copy, Hash, Eq, PartialEq)]
 pub enum ConcSymb {
     Concrete(u64),
@@ -47,28 +45,19 @@ impl Sort {
     }
 }
 
-/// The NodeData holds a custom data struct inside each node. It's useful to
-/// store additional information that doesn't live in parameters. For this
-/// example, the node data stores the template (i.e. the "type") of the node.
+#[derive(Debug)]
 pub struct BeatorNodeData {
-    template: BeatorTemplate,
+    pub template: BeatorTemplate,
+    pub x: usize,
+    pub y: usize,
+    pub sort: Sort,
 }
 
-/// `DataType`s are what defines the possible range of connections when
-/// attaching two ports together. The graph UI will make sure to not allow
-/// attaching incompatible datatypes.
 #[derive(PartialEq, Eq)]
 pub enum BeatorDataType {
     Sort,
 }
 
-/// In the graph, input parameters can optionally have a constant value. This
-/// value can be directly edited in a widget inside the node itself.
-///
-/// There will usually be a correspondence between DataTypes and ValueTypes. But
-/// this library makes no attempt to check this consistency. For instance, it is
-/// up to the user code in this example to make sure no parameter is created
-/// with a DataType of Scalar and a ValueType of Vec2.
 #[derive(Clone, Debug)]
 pub enum BeatorValueType {
     Sort { value: Sort },
@@ -91,11 +80,7 @@ impl BeatorValueType {
     }
 }
 
-/// NodeTemplate is a mechanism to define node templates. It's what the graph
-/// will display in the "new node" popup. The user code needs to tell the
-/// library how to convert a NodeTemplate into a Node.
-#[derive(Clone, Copy)]
-#[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Copy, Debug)]
 pub enum BeatorTemplate {
     MemoryConst,
     Const,
@@ -120,28 +105,19 @@ pub enum BeatorTemplate {
     Bad,
 }
 
-/// The response type is used to encode side-effects produced when drawing a
-/// node in the graph. Most side-effects (creating new nodes, deleting existing
-/// nodes, handling connections...) are already handled by the library, but this
-/// mechanism allows creating additional side effects from user code.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BeatorResponse {
     SetActiveNode(NodeId),
     ClearActiveNode,
 }
 
-/// The graph 'global' state. This state struct is passed around to the node and
-/// parameter drawing callbacks. The contents of this struct are entirely up to
-/// the user. For this example, we use it to keep track of the 'active' node.
 #[derive(Default)]
-#[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
 pub struct BeatorGraphState {
     pub active_node: Option<NodeId>,
+    pub nid_map: HashMap<usize, NodeId>,
+    pub sort_map: HashMap<usize, Sort>,
 }
 
-// =========== Then, you need to implement some traits ============
-
-// A trait for the data types, to tell the library how to display them
 impl DataTypeTrait<BeatorGraphState> for BeatorDataType {
     fn data_type_color(&self, _user_state: &mut BeatorGraphState) -> egui::Color32 {
         match self {
@@ -156,8 +132,6 @@ impl DataTypeTrait<BeatorGraphState> for BeatorDataType {
     }
 }
 
-// A trait for the node kinds, which tells the library how to build new nodes
-// from the templates in the node finder
 impl NodeTemplateTrait for BeatorTemplate {
     type NodeData = BeatorNodeData;
     type DataType = BeatorDataType;
@@ -197,7 +171,12 @@ impl NodeTemplateTrait for BeatorTemplate {
     }
 
     fn user_data(&self, _user_state: &mut Self::UserState) -> Self::NodeData {
-        BeatorNodeData { template: *self }
+        BeatorNodeData {
+            template: *self,
+            x: 0,
+            y: 0,
+            sort: Sort::default(),
+        }
     }
 
     fn build_node(
@@ -206,11 +185,6 @@ impl NodeTemplateTrait for BeatorTemplate {
         _user_state: &mut Self::UserState,
         node_id: NodeId,
     ) {
-        // The nodes are created empty by default. This function needs to take
-        // care of creating the desired inputs and outputs based on the template
-
-        // We define some closures here to avoid boilerplate. Note that this is
-        // entirely optional.
         let input_sort = |graph: &mut BeatorGraph, name: &str, val: Sort| {
             graph.add_input_param(
                 node_id,
@@ -366,9 +340,6 @@ impl NodeTemplateIter for AllBeatorNodeTemplates {
     type Item = BeatorTemplate;
 
     fn all_kinds(&self) -> Vec<Self::Item> {
-        // This function must return a list of node kinds, which the node finder
-        // will use to display it to the user. Crates like strum can reduce the
-        // boilerplate in enumerating all variants of an enum.
         vec![
             BeatorTemplate::Const,
             BeatorTemplate::MemoryConst,
@@ -407,8 +378,6 @@ impl WidgetValueTrait for BeatorValueType {
         _user_state: &mut BeatorGraphState,
         _node_data: &BeatorNodeData,
     ) -> Vec<BeatorResponse> {
-        // This trait is used to tell the library which UI to display for the
-        // inline parameter widgets.
         match self {
             BeatorValueType::Sort { value } => match value {
                 Boolean(val) => {
@@ -418,17 +387,11 @@ impl WidgetValueTrait for BeatorValueType {
                 Bitvec(val) => match val {
                     Concrete(x) => {
                         ui.label(param_name);
-                        ui.horizontal(|ui| {
-                            ui.label("value");
-                            ui.add(DragValue::new(x));
-                        });
+                        ui.add(DragValue::new(x));
                     }
                 },
                 Sort::String(val) => {
-                    ui.horizontal(|ui| {
-                        ui.label("value");
-                        ui.text_edit_singleline(val);
-                    });
+                    ui.label(val.as_str());
                 }
                 Sort::Array(_) => {
                     ui.label("Virtual Memory");
@@ -441,7 +404,6 @@ impl WidgetValueTrait for BeatorValueType {
                 }
             },
         }
-        // This allows you to return your responses from the inline widgets.
         Vec::new()
     }
 }
@@ -454,11 +416,6 @@ impl NodeDataTrait for BeatorNodeData {
     type DataType = BeatorDataType;
     type ValueType = BeatorValueType;
 
-    // This method will be called when drawing each node. This allows adding
-    // extra ui elements inside the nodes. In this case, we create an "active"
-    // button which introduces the concept of having an active node in the
-    // graph. This is done entirely from user code with no modifications to the
-    // node graph library.
     fn bottom_ui(
         &self,
         ui: &mut egui::Ui,
@@ -469,21 +426,12 @@ impl NodeDataTrait for BeatorNodeData {
     where
         BeatorResponse: UserResponseTrait,
     {
-        // This logic is entirely up to the user. In this case, we check if the
-        // current node we're drawing is the active one, by comparing against
-        // the value stored in the global user state, and draw different button
-        // UIs based on that.
-
         let mut responses = vec![];
         let is_active = user_state
             .active_node
             .map(|id| id == node_id)
             .unwrap_or(false);
 
-        // Pressing the button will emit a custom user response to either set,
-        // or clear the active node. These responses do nothing by themselves,
-        // the library only makes the responses available to you after the graph
-        // has been drawn. See below at the update method for an example.
         if !is_active {
             if ui.button("👁 Set active").clicked() {
                 responses.push(NodeResponse::User(BeatorResponse::SetActiveNode(node_id)));
@@ -501,8 +449,8 @@ impl NodeDataTrait for BeatorNodeData {
     }
 }
 
-type BeatorGraph = Graph<BeatorNodeData, BeatorDataType, BeatorValueType>;
-type BeatorEditorState = GraphEditorState<
+pub type BeatorGraph = Graph<BeatorNodeData, BeatorDataType, BeatorValueType>;
+pub type BeatorEditorState = GraphEditorState<
     BeatorNodeData,
     BeatorDataType,
     BeatorValueType,
@@ -512,12 +460,24 @@ type BeatorEditorState = GraphEditorState<
 
 #[derive(Default)]
 pub struct NodeGraph {
-    // The `GraphEditorState` is the top-level object. You "register" all your
-    // custom types by specifying it as its generic parameters.
     pub state: BeatorEditorState,
 
     pub user_state: BeatorGraphState,
     pub out: String,
+    pub y_lookup: Vec<usize>,
+}
+
+impl NodeGraph {
+    pub fn lookup_y_and_inc(&mut self, x: usize) -> usize {
+        if let Some(y) = self.y_lookup.get(x) {
+            let ret = *y;
+            *self.y_lookup.get_mut(x).unwrap() += 1;
+            ret
+        } else {
+            self.y_lookup.push(1);
+            0
+        }
+    }
 }
 
 type OutputsCache = HashMap<OutputId, BeatorValueType>;
@@ -528,11 +488,6 @@ pub fn evaluate_node(
     node_id: NodeId,
     outputs_cache: &mut OutputsCache,
 ) -> anyhow::Result<BeatorValueType> {
-    // To solve a similar problem as creating node types above, we define an
-    // Evaluator as a convenience. It may be overkill for this small example,
-    // but something like this makes the code much more readable when the
-    // number of nodes starts growing.
-
     struct Evaluator<'a> {
         graph: &'a BeatorGraph,
         outputs_cache: &'a mut OutputsCache,
@@ -551,8 +506,6 @@ pub fn evaluate_node(
             }
         }
         fn evaluate_input(&mut self, name: &str) -> anyhow::Result<BeatorValueType> {
-            // Calling `evaluate_input` recursively evaluates other nodes in the
-            // graph until the input value for a paramater has been computed.
             evaluate_input(self.graph, self.node_id, name, self.outputs_cache)
         }
         fn populate_output(
@@ -560,19 +513,6 @@ pub fn evaluate_node(
             name: &str,
             value: BeatorValueType,
         ) -> anyhow::Result<BeatorValueType> {
-            // After computing an output, we don't just return it, but we also
-            // populate the outputs cache with it. This ensures the evaluation
-            // only ever computes an output once.
-            //
-            // The return value of the function is the "final" output of the
-            // node, the thing we want to get from the evaluation. The example
-            // would be slightly more contrived when we had multiple output
-            // values, as we would need to choose which of the outputs is the
-            // one we want to return. Other outputs could be used as
-            // intermediate values.
-            //
-            // Note that this is just one possible semantic interpretation of
-            // the graphs, you can come up with your own evaluation semantics!
             populate_output(self.graph, self.outputs_cache, self.node_id, name, value)
         }
         fn input_sort(&mut self, name: &str) -> anyhow::Result<Sort> {
@@ -764,7 +704,7 @@ pub fn evaluate_node(
             evaluator.output_sort("Output", value)
         }
         BeatorTemplate::Next => {
-            let value = evaluator.input_sort("Next")?;
+            let value = evaluator.input_sort("Value")?;
             evaluator.output_sort("Output", value)
         }
         BeatorTemplate::Input => {
@@ -803,29 +743,19 @@ fn evaluate_input(
 ) -> anyhow::Result<BeatorValueType> {
     let input_id = graph[node_id].get_input(param_name)?;
 
-    // The output of another node is connected.
     if let Some(other_output_id) = graph.connection(input_id) {
-        // The value was already computed due to the evaluation of some other
-        // node. We simply return value from the cache.
         if let Some(other_value) = outputs_cache.get(&other_output_id) {
             Ok(other_value.clone())
-        }
-        // This is the first time encountering this node, so we need to
-        // recursively evaluate it.
-        else {
-            // Calling this will populate the cache
+        } else {
             evaluate_node(graph, graph[other_output_id].node, outputs_cache)?;
 
-            // Now that we know the value is cached, return it
             let val = outputs_cache
                 .get(&other_output_id)
                 .expect("Cache should be populated")
                 .clone();
             Ok(val)
         }
-    }
-    // No existing connection, take the inline value instead.
-    else {
+    } else {
         Ok(graph[input_id].value.clone())
     }
 }
