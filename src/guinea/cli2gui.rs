@@ -288,9 +288,9 @@ pub fn input_window(data: &mut Guineacorn, ui: &mut Ui) {
                 ui.horizontal_wrapped(|ui| {
                     ui.selectable_value(&mut data.cli2gui.solver, SmtType::Generic, "Generic");
                     #[cfg(feature = "boolector")]
-                    ui.selectable_value(&mut data.solver, SmtType::Boolector, "Boolector");
+                    ui.selectable_value(&mut data.cli2gui.solver, SmtType::Boolector, "Boolector");
                     #[cfg(feature = "z3")]
-                    ui.selectable_value(&mut data.solver, SmtType::Z3, "Z3");
+                    ui.selectable_value(&mut data.cli2gui.solver, SmtType::Z3, "Z3");
                 });
                 ui.add_space(5.0);
                 ui.label("Concrete inputs passed to optimizer:");
@@ -313,16 +313,16 @@ pub fn input_window(data: &mut Guineacorn, ui: &mut Ui) {
                         SmtType::Boolector => {
                             optimize_model_with_solver::<boolector_impl::BoolectorSolver>(
                                 data.model.as_mut().unwrap(),
-                                data.timeout,
-                                data.minimize,
+                                data.cli2gui.timeout,
+                                data.cli2gui.minimize,
                             )
                         }
                         #[cfg(feature = "z3")]
                         SmtType::Z3 => {
                             optimize_model_with_solver::<z3solver_impl::Z3SolverWrapper>(
                                 data.model.as_mut().unwrap(),
-                                data.timeout,
-                                data.minimize,
+                                data.cli2gui.timeout,
+                                data.cli2gui.minimize,
                             )
                         }
                     }

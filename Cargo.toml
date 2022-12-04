@@ -14,8 +14,6 @@ version = "0.4.1"
 default = []
 true-rng = []
 gui = ["egui", "eframe", "rfd", "image", "egui_node_graph"]
-
-[target.'cfg(not(target_os = "windows"))'.features]
 z3 = ["z3-solver", "z3-sys"]
 boolector = ["boolector-solver", "boolector-sys"]
 
@@ -44,8 +42,6 @@ eframe = { version = "0.19.0", optional = true }
 rfd = { version = "0.10.0", optional = true }
 image = { version = "0.24.5", optional = true }
 egui_node_graph = { version = "0.3.0", optional = true }
-
-[target.'cfg(not(target_os = "windows"))'.dependencies]
 boolector-solver = { package = "boolector", version = "~0.4", features = ["vendor-lgl"], optional = true }
 boolector-sys = { version = "~0", features = ["vendor-lgl"], optional = true }
 z3-solver = { package = "z3", version = "~0.11", features = ["static-link-z3"], optional = true }
