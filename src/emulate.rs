@@ -810,7 +810,7 @@ fn exec_div(state: &mut EmulatorState, rtype: RType) {
     let rs2_value = state.get_reg(rtype.rs2());
     assert!(rs2_value != 0, "check for non-zero divisor");
     let rd_value = (rs1_value as i64).wrapping_div(rs2_value as i64) as u64;
-    trace_rtype(state, "divu", rtype, rd_value);
+    trace_rtype(state, "div", rtype, rd_value);
     state.set_reg(rtype.rd(), rd_value);
     state.pc_next();
 }
