@@ -1,5 +1,5 @@
 use crate::guinea::cli2gui::Cli2Gui;
-use crate::guinea::graph::NodeGraph;
+use crate::guinea::giraphe::Giraphe;
 use crate::unicorn::Model;
 use std::sync::mpsc::Receiver;
 
@@ -10,9 +10,7 @@ mod design;
 #[cfg(feature = "gui")]
 mod error_handling;
 #[cfg(feature = "gui")]
-mod graph;
-#[cfg(feature = "gui")]
-mod graph_util;
+mod giraphe;
 #[cfg(feature = "gui")]
 pub mod gui;
 #[cfg(feature = "gui")]
@@ -55,7 +53,7 @@ pub struct Guineacorn {
     pub memory_data: MemoryData,
     pub loading_data: LoadingData,
     pub cli2gui: Cli2Gui,
-    pub node_graph: NodeGraph,
+    pub giraphe: Giraphe,
 }
 
 #[derive(Default)]
@@ -80,7 +78,7 @@ impl Guineacorn {
 
 #[derive(Default, PartialEq, Eq)]
 pub enum Use {
-    #[default]
     Cli2Gui,
+    #[default]
     NodeGraph,
 }

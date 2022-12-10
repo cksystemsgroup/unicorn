@@ -13,7 +13,7 @@ version = "0.4.1"
 [features]
 default = []
 true-rng = []
-gui = ["egui", "eframe", "rfd", "image", "egui_node_graph"]
+gui = ["egui", "eframe", "rfd", "image"]
 z3 = ["z3-solver", "z3-sys"]
 boolector = ["boolector-solver", "boolector-sys"]
 
@@ -37,8 +37,8 @@ bytesize = "~1.1"
 anyhow = "~1.0"
 thiserror = "~1.0"
 pyo3 = { version = "~0.17", features = ["auto-initialize"] }
-egui = { version = "0.19.0", optional = true }
-eframe = { version = "0.19.0", optional = true }
+egui = { version = "0.20.0", optional = true }
+eframe = { version = "0.20.0", optional = true }
 rfd = { version = "0.10.0", optional = true }
 image = { version = "0.24.5", optional = true }
 egui_node_graph = { version = "0.3.0", optional = true }
@@ -51,7 +51,6 @@ z3-sys = { version = "~0", features = ["static-link-z3"], optional = true }
 # TODO: Allows us to work on `riscu` and `unicorn` in parallel. Remove
 # once `riscu` stabilizes and we made another crates.io release of it.
 riscu = { git = 'https://github.com/cksystemsgroup/riscu' }
-egui_node_graph = { git = "https://github.com/setzer22/egui_node_graph" }
 
 [dev-dependencies]
 rayon = "~1.6"
