@@ -1,8 +1,8 @@
 mod graph;
 mod spot;
 
-use crate::unicorn::{Nid, NodeRef};
-use egui::Pos2;
+use crate::unicorn::NodeRef;
+use egui::{Pos2, Vec2};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -14,12 +14,12 @@ pub struct Giraphe {
     pub spot_lookup: HashMap<u64, SpotRef>,
     pub spot_list: Vec<SpotRef>,
     pub leaves: Vec<SpotRef>,
+    pub pan: Vec2,
 }
 
 #[allow(unused)]
 #[derive(Debug, Clone)]
 pub struct Spot {
-    nid: Nid,
     tick: usize,
     val_old: Value,
     val_cur: Value,

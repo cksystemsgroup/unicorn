@@ -9,33 +9,7 @@ use std::rc::Rc;
 
 impl Spot {
     pub fn from(n: &NodeRef) -> SpotRef {
-        let nid = &*n.borrow();
-        let nid = match nid {
-            Node::Const { nid, .. }
-            | Node::Read { nid, .. }
-            | Node::Write { nid, .. }
-            | Node::Add { nid, .. }
-            | Node::Sub { nid, .. }
-            | Node::Mul { nid, .. }
-            | Node::Div { nid, .. }
-            | Node::Rem { nid, .. }
-            | Node::Sll { nid, .. }
-            | Node::Srl { nid, .. }
-            | Node::Ult { nid, .. }
-            | Node::Ext { nid, .. }
-            | Node::Ite { nid, .. }
-            | Node::Eq { nid, .. }
-            | Node::And { nid, .. }
-            | Node::Not { nid, .. }
-            | Node::State { nid, .. }
-            | Node::Next { nid, .. }
-            | Node::Input { nid, .. }
-            | Node::Bad { nid, .. } => *nid,
-            Node::Comment(_) => unreachable!(),
-        };
-
         Rc::new(RefCell::new(Self {
-            nid,
             tick: 0,
             val_old: Value::Undefined,
             val_cur: Value::Undefined,
@@ -57,12 +31,38 @@ impl Spot {
         // TODO: recursive evaluation
         Value::Undefined
     }
+
+    fn title(&self) -> &str {
+        match &*self.origin.borrow() {
+            Node::Const { .. } => "Constant",
+            Node::Read { .. } => "Read",
+            Node::Write { .. } => "Write",
+            Node::Add { .. } => "Add",
+            Node::Sub { .. } => "Sub",
+            Node::Mul { .. } => "Mul",
+            Node::Div { .. } => "Division",
+            Node::Rem { .. } => "Remainder",
+            Node::Sll { .. } => "Shift Left",
+            Node::Srl { .. } => "Shift Right",
+            Node::Ult { .. } => "Less Than",
+            Node::Ext { .. } => "Extend",
+            Node::Ite { .. } => "If-then-else",
+            Node::Eq { .. } => "Equality",
+            Node::And { .. } => "And",
+            Node::Not { .. } => "Not",
+            Node::State { .. } => "State",
+            Node::Next { .. } => "Next",
+            Node::Input { .. } => "Input",
+            Node::Bad { .. } => "Bad",
+            Node::Comment(_) => unreachable!(),
+        }
+    }
 }
 
 impl Widget for Spot {
     fn ui(self, ui: &mut Ui) -> Response {
         ui.vertical(|ui| {
-            ui.heading("Dummy");
+            ui.heading(self.title());
             ui.separator();
             ui.label("dummy");
         })

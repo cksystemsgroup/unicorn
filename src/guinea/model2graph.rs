@@ -40,4 +40,5 @@ pub fn input_window(data: &mut Guineacorn, ui: &mut Ui) {
 
 pub fn output_window(data: &mut Guineacorn, ui: &mut Ui) {
     data.giraphe.draw(ui);
+    data.giraphe.interact(ui);
 }

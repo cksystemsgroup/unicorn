@@ -40,7 +40,15 @@ impl eframe::App for Guineacorn {
             .open(&mut self.error_occurred)
             .show(ctx, |ui| ui.label(error_msg.unwrap()));
 
-        //
+        egui::SidePanel::right("Selection")
+            .resizable(false)
+            .width_range(600.0..=600.0)
+            .frame(get_frame_design())
+            .show(ctx, |ui| match self.using {
+                Use::Cli2Gui => cli2gui::output_window(self, ui),
+                Use::NodeGraph => model2graph::output_window(self, ui),
+            });
+
         egui::TopBottomPanel::top("Use")
             .frame(get_frame_design())
             .resizable(false)
@@ -51,22 +59,11 @@ impl eframe::App for Guineacorn {
                 })
             });
 
-        // left side
-        egui::SidePanel::left("Selection")
-            .frame(get_frame_design())
-            .resizable(false)
-            .width_range(400.0..=400.0)
-            .show(ctx, |ui| match self.using {
-                Use::Cli2Gui => cli2gui::input_window(self, ui),
-                Use::NodeGraph => model2graph::input_window(self, ui),
-            });
-
-        // right side
         egui::CentralPanel::default()
             .frame(get_frame_design())
             .show(ctx, |ui| match self.using {
-                Use::Cli2Gui => cli2gui::output_window(self, ui),
-                Use::NodeGraph => model2graph::output_window(self, ui),
+                Use::Cli2Gui => cli2gui::input_window(self, ui),
+                Use::NodeGraph => model2graph::input_window(self, ui),
             });
     }
 }
