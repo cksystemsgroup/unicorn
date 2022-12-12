@@ -78,6 +78,7 @@ fn main() -> Result<()> {
             let inputs = expect_optional_arg::<String>(args, "inputs")?;
             let prune = !is_beator || args.get_flag("prune-model");
             let minimize = is_beator && !args.get_flag("fast-minimize");
+            let discretize = !is_beator || args.get_flag("discretize-memory");
             let renumber = !is_beator || output.is_some();
             let input_is_btor2 = args.get_flag("from-btor2");
             let input_is_dimacs = !is_beator && args.get_flag("from-dimacs");
@@ -97,9 +98,7 @@ fn main() -> Result<()> {
 
                 if let Some(unroll_depth) = unroll {
                     model.lines.clear();
-                    // TODO: Check if memory discretization is requested.
-                    // TODO: Make emulate-loader work with discretized memory.
-                    if !emulate_model && !compile_model {
+                    if discretize {
                         replace_memory(&mut model);
                     }
                     let mut input_values: Vec<u64> = if has_concrete_inputs {
@@ -151,6 +150,7 @@ fn main() -> Result<()> {
             if compile_model {
                 assert!(!input_is_btor2, "cannot compile arbitrary BTOR2");
                 assert!(!input_is_dimacs, "cannot compile arbitrary DIMACS");
+                assert!(!discretize, "cannot compile with discretized memory");
 
                 // TODO: Just a workaround to get `argv` again.
                 let arg0 = expect_arg::<String>(args, "input-file")?;
@@ -169,6 +169,7 @@ fn main() -> Result<()> {
             if emulate_model {
                 assert!(!input_is_btor2, "cannot emulate arbitrary BTOR2");
                 assert!(!input_is_dimacs, "cannot emulate arbitrary DIMACS");
+                assert!(!discretize, "cannot emulate with discretized memory");
 
                 let program = load_object_file(&input)?;
                 let mut emulator = EmulatorState::new(memory_size as usize);

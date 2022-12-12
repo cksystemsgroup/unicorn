@@ -123,6 +123,12 @@ pub fn args() -> Command {
                         .num_args(0)
                 )
                 .arg(
+                    Arg::new("discretize-memory")
+                        .help("Discretize memory (don't use array logic)")
+                        .long("discretize-memory")
+                        .num_args(0)
+                )
+                .arg(
                     Arg::new("fast-minimize")
                         .help("Skip solver during graph minimization")
                         .long("fast-minimize")

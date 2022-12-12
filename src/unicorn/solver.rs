@@ -68,21 +68,28 @@ pub mod none_impl {
 #[cfg(feature = "boolector")]
 pub mod boolector_impl {
     use crate::unicorn::solver::{Solution, Solver};
-    use crate::unicorn::{HashableNodeRef, Node, NodeRef};
+    use crate::unicorn::{HashableNodeRef, Node, NodeRef, NodeType};
     use boolector_solver::{
         option::{BtorOption, ModelGen, OutputFileFormat},
-        Btor, SolverResult, BV,
+        Array, Btor, SolverResult, BV,
     };
     use log::debug;
     use std::collections::HashMap;
     use std::rc::Rc;
     use std::time::Duration;
 
-    type BVRef = BV<Rc<Btor>>;
+    type ArrayRef = Array<Rc<Btor>>;
+    type BitVectorRef = BV<Rc<Btor>>;
+
+    #[derive(Clone)]
+    enum BoolectorValue {
+        BitVector(BitVectorRef),
+        Array(ArrayRef),
+    }
 
     pub struct BoolectorSolver {
         solver: Rc<Btor>,
-        mapping: HashMap<HashableNodeRef, BVRef>,
+        mapping: HashMap<HashableNodeRef, BoolectorValue>,
     }
 
     impl Solver for BoolectorSolver {
@@ -104,30 +111,30 @@ pub mod boolector_impl {
         }
 
         fn is_always_true(&mut self, node: &NodeRef) -> bool {
-            let bv = self.visit(node).not();
+            let bv = self.visit(node).into_bv().not();
             self.solve_impl(bv) == Solution::Unsat
         }
 
         fn is_always_false(&mut self, node: &NodeRef) -> bool {
-            let bv = self.visit(node);
+            let bv = self.visit(node).into_bv();
             self.solve_impl(bv) == Solution::Unsat
         }
 
         fn is_always_equal(&mut self, left: &NodeRef, right: &NodeRef) -> bool {
-            let bv_left = self.visit(left);
-            let bv_right = self.visit(right);
+            let bv_left = self.visit(left).into_bv();
+            let bv_right = self.visit(right).into_bv();
             let bv = bv_left._ne(&bv_right);
             self.solve_impl(bv) == Solution::Unsat
         }
 
         fn solve(&mut self, root: &NodeRef) -> Solution {
-            let bv = self.visit(root);
+            let bv = self.visit(root).into_bv();
             self.solve_impl(bv.slice(0, 0))
         }
     }
 
     impl BoolectorSolver {
-        fn solve_impl(&mut self, bv: BVRef) -> Solution {
+        fn solve_impl(&mut self, bv: BitVectorRef) -> Solution {
             self.solver.push(1);
             bv.assert();
             let solution = match self.solver.sat() {
@@ -142,7 +149,7 @@ pub mod boolector_impl {
             solution
         }
 
-        fn visit(&mut self, node: &NodeRef) -> BVRef {
+        fn visit(&mut self, node: &NodeRef) -> BoolectorValue {
             let key = HashableNodeRef::from(node.clone());
             self.mapping.get(&key).cloned().unwrap_or_else(|| {
                 let value = self.translate(node);
@@ -153,86 +160,131 @@ pub mod boolector_impl {
         }
 
         #[rustfmt::skip]
-        fn translate(&mut self, node: &NodeRef) -> BVRef {
+        fn translate(&mut self, node: &NodeRef) -> BoolectorValue {
             match &*node.borrow() {
                 Node::Const { sort, imm, .. } => {
                     let width = sort.bitsize() as u32;
-                    BV::from_u64(self.solver.clone(), *imm, width)
+                    BV::from_u64(self.solver.clone(), *imm, width).into()
                 }
-                Node::Read { .. } => panic!("missing array logic"),
-                Node::Write { .. } => panic!("missing array logic"),
+                Node::Read { memory, address, .. } => {
+                    let array_memory = self.visit(memory).into_array();
+                    let bv_address = self.visit(address).into_bv();
+                    array_memory.read(&bv_address).into()
+                }
+                Node::Write { memory, address, value, .. } => {
+                    let array_memory = self.visit(memory).into_array();
+                    let bv_address = self.visit(address).into_bv();
+                    let bv_value = self.visit(value).into_bv();
+                    array_memory.write(&bv_address, &bv_value).into()
+                }
                 Node::Add { left, right, .. } => {
-                    let bv_left = self.visit(left);
-                    let bv_right = self.visit(right);
-                    bv_left.add(&bv_right)
+                    let bv_left = self.visit(left).into_bv();
+                    let bv_right = self.visit(right).into_bv();
+                    bv_left.add(&bv_right).into()
                 }
                 Node::Sub { left, right, .. } => {
-                    let bv_left = self.visit(left);
-                    let bv_right = self.visit(right);
-                    bv_left.sub(&bv_right)
+                    let bv_left = self.visit(left).into_bv();
+                    let bv_right = self.visit(right).into_bv();
+                    bv_left.sub(&bv_right).into()
                 }
                 Node::Mul { left, right, .. } => {
-                    let bv_left = self.visit(left);
-                    let bv_right = self.visit(right);
-                    bv_left.mul(&bv_right)
+                    let bv_left = self.visit(left).into_bv();
+                    let bv_right = self.visit(right).into_bv();
+                    bv_left.mul(&bv_right).into()
                 }
                 Node::Div { left, right, .. } => {
-                    let bv_left = self.visit(left);
-                    let bv_right = self.visit(right);
-                    bv_left.udiv(&bv_right)
+                    let bv_left = self.visit(left).into_bv();
+                    let bv_right = self.visit(right).into_bv();
+                    bv_left.udiv(&bv_right).into()
                 },
                 Node::Rem { left, right, .. } => {
-                    let bv_left = self.visit(left);
-                    let bv_right = self.visit(right);
-                    bv_left.urem(&bv_right)
+                    let bv_left = self.visit(left).into_bv();
+                    let bv_right = self.visit(right).into_bv();
+                    bv_left.urem(&bv_right).into()
                 }
                 Node::Sll { .. } => todo!("implement SLL"),
                 Node::Srl { .. } => todo!("implement SRL"),
                 Node::Ult { left, right, .. } => {
-                    let bv_left = self.visit(left);
-                    let bv_right = self.visit(right);
-                    bv_left.ult(&bv_right)
+                    let bv_left = self.visit(left).into_bv();
+                    let bv_right = self.visit(right).into_bv();
+                    bv_left.ult(&bv_right).into()
                 }
                 Node::Ext { from, value, .. } => {
                     let width = from.bitsize() as u32;
-                    let bv_value = self.visit(value);
+                    let bv_value = self.visit(value).into_bv();
                     assert_eq!(bv_value.get_width(), width);
-                    bv_value.uext(64 - width)
+                    bv_value.uext(64 - width).into()
+                }
+                Node::Ite { sort: NodeType::Memory, cond, left, right, .. } => {
+                    let bv_cond = self.visit(cond).into_bv();
+                    let array_left = self.visit(left).into_array();
+                    let array_right = self.visit(right).into_array();
+                    bv_cond.cond_array(&array_left, &array_right).into()
                 }
                 Node::Ite { sort, cond, left, right, .. } => {
                     let width = sort.bitsize() as u32;
-                    let bv_cond = self.visit(cond);
-                    let bv_left = self.visit(left);
-                    let bv_right = self.visit(right);
+                    let bv_cond = self.visit(cond).into_bv();
+                    let bv_left = self.visit(left).into_bv();
+                    let bv_right = self.visit(right).into_bv();
                     assert_eq!(bv_left.get_width(), width);
                     assert_eq!(bv_right.get_width(), width);
-                    bv_cond.cond_bv(&bv_left, &bv_right)
+                    bv_cond.cond_bv(&bv_left, &bv_right).into()
                 }
                 Node::Eq { left, right, .. } => {
-                    let bv_left = self.visit(left);
-                    let bv_right = self.visit(right);
-                    bv_left._eq(&bv_right)
+                    let bv_left = self.visit(left).into_bv();
+                    let bv_right = self.visit(right).into_bv();
+                    bv_left._eq(&bv_right).into()
                 }
                 Node::And { left, right, .. } => {
-                    let bv_left = self.visit(left);
-                    let bv_right = self.visit(right);
-                    bv_left.and(&bv_right)
+                    let bv_left = self.visit(left).into_bv();
+                    let bv_right = self.visit(right).into_bv();
+                    bv_left.and(&bv_right).into()
                 }
                 Node::Not { value, .. } => {
-                    let bv_value = self.visit(value);
-                    bv_value.not()
+                    let bv_value = self.visit(value).into_bv();
+                    bv_value.not().into()
+                }
+                Node::State { sort: NodeType::Memory, name, .. } => {
+                    Array::new(self.solver.clone(), 64, 64, name.as_deref()).into()
                 }
                 Node::State { sort, name, .. } => {
                     let width = sort.bitsize() as u32;
-                    BV::new(self.solver.clone(), width, name.as_deref())
+                    BV::new(self.solver.clone(), width, name.as_deref()).into()
                 }
                 Node::Input { sort, name, .. } => {
                     let width = sort.bitsize() as u32;
-                    BV::new(self.solver.clone(), width, Some(name))
+                    BV::new(self.solver.clone(), width, Some(name)).into()
                 }
                 Node::Next { .. } => panic!("should be unreachable"),
                 Node::Bad { .. } => panic!("should be unreachable"),
                 Node::Comment(_) => panic!("cannot translate"),
+            }
+        }
+    }
+
+    impl From<BitVectorRef> for BoolectorValue {
+        fn from(item: BitVectorRef) -> Self {
+            Self::BitVector(item)
+        }
+    }
+
+    impl From<ArrayRef> for BoolectorValue {
+        fn from(item: ArrayRef) -> Self {
+            Self::Array(item)
+        }
+    }
+
+    impl BoolectorValue {
+        fn into_bv(self) -> BitVectorRef {
+            match self {
+                BoolectorValue::BitVector(x) => x,
+                _ => panic!("expected bit-vector"),
+            }
+        }
+        fn into_array(self) -> ArrayRef {
+            match self {
+                BoolectorValue::Array(x) => x,
+                _ => panic!("expected array"),
             }
         }
     }
@@ -248,8 +300,8 @@ pub mod z3solver_impl {
     use std::convert::TryInto;
     use std::time::Duration;
     use z3_solver::{
-        ast::{Ast, Bool, Dynamic, BV},
-        Config, Context, SatResult, Solver as Z3Solver,
+        ast::{Array, Ast, Bool, Dynamic, BV},
+        Config, Context, SatResult, Solver as Z3Solver, Sort,
     };
 
     pub struct Z3SolverWrapper<'ctx> {
@@ -341,8 +393,17 @@ pub mod z3solver_impl {
                     let width = sort.bitsize() as u32;
                     BV::from_u64(self.context, *imm, width).into()
                 }
-                Node::Read { .. } => panic!("missing array logic"),
-                Node::Write { .. } => panic!("missing array logic"),
+                Node::Read { memory, address, .. } => {
+                    let z3_memory = self.visit(memory).as_array().expect("array");
+                    let z3_address = self.visit(address).as_bv().expect("bv");
+                    z3_memory.select(&z3_address)
+                }
+                Node::Write { memory, address, value, .. } => {
+                    let z3_memory = self.visit(memory).as_array().expect("array");
+                    let z3_address = self.visit(address).as_bv().expect("bv");
+                    let z3_value = self.visit(value).as_bv().expect("bv");
+                    z3_memory.store(&z3_address, &z3_value).into()
+                }
                 Node::Add { left, right, .. } => {
                     let z3_left = self.visit(left).as_bv().expect("bv");
                     let z3_right = self.visit(right).as_bv().expect("bv");
@@ -412,6 +473,11 @@ pub mod z3solver_impl {
                 Node::State { sort: NodeType::Bit, name, .. } => {
                     let name = name.as_deref().expect("name");
                     Bool::new_const(self.context, name).into()
+                }
+                Node::State { sort: NodeType::Memory, name, .. } => {
+                    let name = name.as_deref().expect("name");
+                    let bv64 = Sort::bitvector(self.context, 64);
+                    Array::new_const(self.context, name, &bv64, &bv64).into()
                 }
                 Node::State { sort, name, .. } => {
                     let width = sort.bitsize() as u32;
