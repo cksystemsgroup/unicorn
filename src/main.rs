@@ -14,7 +14,8 @@ use crate::unicorn::emulate_loader::load_model_into_emulator;
 use crate::unicorn::memory::replace_memory;
 use crate::unicorn::optimize::{optimize_model, optimize_model_with_input};
 use crate::unicorn::qubot::{InputEvaluator, Qubot};
-use crate::unicorn::sat_solver::get_sat_formula;
+use crate::unicorn::sat_solver::*;
+use crate::unicorn::sat_solver::kissat_impl::*;
 use crate::unicorn::solver::*;
 use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
 use crate::unicorn::write_model;
@@ -175,6 +176,26 @@ fn main() -> Result<()> {
 
                 if bitblast {
                     let gate_model = bitblast_model(&model.unwrap(), true, 64);
+
+                    if false {
+                        let mut sat_solver = KissatSolver::new(&gate_model);
+                        let mut found = false;
+                        for bad_state in (gate_model.bad_state_gates)[..].iter().cloned() {
+                            match sat_solver.solve(&bad_state) {
+                                SATSolution::Sat => {
+                                    found = true;
+                                }
+                                SATSolution::Unsat => (),
+                                SATSolution::Timeout => (),
+                            }
+                        }
+                        if found {
+                            println!("There is a bad state!");
+                        } else {
+                            println!("No bad state found!");
+                        }
+                    }
+
                     if let Some(ref output_path) = output {
                         let file = File::create(output_path)?;
                         if dimacs {
@@ -249,7 +270,7 @@ fn main() -> Result<()> {
             let max_heap = *args.get_one::<u32>("max-heap").unwrap();
             let max_stack = *args.get_one::<u32>("max-stack").unwrap();
             let memory_size = ByteSize::mib(*args.get_one("memory").unwrap()).as_u64();
-            let prune = args.get_flag("prune-model");
+            //let prune = args.get_flag("prune-model");
             let input_is_btor2 = args.get_flag("from-btor2");
 
             let mut model = if !input_is_btor2 {
@@ -265,9 +286,9 @@ fn main() -> Result<()> {
                 for n in 0..unroll_depth {
                     unroll_model(&mut model, n);
                 }
-                if prune {
+                /*if prune {
                     prune_model(&mut model);
-                }
+                }*/
                 renumber_model(&mut model);
             }
 

@@ -324,9 +324,9 @@ pub trait SATSolver {
 //
 
 // TODO: Move this module into separate file.
-pub mod none_impl {
-    use crate::unicorn::sat_solver::{SATSolver, SATSolution};
-    use crate::unicorn::bitblasting::{GateRef, GateModel};
+pub mod sat_none_impl {
+    use crate::unicorn::bitblasting::{GateModel, GateRef};
+    use crate::unicorn::sat_solver::{SATSolution, SATSolver};
 
     pub struct NoneSATSolver {}
 
@@ -359,10 +359,11 @@ pub mod none_impl {
 
 // TODO: Move this module into separate file.
 pub mod kissat_impl {
-    use crate::unicorn::sat_solver::{Formula, SATSolution, SATSolver, CNFBuilder,
-        Variable, neg, var};
     use crate::unicorn::bitblasting::{GateModel, GateRef};
-    use kissat_rs::{Solver, AnyState};
+    use crate::unicorn::sat_solver::{
+        neg, var, CNFBuilder, Formula, SATSolution, SATSolver, Variable,
+    };
+    use kissat_rs::{AnyState, Solver};
 
     pub struct KissatSolver {
         builder: CNFBuilder,
@@ -375,7 +376,7 @@ pub mod kissat_impl {
 
         fn new(gate_model: &GateModel) -> Self {
             Self {
-                builder: process_model(gate_model)
+                builder: process_model(gate_model),
             }
         }
 
@@ -394,7 +395,8 @@ pub mod kissat_impl {
             let v_right = self.visit(right);
             let f = vec![
                 vec![neg(v_left), var(v_right)],
-                vec![var(v_left), neg(v_right)]];
+                vec![var(v_left), neg(v_right)],
+            ];
             self.solve_impl(f) == SATSolution::Unsat
         }
 
