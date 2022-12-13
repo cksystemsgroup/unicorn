@@ -244,6 +244,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive-try-from-primitive"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "302ccf094df1151173bb6f5a2282fcd2f45accd5eae1bdf82dcbfefbc501ad5c"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "either"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -345,6 +356,24 @@ checksum = "7507624b29483431c0ba2d82aece8ca6cdba9382bff4ddd0f7490560c056098d"
 dependencies = [
  "winapi 0.2.8",
  "winapi-build",
+]
+
+[[package]]
+name = "kissat-rs"
+version = "0.1.0"
+source = "git+https://github.com/firefighterduck/kissat-rs?branch=main#04842947839b99d6a93692d73bbf08b9055e7a3f"
+dependencies = [
+ "derive-try-from-primitive",
+ "kissat-sys",
+ "thiserror",
+]
+
+[[package]]
+name = "kissat-sys"
+version = "0.1.0"
+source = "git+https://github.com/firefighterduck/kissat-rs?branch=main#04842947839b99d6a93692d73bbf08b9055e7a3f"
+dependencies = [
+ "bindgen",
 ]
 
 [[package]]
@@ -800,6 +829,7 @@ dependencies = [
  "cargo-husky",
  "clap 4.0.10",
  "env_logger 0.9.1",
+ "kissat-rs",
  "log",
  "pyo3",
  "rayon",
