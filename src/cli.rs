@@ -25,6 +25,14 @@ pub enum SmtType {
     Z3,
 }
 
+#[derive(Debug, PartialEq, Eq, EnumString, EnumVariantNames, IntoStaticStr)]
+#[strum(serialize_all = "kebab_case")]
+pub enum SatType {
+    None,
+    #[cfg(feature = "kissat")]
+    Kissat,
+}
+
 const DEFAULT_MEMORY_SIZE: &str = "1"; // 1 MiB
 const DEFAULT_MAX_HEAP: &str = "8"; // 8 words
 const DEFAULT_MAX_STACK: &str = "32"; // 32 words
@@ -183,7 +191,7 @@ pub fn args() -> Command {
                         .num_args(0)
                 )
                 .arg(
-                    Arg::new("solver")
+                    Arg::new("smt-solver")
                         .help("SMT solver used for optimization")
                         .short('s')
                         .long("solver")
@@ -191,6 +199,15 @@ pub fn args() -> Command {
                         .value_name("SOLVER")
                         .value_parser(value_parser_smt_type())
                         .default_value(Into::<&str>::into(SmtType::Generic)),
+                )
+                .arg(
+                    Arg::new("sat-solver")
+                        .help("SAT solver used for bad-state reasoning")
+                        .long("sat-solver")
+                        .num_args(1)
+                        .value_name("SOLVER")
+                        .value_parser(value_parser_sat_type())
+                        .default_value(Into::<&str>::into(SatType::None)),
                 )
                 .arg(
                     Arg::new("solver-timeout")
@@ -285,7 +302,7 @@ pub fn args() -> Command {
                         .num_args(1)
                 )
                 .arg(
-                    Arg::new("solver")
+                    Arg::new("smt-solver")
                         .help("SMT solver used for optimization")
                         .short('s')
                         .long("solver")
@@ -414,6 +431,10 @@ fn value_parser_smt_type() -> clap::builder::PossibleValuesParser {
     clap::builder::PossibleValuesParser::new(SmtType::VARIANTS)
 }
 
+fn value_parser_sat_type() -> clap::builder::PossibleValuesParser {
+    clap::builder::PossibleValuesParser::new(SatType::VARIANTS)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -431,7 +452,7 @@ mod tests {
     fn test_execute_defaults_are_set() {
         with_matches(vec!["unicorn", "beator", "file.o"], |m| {
             assert!(m.contains_id("memory"), "Default memory size is set");
-            assert!(m.contains_id("solver"), "Default solver is set");
+            assert!(m.contains_id("smt-solver"), "Default solver is set");
         });
     }
 

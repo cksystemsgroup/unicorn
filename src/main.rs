@@ -22,7 +22,7 @@ use ::unicorn::disassemble::disassemble;
 use ::unicorn::emulate::EmulatorState;
 use anyhow::{Context, Result};
 use bytesize::ByteSize;
-use cli::{collect_arg_values, expect_arg, expect_optional_arg, LogLevel, SmtType};
+use cli::{collect_arg_values, expect_arg, expect_optional_arg, LogLevel, SatType, SmtType};
 use env_logger::{Env, TimestampPrecision};
 use riscu::load_object_file;
 use std::{
@@ -69,7 +69,7 @@ fn main() -> Result<()> {
             let input = expect_arg::<PathBuf>(args, "input-file")?;
             let output = expect_optional_arg::<PathBuf>(args, "output-file")?;
             let unroll = args.get_one::<usize>("unroll-model").cloned();
-            let solver = expect_arg::<SmtType>(args, "solver")?;
+            let smt_solver = expect_arg::<SmtType>(args, "smt-solver")?;
             let solver_timeout = args.get_one::<u64>("solver-timeout");
             let max_heap = *args.get_one::<u32>("max-heap").unwrap();
             let max_stack = *args.get_one::<u32>("max-stack").unwrap();
@@ -121,7 +121,7 @@ fn main() -> Result<()> {
                         prune_model(&mut model);
                     }
                     let timeout = solver_timeout.map(|&ms| Duration::from_millis(ms));
-                    match solver {
+                    match smt_solver {
                         #[rustfmt::skip]
                         SmtType::Generic => {
                             optimize_model_with_solver::<none_impl::NoneSolver>(&mut model, timeout, minimize)
@@ -180,13 +180,22 @@ fn main() -> Result<()> {
             }
 
             if is_beator {
-                let bitblast = args.get_flag("bitblast");
+                let sat_solver = expect_arg::<SatType>(args, "sat-solver")?;
+                let bitblast = args.get_flag("bitblast") || (sat_solver != SatType::None);
                 let dimacs = args.get_flag("dimacs");
                 let output_to_stdout =
                     output == Some(PathBuf::from("")) || output == Some(PathBuf::from("-"));
+                assert!(bitblast || !dimacs, "printing DIMACS requires bitblasting");
 
                 if bitblast {
                     let gate_model = bitblast_model(&model.unwrap(), true, 64);
+
+                    match sat_solver {
+                        SatType::None => (), // nothing to be done.
+                        #[cfg(feature = "kissat")]
+                        SatType::Kissat => unimplemented!("SAT solver binding"),
+                    }
+
                     if output_to_stdout {
                         if dimacs {
                             write_dimacs_model(&gate_model, stdout())?;
