@@ -14,6 +14,7 @@ use crate::unicorn::emulate_loader::load_model_into_emulator;
 use crate::unicorn::memory::replace_memory;
 use crate::unicorn::optimize::{optimize_model_with_input, optimize_model_with_solver};
 use crate::unicorn::qubot::{InputEvaluator, Qubot};
+use crate::unicorn::sat_solver::solve_bad_states;
 use crate::unicorn::solver::*;
 use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
 use crate::unicorn::write_model;
@@ -188,12 +189,11 @@ fn main() -> Result<()> {
                 assert!(bitblast || !dimacs, "printing DIMACS requires bitblasting");
 
                 if bitblast {
+                    assert!(discretize, "bit-blasting requires discretized memory");
                     let gate_model = bitblast_model(&model.unwrap(), true, 64);
 
-                    match sat_solver {
-                        SatType::None => (), // nothing to be done.
-                        #[cfg(feature = "kissat")]
-                        SatType::Kissat => unimplemented!("SAT solver binding"),
+                    if sat_solver != SatType::None {
+                        solve_bad_states(&gate_model, sat_solver);
                     }
 
                     if output_to_stdout {
