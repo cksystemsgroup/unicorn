@@ -7,7 +7,7 @@ use std::time::Duration;
 
 #[allow(dead_code)]
 #[derive(Debug, Eq, PartialEq)]
-pub enum Solution {
+pub enum SMTSolution {
     Sat,
     Unsat,
     Timeout,
@@ -16,10 +16,10 @@ pub enum Solution {
 // TODO: Clippy in Rust 1.60.0 is overly pedantic. Revisit this on Rust
 // upgrades to an even higher version number.
 #[allow(clippy::wrong_self_convention)]
-pub trait Solver {
+pub trait SMTSolver {
     fn new(timeout: Option<Duration>) -> Self;
     fn name() -> &'static str;
-    fn solve(&mut self, root: &NodeRef) -> Solution;
+    fn solve(&mut self, root: &NodeRef) -> SMTSolution;
     fn is_always_true(&mut self, node: &NodeRef) -> bool;
     fn is_always_false(&mut self, node: &NodeRef) -> bool;
     fn is_always_equal(&mut self, left: &NodeRef, right: &NodeRef) -> bool;
@@ -31,13 +31,13 @@ pub trait Solver {
 
 // TODO: Move this module into separate file.
 pub mod none_impl {
-    use crate::unicorn::solver::{Solution, Solver};
+    use crate::unicorn::smt_solver::{SMTSolution, SMTSolver};
     use crate::unicorn::NodeRef;
     use std::time::Duration;
 
     pub struct NoneSolver {}
 
-    impl Solver for NoneSolver {
+    impl SMTSolver for NoneSolver {
         fn name() -> &'static str {
             "None"
         }
@@ -58,8 +58,8 @@ pub mod none_impl {
             false
         }
 
-        fn solve(&mut self, _root: &NodeRef) -> Solution {
-            Solution::Timeout
+        fn solve(&mut self, _root: &NodeRef) -> SMTSolution {
+            SMTSolution::Timeout
         }
     }
 }
@@ -67,7 +67,7 @@ pub mod none_impl {
 // TODO: Move this module into separate file.
 #[cfg(feature = "boolector")]
 pub mod boolector_impl {
-    use crate::unicorn::solver::{Solution, Solver};
+    use crate::unicorn::smt_solver::{SMTSolution, SMTSolver};
     use crate::unicorn::{HashableNodeRef, Node, NodeRef, NodeType};
     use boolector_solver::{
         option::{BtorOption, ModelGen, OutputFileFormat},
@@ -92,7 +92,7 @@ pub mod boolector_impl {
         mapping: HashMap<HashableNodeRef, BoolectorValue>,
     }
 
-    impl Solver for BoolectorSolver {
+    impl SMTSolver for BoolectorSolver {
         fn name() -> &'static str {
             "Boolector"
         }
@@ -112,38 +112,38 @@ pub mod boolector_impl {
 
         fn is_always_true(&mut self, node: &NodeRef) -> bool {
             let bv = self.visit(node).into_bv().not();
-            self.solve_impl(bv) == Solution::Unsat
+            self.solve_impl(bv) == SMTSolution::Unsat
         }
 
         fn is_always_false(&mut self, node: &NodeRef) -> bool {
             let bv = self.visit(node).into_bv();
-            self.solve_impl(bv) == Solution::Unsat
+            self.solve_impl(bv) == SMTSolution::Unsat
         }
 
         fn is_always_equal(&mut self, left: &NodeRef, right: &NodeRef) -> bool {
             let bv_left = self.visit(left).into_bv();
             let bv_right = self.visit(right).into_bv();
             let bv = bv_left._ne(&bv_right);
-            self.solve_impl(bv) == Solution::Unsat
+            self.solve_impl(bv) == SMTSolution::Unsat
         }
 
-        fn solve(&mut self, root: &NodeRef) -> Solution {
+        fn solve(&mut self, root: &NodeRef) -> SMTSolution {
             let bv = self.visit(root).into_bv();
             self.solve_impl(bv.slice(0, 0))
         }
     }
 
     impl BoolectorSolver {
-        fn solve_impl(&mut self, bv: BitVectorRef) -> Solution {
+        fn solve_impl(&mut self, bv: BitVectorRef) -> SMTSolution {
             self.solver.push(1);
             bv.assert();
             let solution = match self.solver.sat() {
-                SolverResult::Sat => Solution::Sat,
-                SolverResult::Unsat => Solution::Unsat,
-                SolverResult::Unknown => Solution::Timeout,
+                SolverResult::Sat => SMTSolution::Sat,
+                SolverResult::Unsat => SMTSolution::Unsat,
+                SolverResult::Unknown => SMTSolution::Timeout,
             };
             self.solver.pop(1);
-            if solution == Solution::Timeout {
+            if solution == SMTSolution::Timeout {
                 debug!("Query timeout was reached by Boolector");
             }
             solution
@@ -293,7 +293,7 @@ pub mod boolector_impl {
 // TODO: Move this module into separate file.
 #[cfg(feature = "z3")]
 pub mod z3solver_impl {
-    use crate::unicorn::solver::{Solution, Solver};
+    use crate::unicorn::smt_solver::{SMTSolution, SMTSolver};
     use crate::unicorn::{HashableNodeRef, Node, NodeRef, NodeType};
     use log::debug;
     use std::collections::HashMap;
@@ -312,7 +312,7 @@ pub mod z3solver_impl {
         one: BV<'ctx>,
     }
 
-    impl<'ctx> Solver for Z3SolverWrapper<'ctx> {
+    impl<'ctx> SMTSolver for Z3SolverWrapper<'ctx> {
         fn name() -> &'static str {
             "Z3"
         }
@@ -336,38 +336,38 @@ pub mod z3solver_impl {
 
         fn is_always_true(&mut self, node: &NodeRef) -> bool {
             let z3_bool = self.visit(node).as_bool().expect("bool").not();
-            self.solve_impl(&z3_bool) == Solution::Unsat
+            self.solve_impl(&z3_bool) == SMTSolution::Unsat
         }
 
         fn is_always_false(&mut self, node: &NodeRef) -> bool {
             let z3_bool = self.visit(node).as_bool().expect("bool");
-            self.solve_impl(&z3_bool) == Solution::Unsat
+            self.solve_impl(&z3_bool) == SMTSolution::Unsat
         }
 
         fn is_always_equal(&mut self, left: &NodeRef, right: &NodeRef) -> bool {
             let z3_left = Dynamic::from_ast(self.visit(left));
             let z3_right = Dynamic::from_ast(self.visit(right));
             let z3_bool = z3_left._eq(&z3_right).not();
-            self.solve_impl(&z3_bool) == Solution::Unsat
+            self.solve_impl(&z3_bool) == SMTSolution::Unsat
         }
 
-        fn solve(&mut self, root: &NodeRef) -> Solution {
+        fn solve(&mut self, root: &NodeRef) -> SMTSolution {
             let z3_bool = self.visit(root).as_bool().expect("bool");
             self.solve_impl(&z3_bool)
         }
     }
 
     impl<'ctx> Z3SolverWrapper<'ctx> {
-        fn solve_impl(&mut self, z3_bool: &Bool<'ctx>) -> Solution {
+        fn solve_impl(&mut self, z3_bool: &Bool<'ctx>) -> SMTSolution {
             self.solver.push();
             self.solver.assert(z3_bool);
             let solution = match self.solver.check() {
-                SatResult::Sat => Solution::Sat,
-                SatResult::Unsat => Solution::Unsat,
-                SatResult::Unknown => Solution::Timeout,
+                SatResult::Sat => SMTSolution::Sat,
+                SatResult::Unsat => SMTSolution::Unsat,
+                SatResult::Unknown => SMTSolution::Timeout,
             };
             self.solver.pop(1);
-            if solution == Solution::Timeout {
+            if solution == SMTSolution::Timeout {
                 debug!("Query timeout was reached by Z3");
             }
             solution

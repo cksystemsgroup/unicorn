@@ -15,7 +15,7 @@ use crate::unicorn::memory::replace_memory;
 use crate::unicorn::optimize::{optimize_model_with_input, optimize_model_with_solver};
 use crate::unicorn::qubot::{InputEvaluator, Qubot};
 use crate::unicorn::sat_solver::solve_bad_states;
-use crate::unicorn::solver::*;
+use crate::unicorn::smt_solver::*;
 use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
 use crate::unicorn::write_model;
 
