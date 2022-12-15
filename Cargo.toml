@@ -15,6 +15,7 @@ default = []
 z3 = ["z3-solver", "z3-sys"]
 boolector = ["boolector-solver", "boolector-sys"]
 kissat = ["kissat-rs"]
+varisat = ["varisat-rs"]
 true-rng = []
 
 [lib]
@@ -41,6 +42,7 @@ boolector-sys = { version = "~0", features = ["vendor-lgl"], optional = true }
 z3-solver = { package = "z3", version = "~0.11", features = ["static-link-z3"], optional = true }
 z3-sys = { version = "~0", features = ["static-link-z3"], optional = true }
 kissat-rs = { git = "https://github.com/firefighterduck/kissat-rs", branch = "main", version = "0.1", optional = true }
+varisat-rs = { package = "varisat", version = "0.2.2", optional = true }
 pyo3 = { version = "~0.17", features = ["auto-initialize"] }
 
 [patch.crates-io]

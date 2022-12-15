@@ -44,19 +44,19 @@ jobs:
         include:
           - platform: Linux
             os: ubuntu-20.04
-            features: z3,boolector,kissat
+            features: z3,boolector,kissat,varisat
           - platform: MacOs
             os: macos-11
-            features: z3,boolector,kissat
+            features: z3,boolector,kissat,varisat
           - platform: Windows
             os: windows-2019
-            features: z3
+            features: z3,varisat
           - platform: latest Rust
             toolchain: stable
             os: ubuntu-latest
             # linter and format checkers are not executed for experimental platform
             experimental: true
-            features: z3,boolector,kissat
+            features: z3,boolector,kissat,varisat
     steps:
       - name: Checkout
         uses: actions/checkout@v3
