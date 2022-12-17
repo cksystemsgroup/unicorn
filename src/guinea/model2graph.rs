@@ -1,9 +1,12 @@
 use crate::guinea::giraphe::Giraphe;
 use crate::guinea::Guineacorn;
 use crate::unicorn::btor2file_parser::parse_btor2_file;
+use crate::unicorn::builder::generate_model;
 use crate::unicorn::unroller::renumber_model;
 use crate::unicorn::Node;
+use bytesize::ByteSize;
 use egui::Ui;
+use riscu::load_object_file;
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -35,6 +38,17 @@ pub fn input_window(data: &mut Guineacorn, ui: &mut Ui) {
             let mut model = parse_btor2_file(&path);
             renumber_model(&mut model);
             data.giraphe = Giraphe::from(&model);
+        }
+
+        if ui.button("Load Binary").clicked() {
+            let path = PathBuf::from_str(&picked_path).unwrap();
+            let program = load_object_file(&path);
+
+            let program = program.unwrap();
+            let argv = [vec![picked_path.clone()]].concat();
+            let model = generate_model(&program, ByteSize::mib(1).as_u64(), 8, 32, &argv);
+
+            data.giraphe = Giraphe::from(&model.unwrap());
         }
 
         ui.add_enabled_ui(!data.giraphe.leaves.is_empty(), |ui| {

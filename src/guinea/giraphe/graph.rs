@@ -192,6 +192,29 @@ impl Giraphe {
             };
         }
 
+        // TODO: find a shorter way
+        leaves.sort_by(|x, y| {
+            let x = &*x.borrow();
+            let y = &*y.borrow();
+            let t1 = match &*x.origin.borrow() {
+                Node::Bad { name, .. } => name.as_ref().unwrap().clone(),
+                Node::Next { state, .. } => match &*state.borrow() {
+                    Node::State { name, .. } => name.as_ref().unwrap().clone(),
+                    _ => unreachable!(),
+                },
+                x => unreachable!("{:?}", x),
+            };
+            let t2 = match &*y.origin.borrow() {
+                Node::Bad { name, .. } => name.as_ref().unwrap().clone(),
+                Node::Next { state, .. } => match &*state.borrow() {
+                    Node::State { name, .. } => name.as_ref().unwrap().clone(),
+                    _ => unreachable!(),
+                },
+                x => unreachable!("{:?}", x),
+            };
+            t1.cmp(&t2)
+        });
+
         Self {
             tick: 0,
             spot_lookup,

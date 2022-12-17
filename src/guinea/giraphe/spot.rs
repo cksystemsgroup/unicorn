@@ -216,6 +216,7 @@ impl Widget for Spot {
             ui.separator();
             let was = format!("Was: {}", self.val_old);
             let now = format!("Is: {}", self.val_cur);
+            ui.label(format!("Tick: {}", self.tick));
             ui.label(was);
             ui.label(now);
         })
