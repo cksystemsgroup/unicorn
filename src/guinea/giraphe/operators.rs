@@ -203,14 +203,6 @@ impl Shr for MachineWord {
     }
 }
 
-impl PartialEq<Self> for MachineWord {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Concrete(lhs), Concrete(rhs)) => lhs == rhs,
-        }
-    }
-}
-
 impl PartialOrd for MachineWord {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {

@@ -45,24 +45,26 @@ pub fn input_window(data: &mut Guineacorn, ui: &mut Ui) {
         });
 
         ui.label("Leaf values");
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            for sr in &data.giraphe.leaves {
-                let l = &*sr.borrow();
-                let text = match &*l.origin.borrow() {
-                    Node::Bad { name, .. } => {
-                        format!("Bad ({}): {}", name.as_ref().unwrap(), l.val_cur)
-                    }
-                    Node::Next { state, .. } => match &*state.borrow() {
-                        Node::State { name, .. } => {
-                            format!("Next ({}): {}", name.as_ref().unwrap(), l.val_cur)
+        egui::ScrollArea::vertical()
+            .id_source("leaves")
+            .show(ui, |ui| {
+                for sr in &data.giraphe.leaves {
+                    let l = &*sr.borrow();
+                    let text = match &*l.origin.borrow() {
+                        Node::Bad { name, .. } => {
+                            format!("Bad ({}): {}", name.as_ref().unwrap(), l.val_cur)
                         }
-                        _ => unreachable!(),
-                    },
-                    x => unreachable!("{:?}", x),
-                };
-                ui.label(text);
-            }
-        });
+                        Node::Next { state, .. } => match &*state.borrow() {
+                            Node::State { name, .. } => {
+                                format!("Next ({}): {}", name.as_ref().unwrap(), l.val_cur)
+                            }
+                            _ => unreachable!(),
+                        },
+                        x => unreachable!("{:?}", x),
+                    };
+                    ui.label(text);
+                }
+            });
     });
 }
 

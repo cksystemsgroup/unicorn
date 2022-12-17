@@ -17,6 +17,7 @@ pub struct Giraphe {
     pub spot_lookup: HashMap<u64, SpotRef>,
     pub spot_list: Vec<SpotRef>,
     pub leaves: Vec<SpotRef>,
+    pub inputs: Vec<SpotRef>,
     pub pan: Vec2,
 }
 
@@ -31,7 +32,7 @@ pub struct Spot {
 }
 
 #[allow(unused)]
-#[derive(Debug, Clone, Copy, Eq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum MachineWord {
     Concrete(u64),
     // Symbolic(?),

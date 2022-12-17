@@ -30,6 +30,7 @@ impl Giraphe {
         let mut spot_lookup = HashMap::new();
         let mut spot_list = Vec::new();
         let mut leaves = Vec::new();
+        let mut inputs = Vec::new();
 
         let mut layers: Vec<u64> = Vec::new();
         let mut lookup_y = |x| {
@@ -55,7 +56,15 @@ impl Giraphe {
 
             match &*node.borrow() {
                 // zero parents
-                Node::Const { nid, .. } | Node::Input { nid, .. } => {
+                Node::Input { nid, .. } => {
+                    let s = &mut *spot.borrow_mut();
+                    s.set_position(0.0, lookup_y(0) as f32 * YSIZE);
+
+                    spot_list.push(spot.clone());
+                    spot_lookup.insert(*nid as u64, spot.clone());
+                    inputs.push(spot.clone());
+                }
+                Node::Const { nid, .. } => {
                     let s = &mut *spot.borrow_mut();
                     s.set_position(0.0, lookup_y(0) as f32 * YSIZE);
 
@@ -147,6 +156,9 @@ impl Giraphe {
 
                     spot_list.push(spot.clone());
                     spot_lookup.insert(*nid, spot.clone());
+                    if init.is_none() {
+                        inputs.push(spot.clone());
+                    }
                 }
                 Node::Next {
                     nid, state, next, ..
@@ -185,6 +197,7 @@ impl Giraphe {
             spot_lookup,
             spot_list,
             leaves,
+            inputs,
             pan: Vec2::default(),
         }
     }
@@ -342,7 +355,7 @@ impl Giraphe {
 
         for sr in &self.leaves {
             let s = &mut *sr.borrow_mut();
-            s.evaluate(self.tick);
+            s.evaluate(self);
         }
 
         self.tick
