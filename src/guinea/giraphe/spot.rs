@@ -128,15 +128,14 @@ impl Spot {
                 cond, left, right, ..
             } => {
                 let cond = &mut *node_to_spot(cond).borrow_mut();
-                let left = &mut *node_to_spot(left).borrow_mut();
-                let right = &mut *node_to_spot(right).borrow_mut();
-
-                match (&cond.evaluate(graph), left, right) {
-                    (Boolean(b), l, r) => {
+                match &cond.evaluate(graph) {
+                    Boolean(b) => {
                         if *b {
-                            l.evaluate(graph)
+                            let left = &mut *node_to_spot(left).borrow_mut();
+                            left.evaluate(graph)
                         } else {
-                            r.evaluate(graph)
+                            let right = &mut *node_to_spot(right).borrow_mut();
+                            right.evaluate(graph)
                         }
                     }
                     _ => unreachable!(),
@@ -166,8 +165,8 @@ impl Spot {
             }, // <- here
             Node::Next { state, next, .. } => {
                 let spot1 = &mut *node_to_spot(next).borrow_mut();
-                let spot2 = &mut *node_to_spot(state).borrow_mut();
                 let next = spot1.evaluate(graph);
+                let spot2 = &mut *node_to_spot(state).borrow_mut();
                 spot2.val_cur = next.clone();
                 next
             }

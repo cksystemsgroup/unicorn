@@ -114,6 +114,7 @@ impl BitAnd for Value {
     fn bitand(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
             (Self::Boolean(lhs), Self::Boolean(rhs)) => Self::Boolean(lhs && rhs),
+            (Self::Bitvector(lhs), Self::Bitvector(rhs)) => Self::Bitvector(lhs & rhs),
             (x, y) => panic!("Can't and {:?} and {:?}", x, y),
         }
     }
@@ -207,6 +208,16 @@ impl PartialOrd for MachineWord {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
             (Concrete(lhs), Concrete(rhs)) => Some(lhs.cmp(rhs)),
+        }
+    }
+}
+
+impl BitAnd for MachineWord {
+    type Output = MachineWord;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Concrete(x), Concrete(y)) => Concrete(x & y),
         }
     }
 }
