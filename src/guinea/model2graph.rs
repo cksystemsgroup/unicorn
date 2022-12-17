@@ -2,6 +2,7 @@ use crate::guinea::giraphe::Giraphe;
 use crate::guinea::Guineacorn;
 use crate::unicorn::btor2file_parser::parse_btor2_file;
 use crate::unicorn::unroller::renumber_model;
+use crate::unicorn::Node;
 use egui::Ui;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -35,6 +36,33 @@ pub fn input_window(data: &mut Guineacorn, ui: &mut Ui) {
             renumber_model(&mut model);
             data.giraphe = Giraphe::from(&model);
         }
+
+        ui.add_enabled_ui(!data.giraphe.leaves.is_empty(), |ui| {
+            if ui.button("Step Over").clicked() {
+                let t = data.giraphe.tick_over();
+                println!("Tick: {t}");
+            }
+        });
+
+        ui.label("Leaf values");
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for sr in &data.giraphe.leaves {
+                let l = &*sr.borrow();
+                let text = match &*l.origin.borrow() {
+                    Node::Bad { name, .. } => {
+                        format!("Bad ({}): {}", name.as_ref().unwrap(), l.val_cur)
+                    }
+                    Node::Next { state, .. } => match &*state.borrow() {
+                        Node::State { name, .. } => {
+                            format!("Next ({}): {}", name.as_ref().unwrap(), l.val_cur)
+                        }
+                        _ => unreachable!(),
+                    },
+                    x => unreachable!("{:?}", x),
+                };
+                ui.label(text);
+            }
+        });
     });
 }
 

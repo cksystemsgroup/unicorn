@@ -1,6 +1,5 @@
-use crate::guinea::giraphe::MachineWord::Concrete;
 use crate::guinea::giraphe::Value::{Boolean, Immediate};
-use crate::guinea::giraphe::{MachineWord, Spot, SpotRef, Value};
+use crate::guinea::giraphe::{Spot, SpotRef, Value};
 use crate::unicorn::{Node, NodeRef};
 use egui::{Response, Ui, Widget};
 use std::cell::RefCell;
@@ -27,7 +26,7 @@ impl Spot {
         self.val_cur != self.val_old
     }
 
-    pub fn _evaluate(&mut self, _tick: usize) -> Value {
+    pub fn evaluate(&mut self, _tick: usize) -> Value {
         // TODO: recursive evaluation
         Value::Undefined
     }
@@ -64,7 +63,10 @@ impl Widget for Spot {
         ui.vertical(|ui| {
             ui.heading(self.title());
             ui.separator();
-            ui.label("dummy");
+            let was = format!("Was: {}", self.val_old);
+            let now = format!("Is: {}", self.val_cur);
+            ui.label(was);
+            ui.label(now);
         })
         .response
     }
@@ -85,17 +87,5 @@ impl Value {
 
     pub fn _default_imm() -> Self {
         Immediate(0)
-    }
-}
-
-impl PartialEq for Value {
-    fn eq(&self, _other: &Self) -> bool {
-        todo!()
-    }
-}
-
-impl MachineWord {
-    pub fn _from(nr: u64) -> Self {
-        Concrete(nr)
     }
 }

@@ -11,6 +11,15 @@ static YSIZE: f32 = 200.0;
 static NODE_MARGIN: f32 = 10.0;
 static NODE_PADDING: f32 = 5.0;
 
+// TODO:
+//   inputs in the graph
+//   preprocess the graph
+//    - collapse if then else block
+//    - collapse input gathering
+//    - unroll once to remove all unnecessary extras
+//   better layout:
+//    - directly dependant nodes near each other
+//    - less density
 impl Giraphe {
     pub fn from(model: &Model) -> Self {
         assert!(
@@ -326,6 +335,17 @@ impl Giraphe {
             .unwrap()
             .borrow();
         translation + out.position.to_vec2() + Vec2::from([XSIZE - NODE_MARGIN, YSIZE * 0.5])
+    }
+
+    pub fn tick_over(&mut self) -> usize {
+        self.tick += 1;
+
+        for sr in &self.leaves {
+            let s = &mut *sr.borrow_mut();
+            s.evaluate(self.tick);
+        }
+
+        self.tick
     }
 }
 
