@@ -4,6 +4,7 @@ use crate::guinea::giraphe::Value::{Array, Bitvector, Boolean, Immediate};
 use crate::guinea::giraphe::{Giraphe, Spot, SpotRef, Value};
 use crate::unicorn::{Node, NodeRef, NodeType};
 use egui::{Response, Ui, Widget};
+use log::trace;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -17,7 +18,20 @@ impl Spot {
                 NodeType::Word => Bitvector(Concrete(*imm)),
                 _ => unreachable!(),
             },
-            Node::State { init: None, .. } => Bitvector(Concrete(0)),
+            Node::State {
+                sort, init: None, ..
+            } => match sort {
+                NodeType::Word
+                | NodeType::Input1Byte
+                | NodeType::Input2Byte
+                | NodeType::Input3Byte
+                | NodeType::Input4Byte
+                | NodeType::Input5Byte
+                | NodeType::Input6Byte
+                | NodeType::Input7Byte => Bitvector(Concrete(0)), // TODO: give proper input
+                NodeType::Memory => Value::default_array(),
+                x => unreachable!("caused by {:?}", x),
+            },
             _ => Value::Undefined,
         };
 
@@ -40,7 +54,7 @@ impl Spot {
     }
 
     pub fn evaluate(&mut self, graph: &Giraphe) -> Value {
-        if self.tick == graph.tick {
+        if self.tick != 0 && self.tick == graph.tick {
             return self.val_cur.clone();
         }
         self.tick = graph.tick;
@@ -56,28 +70,35 @@ impl Spot {
             Node::Read {
                 memory, address, ..
             } => {
-                let memory = &*node_to_spot(memory).borrow();
-                let address = &*node_to_spot(address).borrow();
+                let memory = &mut *node_to_spot(memory).borrow_mut();
+                memory.evaluate(graph);
+                let address = &mut *node_to_spot(address).borrow_mut();
+                address.evaluate(graph);
                 match (&memory.val_cur, &address.val_cur) {
                     (Array(m), Bitvector(i)) => Bitvector(*m.get(i).unwrap()),
                     _ => unreachable!(),
                 }
             }
             Node::Write {
+                nid,
                 memory,
                 address,
                 value,
                 ..
             } => {
-                let memory = &*node_to_spot(memory).borrow();
-                let address = &*node_to_spot(address).borrow();
-                let value = &*node_to_spot(value).borrow();
+                let memory = &mut *node_to_spot(memory).borrow_mut();
+                memory.evaluate(graph);
+                let address = &mut *node_to_spot(address).borrow_mut();
+                address.evaluate(graph);
+                let value = &mut *node_to_spot(value).borrow_mut();
+                value.evaluate(graph);
+
                 match (memory.val_cur.clone(), &address.val_cur, &value.val_cur) {
                     (Array(mut m), Bitvector(i), Bitvector(x)) => {
                         m.insert(*i, *x);
-                        Array(m.clone())
+                        Array(m)
                     }
-                    _ => unreachable!(),
+                    x => unreachable!("caused by {} {:?}", nid, x),
                 }
             }
             Node::Add { left, right, .. } => {
@@ -142,9 +163,14 @@ impl Spot {
                 }
             }
             Node::Eq { left, right, .. } => {
-                let spot1 = &mut *node_to_spot(left).borrow_mut();
-                let spot2 = &mut *node_to_spot(right).borrow_mut();
-                Boolean(spot1.evaluate(graph) == spot2.evaluate(graph))
+                let same = std::ptr::eq(node_to_spot(left), node_to_spot(right));
+                if !same {
+                    let spot1 = &mut *node_to_spot(left).borrow_mut();
+                    let spot2 = &mut *node_to_spot(right).borrow_mut();
+                    Boolean(spot1.evaluate(graph) == spot2.evaluate(graph))
+                } else {
+                    Boolean(true)
+                }
             }
             Node::And { left, right, .. } => {
                 let spot1 = &mut *node_to_spot(left).borrow_mut();
@@ -155,19 +181,28 @@ impl Spot {
                 let spot = &mut *node_to_spot(value).borrow_mut();
                 !spot.evaluate(graph)
             }
-            Node::State { init, .. } => match self.val_old {
+            Node::State { name, init, .. } => match self.val_old {
                 Value::Undefined => {
                     let spot = &mut *node_to_spot(init.as_ref().unwrap()).borrow_mut();
-                    self.val_old = spot.evaluate(graph);
-                    self.val_old.clone()
+                    self.val_cur = spot.evaluate(graph);
+                    self.val_old = self.val_cur.clone();
+                    trace!(
+                        "State '{}' initialized with: {}",
+                        name.as_ref().unwrap(),
+                        self.val_cur
+                    );
+                    self.val_cur.clone()
                 }
-                _ => self.val_old.clone(),
-            }, // <- here
+                _ => self.val_cur.clone(),
+            },
             Node::Next { state, next, .. } => {
+                let same = std::ptr::eq(node_to_spot(next), node_to_spot(state));
                 let spot1 = &mut *node_to_spot(next).borrow_mut();
                 let next = spot1.evaluate(graph);
-                let spot2 = &mut *node_to_spot(state).borrow_mut();
-                spot2.val_cur = next.clone();
+                if !same {
+                    let spot2 = &mut *node_to_spot(state).borrow_mut();
+                    spot2.val_cur = next.clone();
+                }
                 next
             }
             Node::Input { .. } => self.val_cur.clone(),
@@ -211,9 +246,15 @@ impl Spot {
 
 impl Widget for Spot {
     fn ui(self, ui: &mut Ui) -> Response {
+        let name = match &*self.origin.borrow() {
+            Node::State { name, .. } => name.clone().unwrap(),
+            Node::Bad { name, .. } => name.clone().unwrap(),
+            _ => "no name".to_string(),
+        };
         ui.vertical(|ui| {
             ui.heading(self.title());
             ui.separator();
+            ui.label(name);
             let was = format!("Was: {}", self.val_old);
             let now = format!("Is: {}", self.val_cur);
             ui.label(format!("Tick: {}", self.tick));
@@ -229,7 +270,7 @@ impl Value {
         Boolean(false)
     }
 
-    pub fn _default_array() -> Self {
+    pub fn default_array() -> Self {
         Self::Array(HashMap::new())
     }
 

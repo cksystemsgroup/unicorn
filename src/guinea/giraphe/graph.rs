@@ -32,6 +32,8 @@ impl Giraphe {
         let mut leaves = Vec::new();
         let mut inputs = Vec::new();
 
+        let mut states = Vec::new();
+
         let mut layers: Vec<u64> = Vec::new();
         let mut lookup_y = |x| {
             if let Some(y) = layers.get(x) {
@@ -158,6 +160,8 @@ impl Giraphe {
                     spot_lookup.insert(*nid, spot.clone());
                     if init.is_none() {
                         inputs.push(spot.clone());
+                    } else {
+                        states.push(spot.clone());
                     }
                 }
                 Node::Next {
@@ -192,37 +196,32 @@ impl Giraphe {
             };
         }
 
-        // TODO: find a shorter way
-        leaves.sort_by(|x, y| {
+        states.sort_by(|x, y| {
             let x = &*x.borrow();
             let y = &*y.borrow();
-            let t1 = match &*x.origin.borrow() {
-                Node::Bad { name, .. } => name.as_ref().unwrap().clone(),
-                Node::Next { state, .. } => match &*state.borrow() {
-                    Node::State { name, .. } => name.as_ref().unwrap().clone(),
-                    _ => unreachable!(),
-                },
-                x => unreachable!("{:?}", x),
+            let r = match (&*x.origin.borrow(), &*y.origin.borrow()) {
+                (Node::State { name: t1, .. }, Node::State { name: t2, .. }) => t1.cmp(t2),
+                _ => unreachable!(),
             };
-            let t2 = match &*y.origin.borrow() {
-                Node::Bad { name, .. } => name.as_ref().unwrap().clone(),
-                Node::Next { state, .. } => match &*state.borrow() {
-                    Node::State { name, .. } => name.as_ref().unwrap().clone(),
-                    _ => unreachable!(),
-                },
-                x => unreachable!("{:?}", x),
-            };
-            t1.cmp(&t2)
+            r
         });
 
-        Self {
+        let g = Self {
             tick: 0,
             spot_lookup,
             spot_list,
             leaves,
             inputs,
+            states: states.clone(),
             pan: Vec2::default(),
+        };
+
+        for si in states {
+            let si = &mut *si.borrow_mut();
+            si.evaluate(&g);
         }
+
+        g
     }
 
     pub fn draw(&mut self, ui: &mut Ui) {

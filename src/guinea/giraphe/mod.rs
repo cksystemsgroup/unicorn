@@ -18,6 +18,7 @@ pub struct Giraphe {
     pub spot_list: Vec<SpotRef>,
     pub leaves: Vec<SpotRef>,
     pub inputs: Vec<SpotRef>,
+    pub states: Vec<SpotRef>,
     pub pan: Vec2,
 }
 
@@ -57,7 +58,7 @@ impl Display for Value {
             Value::String(x) => write!(f, "{}", x),
             Value::Array(_) => write!(f, "virtual memory",),
             Value::Immediate(x) => write!(f, "{}", x),
-            Value::Undefined => write!(f, "undefined value",),
+            Value::Undefined => write!(f, "undefined",),
         }
     }
 }
