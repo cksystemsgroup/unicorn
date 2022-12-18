@@ -88,6 +88,8 @@ impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Bitvector(lhs), Self::Bitvector(rhs)) => lhs == rhs,
+            (Self::Boolean(lhs), Self::Boolean(rhs)) => lhs == rhs,
+            (Self::Array(lhs), Self::Array(rhs)) => lhs == rhs,
             (x, y) => panic!("Can't equal {:?} and {:?}", x, y),
         }
     }

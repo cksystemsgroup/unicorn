@@ -206,7 +206,7 @@ impl Giraphe {
             r
         });
 
-        let g = Self {
+        let mut g = Self {
             tick: 0,
             spot_lookup,
             spot_list,
@@ -216,10 +216,18 @@ impl Giraphe {
             pan: Vec2::default(),
         };
 
+        g.tick = -1;
         for si in states {
             let si = &mut *si.borrow_mut();
-            si.evaluate(&g);
+            if let Node::State { init, .. } = &*si.origin.borrow() {
+                let init = map_node_ref_to_nid(init.as_ref().unwrap());
+                let init = &mut *g.spot_lookup.get(&init).unwrap().borrow_mut();
+                si.val_cur = init.evaluate(&g);
+            } else {
+                panic!("Can't initialize non state node")
+            };
         }
+        g.tick = 0;
 
         g
     }
@@ -372,7 +380,7 @@ impl Giraphe {
         translation + out.position.to_vec2() + Vec2::from([XSIZE - NODE_MARGIN, YSIZE * 0.5])
     }
 
-    pub fn tick_over(&mut self) -> usize {
+    pub fn tick_over(&mut self) -> isize {
         self.tick += 1;
 
         for sr in &self.leaves {

@@ -13,7 +13,7 @@ use std::rc::Rc;
 #[allow(unused)]
 #[derive(Default, Debug)]
 pub struct Giraphe {
-    tick: usize,
+    tick: isize,
     pub spot_lookup: HashMap<u64, SpotRef>,
     pub spot_list: Vec<SpotRef>,
     pub leaves: Vec<SpotRef>,
@@ -25,8 +25,8 @@ pub struct Giraphe {
 #[allow(unused)]
 #[derive(Debug, Clone)]
 pub struct Spot {
-    tick: usize,
-    val_old: Value,
+    tick: isize,
+    pub(crate) val_old: Value,
     pub(crate) val_cur: Value,
     pub(crate) origin: NodeRef,
     pub(crate) position: Pos2,

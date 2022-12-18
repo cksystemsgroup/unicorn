@@ -29,6 +29,7 @@ pub fn parse_btor2_file(path: &Path) -> Model {
     }
 }
 
+#[cfg(feature = "gui")]
 pub fn parse_btor2_string(string: &str) -> Model {
     let mut parser = BTOR2Parser::new();
     parser.parse_string(string);
@@ -121,6 +122,7 @@ impl BTOR2Parser {
         }
     }
 
+    #[cfg(feature = "gui")]
     fn parse_string(&mut self, string: &str) {
         let lines: Vec<String> = string.lines().map(String::from).collect();
         self.parse_lines(&lines);
@@ -251,7 +253,8 @@ impl BTOR2Parser {
                     }
                 }
             }
-            "add" | "sub" | "mul" | "udiv" | "urem" | "ult" | "eq" | "and" | "next" => {
+            "add" | "sub" | "mul" | "udiv" | "urem" | "ult" | "eq" | "and" | "next" | "sll"
+            | "srl" => {
                 if let Ok(nid_left) = line[3].parse::<Nid>() {
                     if let Ok(nid_right) = line[4].parse::<Nid>() {
                         let left = self.process_node(nid_left);
@@ -277,6 +280,8 @@ impl BTOR2Parser {
                                 state: left,
                                 next: right,
                             },
+                            "sll" => Node::Sll { nid, left, right },
+                            "srl" => Node::Srl { nid, left, right },
                             _ => {
                                 panic!("This piece of code should be unreacheable");
                             }

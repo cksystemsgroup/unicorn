@@ -3,19 +3,12 @@ use crate::guinea::giraphe::Giraphe;
 use crate::unicorn::Model;
 use std::sync::mpsc::Receiver;
 
-#[cfg(feature = "gui")]
 mod cli2gui;
-#[cfg(feature = "gui")]
 mod design;
-#[cfg(feature = "gui")]
 mod error_handling;
-#[cfg(feature = "gui")]
 mod giraphe;
-#[cfg(feature = "gui")]
 pub mod gui;
-#[cfg(feature = "gui")]
 mod model2graph;
-#[cfg(feature = "gui")]
 mod print;
 
 #[derive(Clone)]

@@ -1,6 +1,7 @@
 extern crate core;
 
 mod cli;
+#[cfg(feature = "gui")]
 mod guinea;
 mod quantum_annealing;
 mod unicorn;

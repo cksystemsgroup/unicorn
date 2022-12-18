@@ -4,7 +4,6 @@ use crate::guinea::giraphe::Value::{Array, Bitvector, Boolean, Immediate};
 use crate::guinea::giraphe::{Giraphe, Spot, SpotRef, Value};
 use crate::unicorn::{Node, NodeRef, NodeType};
 use egui::{Response, Ui, Widget};
-use log::trace;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -49,16 +48,11 @@ impl Spot {
         self.position.y = y;
     }
 
-    pub fn _is_different(&self) -> bool {
-        self.val_cur != self.val_old
-    }
-
     pub fn evaluate(&mut self, graph: &Giraphe) -> Value {
-        if self.tick != 0 && self.tick == graph.tick {
-            return self.val_cur.clone();
+        if self.tick == graph.tick {
+            return self.val_old.clone();
         }
-        self.tick = graph.tick;
-        self.val_old = self.val_cur.clone();
+        self.tick = if graph.tick > 0 { graph.tick } else { 0 };
 
         let node_to_spot = |x| {
             let nid = map_node_ref_to_nid(x);
@@ -102,44 +96,70 @@ impl Spot {
                 }
             }
             Node::Add { left, right, .. } => {
-                let spot1 = &mut *node_to_spot(left).borrow_mut();
+                let v1 = {
+                    let spot1 = &mut *node_to_spot(left).borrow_mut();
+                    spot1.evaluate(graph)
+                };
                 let spot2 = &mut *node_to_spot(right).borrow_mut();
-                spot1.evaluate(graph) + spot2.evaluate(graph)
+                v1 + spot2.evaluate(graph)
             }
             Node::Sub { left, right, .. } => {
-                let spot1 = &mut *node_to_spot(left).borrow_mut();
+                let v1 = {
+                    let spot1 = &mut *node_to_spot(left).borrow_mut();
+                    spot1.evaluate(graph)
+                };
                 let spot2 = &mut *node_to_spot(right).borrow_mut();
-                spot1.evaluate(graph) - spot2.evaluate(graph)
+                v1 - spot2.evaluate(graph)
             }
             Node::Mul { left, right, .. } => {
-                let spot1 = &mut *node_to_spot(left).borrow_mut();
+                let v1 = {
+                    let spot1 = &mut *node_to_spot(left).borrow_mut();
+                    spot1.evaluate(graph)
+                };
                 let spot2 = &mut *node_to_spot(right).borrow_mut();
-                spot1.evaluate(graph) * spot2.evaluate(graph)
+                v1 * spot2.evaluate(graph)
             }
             Node::Div { left, right, .. } => {
-                let spot1 = &mut *node_to_spot(left).borrow_mut();
+                let v1 = {
+                    let spot1 = &mut *node_to_spot(left).borrow_mut();
+                    spot1.evaluate(graph)
+                };
                 let spot2 = &mut *node_to_spot(right).borrow_mut();
-                spot1.evaluate(graph) / spot2.evaluate(graph)
+                v1 / spot2.evaluate(graph)
             }
             Node::Rem { left, right, .. } => {
-                let spot1 = &mut *node_to_spot(left).borrow_mut();
+                let v1 = {
+                    let spot1 = &mut *node_to_spot(left).borrow_mut();
+                    spot1.evaluate(graph)
+                };
                 let spot2 = &mut *node_to_spot(right).borrow_mut();
-                spot1.evaluate(graph) % spot2.evaluate(graph)
+                v1 % spot2.evaluate(graph)
             }
             Node::Sll { left, right, .. } => {
-                let spot1 = &mut *node_to_spot(left).borrow_mut();
+                let v1 = {
+                    let spot1 = &mut *node_to_spot(left).borrow_mut();
+                    spot1.evaluate(graph)
+                };
                 let spot2 = &mut *node_to_spot(right).borrow_mut();
-                spot1.evaluate(graph) << spot2.evaluate(graph)
+                v1 << spot2.evaluate(graph)
             }
             Node::Srl { left, right, .. } => {
-                let spot1 = &mut *node_to_spot(left).borrow_mut();
+                let v1 = {
+                    let spot1 = &mut *node_to_spot(left).borrow_mut();
+                    spot1.evaluate(graph)
+                };
                 let spot2 = &mut *node_to_spot(right).borrow_mut();
-                spot1.evaluate(graph) >> spot2.evaluate(graph)
+                v1 >> spot2.evaluate(graph)
             }
             Node::Ult { left, right, .. } => {
-                let spot1 = &mut *node_to_spot(left).borrow_mut();
+                let v1 = {
+                    let spot1 = &mut *node_to_spot(left).borrow_mut();
+                    spot1.evaluate(graph)
+                };
                 let spot2 = &mut *node_to_spot(right).borrow_mut();
-                Boolean(spot1.evaluate(graph) < spot2.evaluate(graph))
+                let v2 = spot2.evaluate(graph);
+
+                Boolean(v1 < v2)
             }
             Node::Ext { value, .. } => {
                 let spot = &mut *node_to_spot(value).borrow_mut();
@@ -165,44 +185,36 @@ impl Spot {
             Node::Eq { left, right, .. } => {
                 let same = std::ptr::eq(node_to_spot(left), node_to_spot(right));
                 if !same {
-                    let spot1 = &mut *node_to_spot(left).borrow_mut();
+                    let v1 = {
+                        let spot1 = &mut *node_to_spot(left).borrow_mut();
+                        spot1.evaluate(graph)
+                    };
                     let spot2 = &mut *node_to_spot(right).borrow_mut();
-                    Boolean(spot1.evaluate(graph) == spot2.evaluate(graph))
+                    Boolean(v1 == spot2.evaluate(graph))
                 } else {
                     Boolean(true)
                 }
             }
             Node::And { left, right, .. } => {
-                let spot1 = &mut *node_to_spot(left).borrow_mut();
+                let v1 = {
+                    let spot1 = &mut *node_to_spot(left).borrow_mut();
+                    spot1.evaluate(graph)
+                };
                 let spot2 = &mut *node_to_spot(right).borrow_mut();
-                spot1.evaluate(graph) & spot2.evaluate(graph)
+                let v2 = spot2.evaluate(graph);
+                v1 & v2
             }
             Node::Not { value, .. } => {
                 let spot = &mut *node_to_spot(value).borrow_mut();
                 !spot.evaluate(graph)
             }
-            Node::State { name, init, .. } => match self.val_old {
-                Value::Undefined => {
-                    let spot = &mut *node_to_spot(init.as_ref().unwrap()).borrow_mut();
-                    self.val_cur = spot.evaluate(graph);
-                    self.val_old = self.val_cur.clone();
-                    trace!(
-                        "State '{}' initialized with: {}",
-                        name.as_ref().unwrap(),
-                        self.val_cur
-                    );
-                    self.val_cur.clone()
-                }
-                _ => self.val_cur.clone(),
-            },
+            Node::State { .. } => self.val_cur.clone(),
             Node::Next { state, next, .. } => {
-                let same = std::ptr::eq(node_to_spot(next), node_to_spot(state));
                 let spot1 = &mut *node_to_spot(next).borrow_mut();
                 let next = spot1.evaluate(graph);
-                if !same {
-                    let spot2 = &mut *node_to_spot(state).borrow_mut();
-                    spot2.val_cur = next.clone();
-                }
+                let spot2 = &mut *node_to_spot(state).borrow_mut();
+                spot2.val_cur = next.clone();
+
                 next
             }
             Node::Input { .. } => self.val_cur.clone(),
@@ -214,6 +226,8 @@ impl Spot {
         };
 
         self.val_cur = val.clone();
+        self.val_old = self.val_cur.clone();
+
         val
     }
 

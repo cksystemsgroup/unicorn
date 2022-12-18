@@ -64,6 +64,7 @@ pub fn input_window(data: &mut Guineacorn, ui: &mut Ui) {
             .show(ui, |ui| {
                 for sr in &data.giraphe.states {
                     let l = &*sr.borrow();
+                    //if l.val_cur != l.val_old {
                     let text = match &*l.origin.borrow() {
                         Node::State { name, .. } => {
                             format!("State ({}): {}", name.as_ref().unwrap(), l.val_cur)
@@ -71,6 +72,7 @@ pub fn input_window(data: &mut Guineacorn, ui: &mut Ui) {
                         x => unreachable!("{:?}", x),
                     };
                     ui.label(text);
+                    //}
                 }
             });
     });
