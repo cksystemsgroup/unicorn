@@ -107,13 +107,13 @@ fn print_instruction(f: &mut fmt::Formatter<'_>, pc: u64, i: Instruction) -> fmt
         Instruction::Xori(t) => print_itype(f, pc, "xori", t),
         Instruction::Ori(t) => print_itype(f, pc, "ori", t),
         Instruction::Andi(t) => print_itype(f, pc, "andi", t),
-        Instruction::Slli(t) => print_itype(f, pc, "slli", t),
-        Instruction::Srli(t) => print_itype(f, pc, "srli", t),
-        Instruction::Srai(t) => print_itype(f, pc, "srai", t),
+        Instruction::Slli(t) => print_shift(f, pc, "slli", t),
+        Instruction::Srli(t) => print_shift(f, pc, "srli", t),
+        Instruction::Srai(t) => print_shift(f, pc, "srai", t),
         Instruction::Addiw(t) => print_itype(f, pc, "addiw", t),
-        Instruction::Slliw(t) => print_itype(f, pc, "slliw", t),
-        Instruction::Srliw(t) => print_itype(f, pc, "srliw", t),
-        Instruction::Sraiw(t) => print_itype(f, pc, "sraiw", t),
+        Instruction::Slliw(t) => print_shift(f, pc, "slliw", t),
+        Instruction::Srliw(t) => print_shift(f, pc, "srliw", t),
+        Instruction::Sraiw(t) => print_shift(f, pc, "sraiw", t),
         Instruction::Add(t) => print_rtype(f, pc, "add", t),
         Instruction::Sub(t) => print_rtype(f, pc, "sub", t),
         Instruction::Sll(t) => print_rtype(f, pc, "sll", t),
@@ -201,4 +201,16 @@ fn print_btype(f: &mut fmt::Formatter<'_>, pc: u64, op: &str, btype: BType) -> f
 
 fn print_utype(f: &mut fmt::Formatter<'_>, pc: u64, op: &str, utype: UType) -> fmt::Result {
     writeln!(f, "{:#x}: {} {:?},{:#x}", pc, op, utype.rd(), utype.imm())
+}
+
+fn print_shift(f: &mut fmt::Formatter<'_>, pc: u64, op: &str, itype: IType) -> fmt::Result {
+    writeln!(
+        f,
+        "{:#x}: {} {:?},{:?},{}",
+        pc,
+        op,
+        itype.rd(),
+        itype.rs1(),
+        itype.imm() & 0x3f
+    )
 }

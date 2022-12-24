@@ -63,7 +63,7 @@ impl Giraphe {
                     s.set_position(0.0, lookup_y(0) as f32 * YSIZE);
 
                     spot_list.push(spot.clone());
-                    spot_lookup.insert(*nid as u64, spot.clone());
+                    spot_lookup.insert(*nid, spot.clone());
                     inputs.push(spot.clone());
                 }
                 Node::Const { nid, .. } => {
@@ -71,7 +71,7 @@ impl Giraphe {
                     s.set_position(0.0, lookup_y(0) as f32 * YSIZE);
 
                     spot_list.push(spot.clone());
-                    spot_lookup.insert(*nid as u64, spot.clone());
+                    spot_lookup.insert(*nid, spot.clone());
                 }
 
                 // one parent
@@ -85,7 +85,7 @@ impl Giraphe {
                     );
 
                     spot_list.push(spot.clone());
-                    spot_lookup.insert(*nid as u64, spot.clone());
+                    spot_lookup.insert(*nid, spot.clone());
                 }
                 // two parents
                 Node::Read {
@@ -114,7 +114,7 @@ impl Giraphe {
                     s.set_position(x as f32 * XSIZE, lookup_y(x as usize) as f32 * YSIZE);
 
                     spot_list.push(spot.clone());
-                    spot_lookup.insert(*nid as u64, spot.clone());
+                    spot_lookup.insert(*nid, spot.clone());
                 }
                 // three parents
                 Node::Ite {

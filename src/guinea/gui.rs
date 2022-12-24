@@ -24,7 +24,7 @@ pub fn gui() {
     eframe::run_native(
         "Guineacorn",
         options,
-        Box::new(|_cc| Box::new(Guineacorn::default())),
+        Box::new(|_cc| Box::<Guineacorn>::default()),
     );
 }
 

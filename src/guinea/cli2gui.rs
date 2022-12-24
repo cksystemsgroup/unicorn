@@ -10,10 +10,10 @@ use crate::unicorn::builder::generate_model;
 use crate::unicorn::memory::replace_memory;
 use crate::unicorn::optimize::{optimize_model_with_input, optimize_model_with_solver};
 #[cfg(feature = "boolector")]
-use crate::unicorn::solver::boolector_impl;
-use crate::unicorn::solver::none_impl;
+use crate::unicorn::smt_solver::boolector_impl;
+use crate::unicorn::smt_solver::none_impl;
 #[cfg(feature = "z3")]
-use crate::unicorn::solver::z3solver_impl;
+use crate::unicorn::smt_solver::z3solver_impl;
 use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
 use bytesize::ByteSize;
 use egui::Ui;
@@ -144,7 +144,7 @@ pub fn input_window(data: &mut Guineacorn, ui: &mut Ui) {
                 let picked_path = data.picked_path.as_ref().unwrap().clone();
 
                 let path = PathBuf::from_str(&picked_path).unwrap();
-                let program = load_object_file(&path);
+                let program = load_object_file(path);
 
                 if let Ok(..) = program {
                     let mut error_msg = "".to_string();
@@ -366,7 +366,7 @@ pub fn input_window(data: &mut Guineacorn, ui: &mut Ui) {
                         } else {
                             "output.btor2"
                         })
-                        .set_directory(&path)
+                        .set_directory(path)
                         .save_file();
 
                     if let Some(save_file) = res {

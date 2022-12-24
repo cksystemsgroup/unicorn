@@ -42,7 +42,7 @@ pub fn input_window(data: &mut Guineacorn, ui: &mut Ui) {
 
         if ui.button("Load Binary").clicked() {
             let path = PathBuf::from_str(&picked_path).unwrap();
-            let program = load_object_file(&path);
+            let program = load_object_file(path);
 
             let program = program.unwrap();
             let argv = [vec![picked_path.clone()]].concat();

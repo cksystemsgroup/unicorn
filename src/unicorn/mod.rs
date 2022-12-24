@@ -14,13 +14,15 @@ pub mod bitblasting_dimacs;
 pub mod bitblasting_printer;
 pub mod btor2file_parser;
 pub mod builder;
+pub mod cnf;
 pub mod codegen;
 pub mod dimacs_parser;
 pub mod emulate_loader;
 pub mod memory;
 pub mod optimize;
 pub mod qubot;
-pub mod solver;
+pub mod sat_solver;
+pub mod smt_solver;
 pub mod unroller;
 
 pub type Nid = u64;

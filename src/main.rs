@@ -20,7 +20,8 @@ use crate::unicorn::emulate_loader::load_model_into_emulator;
 use crate::unicorn::memory::replace_memory;
 use crate::unicorn::optimize::{optimize_model_with_input, optimize_model_with_solver};
 use crate::unicorn::qubot::{InputEvaluator, Qubot};
-use crate::unicorn::solver::*;
+use crate::unicorn::sat_solver::solve_bad_states;
+use crate::unicorn::smt_solver::*;
 use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
 use crate::unicorn::write_model;
 
@@ -28,7 +29,7 @@ use ::unicorn::disassemble::disassemble;
 use ::unicorn::emulate::EmulatorState;
 use anyhow::{Context, Result};
 use bytesize::ByteSize;
-use cli::{collect_arg_values, expect_arg, expect_optional_arg, LogLevel, SmtType};
+use cli::{collect_arg_values, expect_arg, expect_optional_arg, LogLevel, SatType, SmtType};
 use env_logger::{Env, TimestampPrecision};
 use riscu::load_object_file;
 use std::{
@@ -62,7 +63,7 @@ fn main() -> Result<()> {
             let extras = collect_arg_values(args, "extras");
 
             let argv = [vec![arg0], extras].concat();
-            let program = load_object_file(&input)?;
+            let program = load_object_file(input)?;
             let mut emulator = EmulatorState::new(memory_size as usize);
             emulator.bootstrap(&program, &argv);
             emulator.run();
@@ -75,7 +76,7 @@ fn main() -> Result<()> {
             let input = expect_arg::<PathBuf>(args, "input-file")?;
             let output = expect_optional_arg::<PathBuf>(args, "output-file")?;
             let unroll = args.get_one::<usize>("unroll-model").cloned();
-            let solver = expect_arg::<SmtType>(args, "solver")?;
+            let smt_solver = expect_arg::<SmtType>(args, "smt-solver")?;
             let solver_timeout = args.get_one::<u64>("solver-timeout");
             let max_heap = *args.get_one::<u32>("max-heap").unwrap();
             let max_stack = *args.get_one::<u32>("max-stack").unwrap();
@@ -84,6 +85,7 @@ fn main() -> Result<()> {
             let inputs = expect_optional_arg::<String>(args, "inputs")?;
             let prune = !is_beator || args.get_flag("prune-model");
             let minimize = is_beator && !args.get_flag("fast-minimize");
+            let discretize = !is_beator || args.get_flag("discretize-memory");
             let renumber = !is_beator || output.is_some();
             let input_is_btor2 = args.get_flag("from-btor2");
             let input_is_dimacs = !is_beator && args.get_flag("from-dimacs");
@@ -103,9 +105,7 @@ fn main() -> Result<()> {
 
                 if let Some(unroll_depth) = unroll {
                     model.lines.clear();
-                    // TODO: Check if memory discretization is requested.
-                    // TODO: Make emulate-loader work with discretized memory.
-                    if !emulate_model && !compile_model {
+                    if discretize {
                         replace_memory(&mut model);
                     }
                     let mut input_values: Vec<u64> = if has_concrete_inputs {
@@ -128,7 +128,7 @@ fn main() -> Result<()> {
                         prune_model(&mut model);
                     }
                     let timeout = solver_timeout.map(|&ms| Duration::from_millis(ms));
-                    match solver {
+                    match smt_solver {
                         #[rustfmt::skip]
                         SmtType::Generic => {
                             optimize_model_with_solver::<none_impl::NoneSolver>(&mut model, timeout, minimize)
@@ -157,6 +157,7 @@ fn main() -> Result<()> {
             if compile_model {
                 assert!(!input_is_btor2, "cannot compile arbitrary BTOR2");
                 assert!(!input_is_dimacs, "cannot compile arbitrary DIMACS");
+                assert!(!discretize, "cannot compile with discretized memory");
 
                 // TODO: Just a workaround to get `argv` again.
                 let arg0 = expect_arg::<String>(args, "input-file")?;
@@ -175,6 +176,7 @@ fn main() -> Result<()> {
             if emulate_model {
                 assert!(!input_is_btor2, "cannot emulate arbitrary BTOR2");
                 assert!(!input_is_dimacs, "cannot emulate arbitrary DIMACS");
+                assert!(!discretize, "cannot emulate with discretized memory");
 
                 let program = load_object_file(&input)?;
                 let mut emulator = EmulatorState::new(memory_size as usize);
@@ -185,13 +187,21 @@ fn main() -> Result<()> {
             }
 
             if is_beator {
-                let bitblast = args.get_flag("bitblast");
+                let sat_solver = expect_arg::<SatType>(args, "sat-solver")?;
+                let bitblast = args.get_flag("bitblast") || (sat_solver != SatType::None);
                 let dimacs = args.get_flag("dimacs");
                 let output_to_stdout =
                     output == Some(PathBuf::from("")) || output == Some(PathBuf::from("-"));
+                assert!(bitblast || !dimacs, "printing DIMACS requires bitblasting");
 
                 if bitblast {
+                    assert!(discretize, "bit-blasting requires discretized memory");
                     let gate_model = bitblast_model(&model.unwrap(), true, 64);
+
+                    if sat_solver != SatType::None {
+                        solve_bad_states(&gate_model, sat_solver);
+                    }
+
                     if output_to_stdout {
                         if dimacs {
                             write_dimacs_model(&gate_model, stdout())?;
