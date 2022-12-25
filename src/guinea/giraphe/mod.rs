@@ -3,28 +3,26 @@ mod operators;
 mod spot;
 
 use crate::guinea::giraphe::MachineWord::Concrete;
-use crate::unicorn::NodeRef;
+use crate::unicorn::{Nid, NodeRef};
 use egui::{Pos2, Vec2};
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::rc::Rc;
 
 #[allow(unused)]
 #[derive(Default, Debug)]
 pub struct Giraphe {
     pub(crate) tick: isize,
-    pub spot_lookup: HashMap<u64, SpotRef>,
-    pub spot_list: Vec<SpotRef>,
-    pub leaves: Vec<SpotRef>,
-    pub inputs: Vec<SpotRef>,
-    pub states: Vec<SpotRef>,
+    pub spot_lookup: HashMap<Nid, Spot>,
+    pub spot_list: Vec<Nid>,
+    pub leaves: Vec<Nid>,
+    pub inputs: Vec<Nid>,
+    pub states: Vec<Nid>,
     pub pan: Vec2,
-    pub registers: [Option<SpotRef>; 32],
+    pub registers: [Option<Nid>; 32],
 }
 
 #[allow(unused)]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Spot {
     tick: isize,
     pub(crate) val_old: Value,
@@ -71,5 +69,3 @@ impl Display for MachineWord {
         }
     }
 }
-
-pub type SpotRef = Rc<RefCell<Spot>>;

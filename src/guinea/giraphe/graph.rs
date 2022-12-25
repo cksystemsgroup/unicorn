@@ -1,11 +1,14 @@
-use crate::guinea::giraphe::{Giraphe, Spot, SpotRef, Value};
-use crate::unicorn::{Model, Nid, Node, NodeRef};
-use egui::epaint::CubicBezierShape;
-use egui::{Align, Color32, Layout, Pos2, Rect, Rounding, Stroke, Ui, Vec2};
-use log::trace;
 use std::cmp::max;
 use std::collections::HashMap;
 use std::iter::zip;
+
+use egui::epaint::CubicBezierShape;
+use egui::{Align, Color32, Layout, Pos2, Rect, Rounding, Stroke, Ui, Vec2};
+use log::trace;
+
+use crate::guinea::giraphe::Value::{Array, Bitvector, Boolean};
+use crate::guinea::giraphe::{Giraphe, Spot, Value};
+use crate::unicorn::{Model, Nid, Node, NodeRef};
 
 static XSIZE: f32 = 150.0;
 static YSIZE: f32 = 200.0;
@@ -28,13 +31,13 @@ impl Giraphe {
             "Can't convert model before it was renumbered!"
         );
 
-        let mut spot_lookup = HashMap::new();
-        let mut spot_list = Vec::new();
-        let mut leaves = Vec::new();
-        let mut inputs = Vec::new();
+        let mut spot_lookup: HashMap<Nid, Spot> = HashMap::new();
+        let mut spot_list: Vec<Nid> = Vec::new();
+        let mut leaves: Vec<Nid> = Vec::new();
+        let mut inputs: Vec<Nid> = Vec::new();
 
-        let mut states = Vec::new();
-        let mut registers: [Option<SpotRef>; 32] = Default::default();
+        let mut states: Vec<Nid> = Vec::new();
+        let mut registers: [Option<Nid>; 32] = Default::default();
 
         let mut layers: Vec<u64> = Vec::new();
         let mut lookup_y = |x| {
@@ -61,33 +64,33 @@ impl Giraphe {
             match &*node.borrow() {
                 // zero parents
                 Node::Input { nid, .. } => {
-                    let s = &mut *spot.borrow_mut();
+                    let mut s = spot;
                     s.set_position(0.0, lookup_y(0) as f32 * YSIZE);
 
-                    spot_list.push(spot.clone());
-                    spot_lookup.insert(*nid, spot.clone());
-                    inputs.push(spot.clone());
+                    spot_list.push(*nid);
+                    inputs.push(*nid);
+                    spot_lookup.insert(*nid, s);
                 }
                 Node::Const { nid, .. } => {
-                    let s = &mut *spot.borrow_mut();
+                    let mut s = spot;
                     s.set_position(0.0, lookup_y(0) as f32 * YSIZE);
 
-                    spot_list.push(spot.clone());
-                    spot_lookup.insert(*nid, spot.clone());
+                    spot_list.push(*nid);
+                    spot_lookup.insert(*nid, s);
                 }
 
                 // one parent
                 Node::Not { nid, value, .. } | Node::Ext { nid, value, .. } => {
                     let px = spot_lookup.get(&map_node_ref_to_nid(value)).unwrap();
-                    let px = px.borrow().position.x;
-                    let s = &mut *spot.borrow_mut();
+                    let px = px.position.x;
+                    let mut s = spot;
                     s.set_position(
                         px + XSIZE,
                         lookup_y(((px + XSIZE) / XSIZE) as usize) as f32 * YSIZE,
                     );
 
-                    spot_list.push(spot.clone());
-                    spot_lookup.insert(*nid, spot.clone());
+                    spot_list.push(*nid);
+                    spot_lookup.insert(*nid, s);
                 }
                 // two parents
                 Node::Read {
@@ -108,15 +111,15 @@ impl Giraphe {
                     nid, left, right, ..
                 } => {
                     let lx = spot_lookup.get(&map_node_ref_to_nid(left)).unwrap();
-                    let lx = lx.borrow().position.x;
+                    let lx = lx.position.x;
                     let rx = spot_lookup.get(&map_node_ref_to_nid(right)).unwrap();
-                    let rx = rx.borrow().position.x;
+                    let rx = rx.position.x;
                     let x: u64 = (max(lx as u64, rx as u64) / XSIZE as u64) + 1;
-                    let s = &mut *spot.borrow_mut();
+                    let mut s = spot;
                     s.set_position(x as f32 * XSIZE, lookup_y(x as usize) as f32 * YSIZE);
 
-                    spot_list.push(spot.clone());
-                    spot_lookup.insert(*nid, spot.clone());
+                    spot_list.push(*nid);
+                    spot_lookup.insert(*nid, s);
                 }
                 // three parents
                 Node::Ite {
@@ -133,18 +136,18 @@ impl Giraphe {
                     value: three,
                 } => {
                     let lx = spot_lookup.get(&map_node_ref_to_nid(one)).unwrap();
-                    let lx = lx.borrow().position.x;
+                    let lx = lx.position.x;
                     let rx = spot_lookup.get(&map_node_ref_to_nid(two)).unwrap();
-                    let rx = rx.borrow().position.x;
+                    let rx = rx.position.x;
                     let cx = spot_lookup.get(&map_node_ref_to_nid(three)).unwrap();
-                    let cx = cx.borrow().position.x;
+                    let cx = cx.position.x;
                     let x = max(lx as u64, rx as u64);
                     let x: u64 = (max(x, cx as u64) / XSIZE as u64) + 1;
-                    let s = &mut *spot.borrow_mut();
+                    let mut s = spot;
                     s.set_position(x as f32 * XSIZE, lookup_y(x as usize) as f32 * YSIZE);
 
-                    spot_list.push(spot.clone());
-                    spot_lookup.insert(*nid, spot.clone());
+                    spot_list.push(*nid);
+                    spot_lookup.insert(*nid, s);
                 }
                 // special cases
                 Node::State {
@@ -152,63 +155,60 @@ impl Giraphe {
                 } => {
                     let x = if let Some(init) = init {
                         let px = spot_lookup.get(&map_node_ref_to_nid(init)).unwrap();
-                        let px = px.borrow().position.x;
+                        let px = px.position.x;
                         px + XSIZE
                     } else {
                         0.0
                     };
-                    let s = &mut *spot.borrow_mut();
+                    let mut s = spot;
                     s.set_position(x, lookup_y((x / XSIZE) as usize) as f32 * YSIZE);
 
-                    spot_list.push(spot.clone());
-                    spot_lookup.insert(*nid, spot.clone());
+                    spot_list.push(*nid);
                     if init.is_none() {
-                        inputs.push(spot.clone());
+                        inputs.push(*nid);
                     } else {
-                        states.push(spot.clone());
+                        states.push(*nid);
                     }
 
-                    Self::map_to_reg_spot(
-                        &mut registers,
-                        spot.clone(),
-                        name.as_ref().unwrap().as_str(),
-                    );
+                    Self::map_to_reg_spot(&mut registers, *nid, name.as_ref().unwrap().as_str());
+
+                    spot_lookup.insert(*nid, s);
                 }
                 Node::Next {
                     nid, state, next, ..
                 } => {
                     let lx = spot_lookup.get(&map_node_ref_to_nid(state)).unwrap();
-                    let lx = lx.borrow().position.x;
+                    let lx = lx.position.x;
                     let rx = spot_lookup.get(&map_node_ref_to_nid(next)).unwrap();
-                    let rx = rx.borrow().position.x;
+                    let rx = rx.position.x;
                     let x: u64 = (max(lx as u64, rx as u64) / XSIZE as u64) + 1;
-                    let s = &mut *spot.borrow_mut();
+                    let mut s = spot;
                     s.set_position(x as f32 * XSIZE, lookup_y(x as usize) as f32 * YSIZE);
 
-                    spot_list.push(spot.clone());
-                    spot_lookup.insert(*nid, spot.clone());
-                    leaves.push(spot.clone());
+                    spot_list.push(*nid);
+                    leaves.push(*nid);
+                    spot_lookup.insert(*nid, s);
                 }
                 Node::Bad { nid, cond, .. } => {
                     let px = spot_lookup.get(&map_node_ref_to_nid(cond)).unwrap();
-                    let px = px.borrow().position.x;
-                    let s = &mut *spot.borrow_mut();
+                    let px = px.position.x;
+                    let mut s = spot;
                     s.set_position(
                         px + XSIZE,
                         lookup_y(((px + XSIZE) / XSIZE) as usize) as f32 * YSIZE,
                     );
 
-                    spot_list.push(spot.clone());
-                    spot_lookup.insert(*nid, spot.clone());
-                    leaves.push(spot.clone());
+                    spot_list.push(*nid);
+                    leaves.push(*nid);
+                    spot_lookup.insert(*nid, s);
                 }
                 Node::Comment(_) => unreachable!(),
             };
         }
 
         states.sort_by(|x, y| {
-            let x = &*x.borrow();
-            let y = &*y.borrow();
+            let x = spot_lookup.get(x).unwrap();
+            let y = spot_lookup.get(y).unwrap();
             let r = match (&*x.origin.borrow(), &*y.origin.borrow()) {
                 (Node::State { name: t1, .. }, Node::State { name: t2, .. }) => t1.cmp(t2),
                 _ => unreachable!(),
@@ -229,11 +229,16 @@ impl Giraphe {
 
         g.tick = -1;
         for si in states {
-            let si = &mut *si.borrow_mut();
-            if let Node::State { init, .. } = &*si.origin.borrow() {
+            let node_ref = {
+                let si = g.spot_lookup.get(&si).unwrap();
+                si.origin.clone()
+            };
+
+            if let Node::State { init, .. } = &*node_ref.borrow() {
                 let init = map_node_ref_to_nid(init.as_ref().unwrap());
-                let init = &mut *g.spot_lookup.get(&init).unwrap().borrow_mut();
-                si.val_cur = init.evaluate(&g);
+                let value = g.evaluate(&init);
+                let si = g.spot_lookup.get_mut(&si).unwrap();
+                si.set_value(value);
             } else {
                 panic!("Can't initialize non state node")
             };
@@ -243,40 +248,40 @@ impl Giraphe {
         g
     }
 
-    fn map_to_reg_spot(arr: &mut [Option<SpotRef>; 32], spot_ref: SpotRef, str: &str) {
+    fn map_to_reg_spot(arr: &mut [Option<Nid>; 32], spot: Nid, str: &str) {
         match str {
-            "zero" => arr[0] = Some(spot_ref),
-            "ra" => arr[1] = Some(spot_ref),
-            "sp" => arr[2] = Some(spot_ref),
-            "gp" => arr[3] = Some(spot_ref),
-            "tp" => arr[4] = Some(spot_ref),
-            "t0" => arr[5] = Some(spot_ref),
-            "t1" => arr[6] = Some(spot_ref),
-            "t2" => arr[7] = Some(spot_ref),
-            "s0" => arr[8] = Some(spot_ref),
-            "s1" => arr[9] = Some(spot_ref),
-            "a0" => arr[10] = Some(spot_ref),
-            "a1" => arr[11] = Some(spot_ref),
-            "a2" => arr[12] = Some(spot_ref),
-            "a3" => arr[13] = Some(spot_ref),
-            "a4" => arr[14] = Some(spot_ref),
-            "a5" => arr[15] = Some(spot_ref),
-            "a6" => arr[16] = Some(spot_ref),
-            "a7" => arr[17] = Some(spot_ref),
-            "s2" => arr[18] = Some(spot_ref),
-            "s3" => arr[19] = Some(spot_ref),
-            "s4" => arr[20] = Some(spot_ref),
-            "s5" => arr[21] = Some(spot_ref),
-            "s6" => arr[22] = Some(spot_ref),
-            "s7" => arr[23] = Some(spot_ref),
-            "s8" => arr[24] = Some(spot_ref),
-            "s9" => arr[25] = Some(spot_ref),
-            "s10" => arr[26] = Some(spot_ref),
-            "s11" => arr[27] = Some(spot_ref),
-            "t3" => arr[28] = Some(spot_ref),
-            "t4" => arr[29] = Some(spot_ref),
-            "t5" => arr[30] = Some(spot_ref),
-            "t6" => arr[31] = Some(spot_ref),
+            "zero" => arr[0] = Some(spot),
+            "ra" => arr[1] = Some(spot),
+            "sp" => arr[2] = Some(spot),
+            "gp" => arr[3] = Some(spot),
+            "tp" => arr[4] = Some(spot),
+            "t0" => arr[5] = Some(spot),
+            "t1" => arr[6] = Some(spot),
+            "t2" => arr[7] = Some(spot),
+            "s0" => arr[8] = Some(spot),
+            "s1" => arr[9] = Some(spot),
+            "a0" => arr[10] = Some(spot),
+            "a1" => arr[11] = Some(spot),
+            "a2" => arr[12] = Some(spot),
+            "a3" => arr[13] = Some(spot),
+            "a4" => arr[14] = Some(spot),
+            "a5" => arr[15] = Some(spot),
+            "a6" => arr[16] = Some(spot),
+            "a7" => arr[17] = Some(spot),
+            "s2" => arr[18] = Some(spot),
+            "s3" => arr[19] = Some(spot),
+            "s4" => arr[20] = Some(spot),
+            "s5" => arr[21] = Some(spot),
+            "s6" => arr[22] = Some(spot),
+            "s7" => arr[23] = Some(spot),
+            "s8" => arr[24] = Some(spot),
+            "s9" => arr[25] = Some(spot),
+            "s10" => arr[26] = Some(spot),
+            "s11" => arr[27] = Some(spot),
+            "t3" => arr[28] = Some(spot),
+            "t4" => arr[29] = Some(spot),
+            "t5" => arr[30] = Some(spot),
+            "t6" => arr[31] = Some(spot),
             _ => {}
         }
     }
@@ -286,7 +291,7 @@ impl Giraphe {
 
         // draw edges
         for spot in &self.spot_list {
-            let s = &*spot.borrow();
+            let s = self.spot_lookup.get(spot).unwrap();
             let outer_pos =
                 translation + s.position.to_vec2() + Vec2::from([NODE_MARGIN, NODE_MARGIN]);
             let outer_size = Vec2::from([XSIZE - 2.0 * NODE_MARGIN, YSIZE - 2.0 * NODE_MARGIN]);
@@ -383,7 +388,7 @@ impl Giraphe {
 
         // draw nodes
         for spot in &self.spot_list {
-            let s = &*spot.borrow();
+            let s = self.spot_lookup.get_mut(spot).unwrap();
             let outer_size = Vec2::from([XSIZE - 2.0 * NODE_MARGIN, YSIZE - 2.0 * NODE_MARGIN]);
             let outer_pos =
                 translation + s.position.to_vec2() + Vec2::from([NODE_MARGIN, NODE_MARGIN]);
@@ -405,7 +410,7 @@ impl Giraphe {
             let mut child_ui = ui.child_ui(inner_rect, Layout::left_to_right(Align::TOP));
             let painter = child_ui.painter();
             painter.rect_filled(outer_rect, Rounding::from(5.0), Color32::from_gray(40));
-            child_ui.put(inner_rect, s.clone());
+            child_ui.put(inner_rect, Spot::from_spot(s));
         }
     }
 
@@ -416,42 +421,39 @@ impl Giraphe {
     }
 
     fn calc_inport(&self, n: &Nid, translation: Pos2, pos: f32) -> Pos2 {
-        let sin = &*self.spot_lookup.get(n).unwrap().borrow();
+        let sin = self.nid_to_spot(n);
         translation + sin.position.to_vec2() + Vec2::from([NODE_MARGIN, YSIZE * pos])
     }
 
     fn calc_outport(&self, n: &NodeRef, translation: Pos2) -> Pos2 {
-        let out = &*self
-            .spot_lookup
-            .get(&map_node_ref_to_nid(n))
-            .unwrap()
-            .borrow();
+        let out = self.nid_to_spot(&map_node_ref_to_nid(n));
         translation + out.position.to_vec2() + Vec2::from([XSIZE - NODE_MARGIN, YSIZE * 0.5])
     }
 
     pub fn tick_over(&mut self) -> isize {
         self.tick += 1;
 
-        let res: Vec<_> = self
-            .leaves
-            .iter()
-            .map(|x| {
-                let s = &mut *x.borrow_mut();
-                s.evaluate(self)
-            })
-            .collect();
+        let leaves = self.leaves.clone();
+        let mut res = Vec::new();
+        for leaf in leaves {
+            let value = self.evaluate(&leaf);
+            res.push(value);
+        }
 
         for (sp, val) in zip(&self.leaves, res) {
-            let sp = &mut *sp.borrow_mut();
-            match &*sp.origin.borrow() {
+            let (node_ref, val_cur) = {
+                let s = self.nid_to_spot(sp);
+                (s.origin.clone(), s.val_cur.clone())
+            };
+
+            match &*node_ref.borrow() {
                 Node::Next { state, .. } => {
                     let state = map_node_ref_to_nid(state);
-                    let state = self.spot_lookup.get(&state).unwrap();
-                    let state = &mut *state.borrow_mut();
-                    state.val_cur = val;
+                    let state = self.spot_lookup.get_mut(&state).unwrap();
+                    state.set_value(val);
                 }
                 Node::Bad { name, .. } => {
-                    if sp.val_cur == Value::Boolean(true) {
+                    if val_cur == Boolean(true) {
                         println!("Bad is true: {}", name.as_ref().unwrap());
                     }
                 }
@@ -460,6 +462,160 @@ impl Giraphe {
         }
 
         self.tick
+    }
+
+    pub(crate) fn nid_to_spot(&self, nid: &Nid) -> &Spot {
+        self.spot_lookup.get(nid).unwrap()
+    }
+
+    pub fn evaluate(&mut self, nid: &Nid) -> Value {
+        {
+            let mut spot = self.spot_lookup.get_mut(nid).unwrap();
+
+            if self.tick == spot.tick {
+                return spot.val_cur.clone();
+            }
+            spot.tick = if self.tick > 0 { self.tick } else { 0 };
+            spot.val_old = spot.val_cur.clone();
+        }
+
+        let (node_ref, val_cur) = {
+            let spot = self.nid_to_spot(nid);
+            (spot.origin.clone(), spot.val_cur.clone())
+        };
+
+        let val = {
+            let x = match &*node_ref.borrow() {
+                Node::Const { .. } => val_cur,
+                Node::Read {
+                    memory, address, ..
+                } => {
+                    let memory = &map_node_ref_to_nid(memory);
+                    let memory = self.evaluate(memory);
+                    let address = &map_node_ref_to_nid(address);
+                    match (&memory, &self.evaluate(address)) {
+                        (Array(m), Bitvector(i)) => Bitvector(*m.get(i).unwrap()),
+                        _ => unreachable!(),
+                    }
+                }
+                Node::Write {
+                    nid,
+                    memory,
+                    address,
+                    value,
+                    ..
+                } => {
+                    let memory = &map_node_ref_to_nid(memory);
+                    let address = &map_node_ref_to_nid(address);
+                    let value = &map_node_ref_to_nid(value);
+
+                    match (
+                        self.evaluate(memory),
+                        self.evaluate(address),
+                        self.evaluate(value),
+                    ) {
+                        (Array(mut m), Bitvector(i), Bitvector(x)) => {
+                            m.insert(i, x);
+                            Array(m)
+                        }
+                        x => unreachable!("caused by {} {:?}", nid, x),
+                    }
+                }
+                Node::Add { left, right, .. } => {
+                    let spot1 = &map_node_ref_to_nid(left);
+                    let spot2 = &map_node_ref_to_nid(right);
+                    self.evaluate(spot1) + self.evaluate(spot2)
+                }
+                Node::Sub { left, right, .. } => {
+                    let spot1 = &map_node_ref_to_nid(left);
+                    let spot2 = &map_node_ref_to_nid(right);
+                    self.evaluate(spot1) - self.evaluate(spot2)
+                }
+                Node::Mul { left, right, .. } => {
+                    let spot1 = &map_node_ref_to_nid(left);
+                    let spot2 = &map_node_ref_to_nid(right);
+                    self.evaluate(spot1) * self.evaluate(spot2)
+                }
+                Node::Div { left, right, .. } => {
+                    let spot1 = &map_node_ref_to_nid(left);
+                    let spot2 = &map_node_ref_to_nid(right);
+                    self.evaluate(spot1) / self.evaluate(spot2)
+                }
+                Node::Rem { left, right, .. } => {
+                    let spot1 = &map_node_ref_to_nid(left);
+                    let spot2 = &map_node_ref_to_nid(right);
+                    self.evaluate(spot1) % self.evaluate(spot2)
+                }
+                Node::Sll { left, right, .. } => {
+                    let spot1 = &map_node_ref_to_nid(left);
+                    let spot2 = &map_node_ref_to_nid(right);
+                    self.evaluate(spot1) << self.evaluate(spot2)
+                }
+                Node::Srl { left, right, .. } => {
+                    let spot1 = &map_node_ref_to_nid(left);
+                    let spot2 = &map_node_ref_to_nid(right);
+                    self.evaluate(spot1) >> self.evaluate(spot2)
+                }
+                Node::Ult { left, right, .. } => {
+                    let spot1 = &map_node_ref_to_nid(left);
+                    let spot2 = &map_node_ref_to_nid(right);
+                    Boolean(self.evaluate(spot1) < self.evaluate(spot2))
+                }
+                Node::Ext { value, .. } => {
+                    let spot = &map_node_ref_to_nid(value);
+                    self.evaluate(spot)
+                }
+                Node::Ite {
+                    cond, left, right, ..
+                } => {
+                    let cond = &map_node_ref_to_nid(cond);
+                    match &self.evaluate(cond) {
+                        Boolean(b) => {
+                            if *b {
+                                let left = &map_node_ref_to_nid(left);
+                                self.evaluate(left)
+                            } else {
+                                let right = &map_node_ref_to_nid(right);
+                                self.evaluate(right)
+                            }
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+                Node::Eq { left, right, .. } => {
+                    let spot1 = &map_node_ref_to_nid(left);
+                    let spot2 = &map_node_ref_to_nid(right);
+                    Boolean(self.evaluate(spot1) == self.evaluate(spot2))
+                }
+                Node::And { left, right, .. } => {
+                    let spot1 = &map_node_ref_to_nid(left);
+                    let spot2 = &map_node_ref_to_nid(right);
+                    self.evaluate(spot1) & self.evaluate(spot2)
+                }
+                Node::Not { value, .. } => {
+                    let spot = &map_node_ref_to_nid(value);
+                    !self.evaluate(spot)
+                }
+                Node::State { .. } => val_cur,
+                Node::Next { next, .. } => {
+                    let spot = &map_node_ref_to_nid(next);
+                    self.evaluate(spot)
+                }
+                Node::Input { .. } => val_cur,
+                Node::Bad { cond, .. } => {
+                    let spot = &map_node_ref_to_nid(cond);
+                    self.evaluate(spot)
+                }
+                Node::Comment(_) => unreachable!(),
+            };
+            x
+        };
+
+        let mut spot = self.spot_lookup.get_mut(nid).unwrap();
+
+        spot.val_cur = val.clone();
+
+        val
     }
 }
 

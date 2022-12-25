@@ -68,8 +68,8 @@ pub fn input_window(data: &mut Guineacorn, ui: &mut Ui) {
             .as_ref()
             .iter()
             .map(|x| {
-                if let Some(x) = x.as_ref() {
-                    let s = &*x.borrow();
+                if let Some(x) = x {
+                    let s = data.giraphe.nid_to_spot(x);
                     s.val_cur.clone()
                 } else {
                     Bitvector(Concrete(0))
@@ -206,7 +206,7 @@ pub fn input_window(data: &mut Guineacorn, ui: &mut Ui) {
     let mut kernel_mode = false;
 
     for x in &data.giraphe.states {
-        let s = &*x.borrow();
+        let s = data.giraphe.nid_to_spot(x);
         match &*s.origin.borrow() {
             Node::State { name, .. } => {
                 let name = name.as_ref().unwrap().as_str();
