@@ -13,7 +13,7 @@ pub fn gui() {
     let (icon_width, icon_height) = icon.dimensions();
 
     let options = eframe::NativeOptions {
-        initial_window_size: Some(egui::vec2(1000.0, 650.0)),
+        initial_window_size: Some(egui::vec2(1600.0, 900.0)),
         icon_data: Some(eframe::IconData {
             rgba: icon.into_raw(),
             width: icon_width,
@@ -42,7 +42,7 @@ impl eframe::App for Guineacorn {
 
         egui::SidePanel::right("Selection")
             .resizable(false)
-            .width_range(600.0..=600.0)
+            .width_range(1000.0..=1000.0)
             .frame(get_frame_design())
             .show(ctx, |ui| match self.using {
                 Use::Cli2Gui => cli2gui::output_window(self, ui),

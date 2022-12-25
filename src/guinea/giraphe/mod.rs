@@ -13,13 +13,14 @@ use std::rc::Rc;
 #[allow(unused)]
 #[derive(Default, Debug)]
 pub struct Giraphe {
-    tick: isize,
+    pub(crate) tick: isize,
     pub spot_lookup: HashMap<u64, SpotRef>,
     pub spot_list: Vec<SpotRef>,
     pub leaves: Vec<SpotRef>,
     pub inputs: Vec<SpotRef>,
     pub states: Vec<SpotRef>,
     pub pan: Vec2,
+    pub registers: [Option<SpotRef>; 32],
 }
 
 #[allow(unused)]

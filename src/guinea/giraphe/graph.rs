@@ -1,4 +1,4 @@
-use crate::guinea::giraphe::{Giraphe, Spot, Value};
+use crate::guinea::giraphe::{Giraphe, Spot, SpotRef, Value};
 use crate::unicorn::{Model, Nid, Node, NodeRef};
 use egui::epaint::CubicBezierShape;
 use egui::{Align, Color32, Layout, Pos2, Rect, Rounding, Stroke, Ui, Vec2};
@@ -34,6 +34,7 @@ impl Giraphe {
         let mut inputs = Vec::new();
 
         let mut states = Vec::new();
+        let mut registers: [Option<SpotRef>; 32] = Default::default();
 
         let mut layers: Vec<u64> = Vec::new();
         let mut lookup_y = |x| {
@@ -146,7 +147,9 @@ impl Giraphe {
                     spot_lookup.insert(*nid, spot.clone());
                 }
                 // special cases
-                Node::State { nid, init, .. } => {
+                Node::State {
+                    nid, init, name, ..
+                } => {
                     let x = if let Some(init) = init {
                         let px = spot_lookup.get(&map_node_ref_to_nid(init)).unwrap();
                         let px = px.borrow().position.x;
@@ -164,6 +167,12 @@ impl Giraphe {
                     } else {
                         states.push(spot.clone());
                     }
+
+                    Self::map_to_reg_spot(
+                        &mut registers,
+                        spot.clone(),
+                        name.as_ref().unwrap().as_str(),
+                    );
                 }
                 Node::Next {
                     nid, state, next, ..
@@ -213,6 +222,7 @@ impl Giraphe {
             spot_list,
             leaves,
             inputs,
+            registers,
             states: states.clone(),
             pan: Vec2::default(),
         };
@@ -231,6 +241,44 @@ impl Giraphe {
         g.tick = 0;
 
         g
+    }
+
+    fn map_to_reg_spot(arr: &mut [Option<SpotRef>; 32], spot_ref: SpotRef, str: &str) {
+        match str {
+            "zero" => arr[0] = Some(spot_ref),
+            "ra" => arr[1] = Some(spot_ref),
+            "sp" => arr[2] = Some(spot_ref),
+            "gp" => arr[3] = Some(spot_ref),
+            "tp" => arr[4] = Some(spot_ref),
+            "t0" => arr[5] = Some(spot_ref),
+            "t1" => arr[6] = Some(spot_ref),
+            "t2" => arr[7] = Some(spot_ref),
+            "s0" => arr[8] = Some(spot_ref),
+            "s1" => arr[9] = Some(spot_ref),
+            "a0" => arr[10] = Some(spot_ref),
+            "a1" => arr[11] = Some(spot_ref),
+            "a2" => arr[12] = Some(spot_ref),
+            "a3" => arr[13] = Some(spot_ref),
+            "a4" => arr[14] = Some(spot_ref),
+            "a5" => arr[15] = Some(spot_ref),
+            "a6" => arr[16] = Some(spot_ref),
+            "a7" => arr[17] = Some(spot_ref),
+            "s2" => arr[18] = Some(spot_ref),
+            "s3" => arr[19] = Some(spot_ref),
+            "s4" => arr[20] = Some(spot_ref),
+            "s5" => arr[21] = Some(spot_ref),
+            "s6" => arr[22] = Some(spot_ref),
+            "s7" => arr[23] = Some(spot_ref),
+            "s8" => arr[24] = Some(spot_ref),
+            "s9" => arr[25] = Some(spot_ref),
+            "s10" => arr[26] = Some(spot_ref),
+            "s11" => arr[27] = Some(spot_ref),
+            "t3" => arr[28] = Some(spot_ref),
+            "t4" => arr[29] = Some(spot_ref),
+            "t5" => arr[30] = Some(spot_ref),
+            "t6" => arr[31] = Some(spot_ref),
+            _ => {}
+        }
     }
 
     pub fn draw(&mut self, ui: &mut Ui) {
