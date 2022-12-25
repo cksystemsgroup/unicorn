@@ -11,7 +11,7 @@ use std::rc::Rc;
 impl Spot {
     pub fn from(n: &NodeRef) -> SpotRef {
         let val_cur = match &*n.borrow() {
-            Node::Input { .. } => Bitvector(Concrete(0)),
+            Node::Input { .. } => Bitvector(Concrete(1)),
             Node::Const { sort, imm, .. } => match sort {
                 NodeType::Bit => Boolean(*imm != 0),
                 NodeType::Word => Bitvector(Concrete(*imm)),
@@ -50,9 +50,10 @@ impl Spot {
 
     pub fn evaluate(&mut self, graph: &Giraphe) -> Value {
         if self.tick == graph.tick {
-            return self.val_old.clone();
+            return self.val_cur.clone();
         }
         self.tick = if graph.tick > 0 { graph.tick } else { 0 };
+        self.val_old = self.val_cur.clone();
 
         let node_to_spot = |x| {
             let nid = map_node_ref_to_nid(x);
@@ -209,13 +210,9 @@ impl Spot {
                 !spot.evaluate(graph)
             }
             Node::State { .. } => self.val_cur.clone(),
-            Node::Next { state, next, .. } => {
+            Node::Next { next, .. } => {
                 let spot1 = &mut *node_to_spot(next).borrow_mut();
-                let next = spot1.evaluate(graph);
-                let spot2 = &mut *node_to_spot(state).borrow_mut();
-                spot2.val_cur = next.clone();
-
-                next
+                spot1.evaluate(graph)
             }
             Node::Input { .. } => self.val_cur.clone(),
             Node::Bad { cond, .. } => {
@@ -226,12 +223,11 @@ impl Spot {
         };
 
         self.val_cur = val.clone();
-        self.val_old = self.val_cur.clone();
 
         val
     }
 
-    fn title(&self) -> &str {
+    pub(crate) fn title(&self) -> &str {
         match &*self.origin.borrow() {
             Node::Const { .. } => "Constant",
             Node::Read { .. } => "Read",

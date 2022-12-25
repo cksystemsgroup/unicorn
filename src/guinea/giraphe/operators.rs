@@ -1,5 +1,7 @@
 use crate::guinea::giraphe::MachineWord::Concrete;
 use crate::guinea::giraphe::{MachineWord, Value};
+use crate::unicorn::optimize::ConstantFolder;
+use crate::unicorn::smt_solver::none_impl;
 use std::cmp::Ordering;
 use std::cmp::Ordering::{Equal, Greater, Less};
 use std::ops::{Add, BitAnd, Div, Mul, Not, Rem, Shl, Shr, Sub};
@@ -141,7 +143,7 @@ impl Add for MachineWord {
 
     fn add(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
-            (Concrete(x), Concrete(y)) => Concrete(x + y),
+            (Concrete(x), Concrete(y)) => Concrete(u64::wrapping_add(x, y)),
         }
     }
 }
@@ -151,7 +153,7 @@ impl Sub for MachineWord {
 
     fn sub(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
-            (Concrete(x), Concrete(y)) => Concrete(x - y),
+            (Concrete(x), Concrete(y)) => Concrete(u64::wrapping_sub(x, y)),
         }
     }
 }
@@ -161,7 +163,7 @@ impl Mul for MachineWord {
 
     fn mul(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
-            (Concrete(x), Concrete(y)) => Concrete(x * y),
+            (Concrete(x), Concrete(y)) => Concrete(u64::wrapping_mul(x, y)),
         }
     }
 }
@@ -171,7 +173,9 @@ impl Div for MachineWord {
 
     fn div(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
-            (Concrete(x), Concrete(y)) => Concrete(x / y),
+            (Concrete(x), Concrete(y)) => {
+                Concrete(ConstantFolder::<none_impl::NoneSolver>::btor_u64_div(x, y))
+            }
         }
     }
 }
@@ -181,7 +185,9 @@ impl Rem for MachineWord {
 
     fn rem(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
-            (Concrete(x), Concrete(y)) => Concrete(x % y),
+            (Concrete(x), Concrete(y)) => {
+                Concrete(ConstantFolder::<none_impl::NoneSolver>::btor_u64_rem(x, y))
+            }
         }
     }
 }
@@ -191,7 +197,9 @@ impl Shl for MachineWord {
 
     fn shl(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
-            (Concrete(x), Concrete(y)) => Concrete(x << y),
+            (Concrete(x), Concrete(y)) => {
+                Concrete(ConstantFolder::<none_impl::NoneSolver>::btor_u64_sll(x, y))
+            }
         }
     }
 }
@@ -201,7 +209,9 @@ impl Shr for MachineWord {
 
     fn shr(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
-            (Concrete(x), Concrete(y)) => Concrete(x >> y),
+            (Concrete(x), Concrete(y)) => {
+                Concrete(ConstantFolder::<none_impl::NoneSolver>::btor_u64_srl(x, y))
+            }
         }
     }
 }

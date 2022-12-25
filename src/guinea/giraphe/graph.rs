@@ -1,10 +1,11 @@
-use crate::guinea::giraphe::{Giraphe, Spot};
+use crate::guinea::giraphe::{Giraphe, Spot, Value};
 use crate::unicorn::{Model, Nid, Node, NodeRef};
 use egui::epaint::CubicBezierShape;
 use egui::{Align, Color32, Layout, Pos2, Rect, Rounding, Stroke, Ui, Vec2};
 use log::trace;
 use std::cmp::max;
 use std::collections::HashMap;
+use std::iter::zip;
 
 static XSIZE: f32 = 150.0;
 static YSIZE: f32 = 200.0;
@@ -383,9 +384,31 @@ impl Giraphe {
     pub fn tick_over(&mut self) -> isize {
         self.tick += 1;
 
-        for sr in &self.leaves {
-            let s = &mut *sr.borrow_mut();
-            s.evaluate(self);
+        let res: Vec<_> = self
+            .leaves
+            .iter()
+            .map(|x| {
+                let s = &mut *x.borrow_mut();
+                s.evaluate(self)
+            })
+            .collect();
+
+        for (sp, val) in zip(&self.leaves, res) {
+            let sp = &mut *sp.borrow_mut();
+            match &*sp.origin.borrow() {
+                Node::Next { state, .. } => {
+                    let state = map_node_ref_to_nid(state);
+                    let state = self.spot_lookup.get(&state).unwrap();
+                    let state = &mut *state.borrow_mut();
+                    state.val_cur = val;
+                }
+                Node::Bad { name, .. } => {
+                    if sp.val_cur == Value::Boolean(true) {
+                        println!("Bad is true: {}", name.as_ref().unwrap());
+                    }
+                }
+                _ => unreachable!("Only Bad and Next nodes can be leaves"),
+            };
         }
 
         self.tick
