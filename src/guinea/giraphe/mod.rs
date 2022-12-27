@@ -19,6 +19,9 @@ pub struct Giraphe {
     pub states: Vec<Nid>,
     pub pan: Vec2,
     pub registers: [Option<Nid>; 32],
+    pub is_ascii: bool,
+    pub input: String,
+    pub input_queue: Vec<String>,
 }
 
 #[allow(unused)]

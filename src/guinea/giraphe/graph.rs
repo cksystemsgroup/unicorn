@@ -1,11 +1,13 @@
 use std::cmp::max;
 use std::collections::HashMap;
+use std::default::Default;
 use std::iter::zip;
 
 use egui::epaint::CubicBezierShape;
 use egui::{Align, Color32, Layout, Pos2, Rect, Rounding, Stroke, Ui, Vec2};
 use log::trace;
 
+use crate::guinea::giraphe::MachineWord::Concrete;
 use crate::guinea::giraphe::Value::{Array, Bitvector, Boolean};
 use crate::guinea::giraphe::{Giraphe, Spot, Value};
 use crate::unicorn::{Model, Nid, Node, NodeRef};
@@ -223,8 +225,11 @@ impl Giraphe {
             leaves,
             inputs,
             registers,
+            is_ascii: false,
+            input: String::default(),
             states: states.clone(),
             pan: Vec2::default(),
+            input_queue: vec![],
         };
 
         g.tick = -1;
@@ -563,7 +568,12 @@ impl Giraphe {
                 }
                 Node::Ext { value, .. } => {
                     let spot = &map_node_ref_to_nid(value);
-                    self.evaluate(spot)
+                    let v = self.evaluate(spot);
+                    if let Boolean(b) = v {
+                        Bitvector(Concrete(u64::from(b)))
+                    } else {
+                        v
+                    }
                 }
                 Node::Ite {
                     cond, left, right, ..

@@ -10,7 +10,7 @@ use crate::unicorn::{Node, NodeRef, NodeType};
 impl Spot {
     pub fn from(n: &NodeRef) -> Spot {
         let val_cur = match &*n.borrow() {
-            Node::Input { .. } => Bitvector(Concrete(1)),
+            Node::Input { .. } => Value::Undefined,
             Node::Const { sort, imm, .. } => match sort {
                 NodeType::Bit => Boolean(*imm != 0),
                 NodeType::Word => Bitvector(Concrete(*imm)),
@@ -26,7 +26,7 @@ impl Spot {
                 | NodeType::Input4Byte
                 | NodeType::Input5Byte
                 | NodeType::Input6Byte
-                | NodeType::Input7Byte => Bitvector(Concrete(0)), // TODO: give proper input
+                | NodeType::Input7Byte => Value::Undefined,
                 NodeType::Memory => Value::default_array(),
                 x => unreachable!("caused by {:?}", x),
             },
