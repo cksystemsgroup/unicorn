@@ -1,9 +1,11 @@
+use std::sync::mpsc::Receiver;
+
 use crate::guinea::cli2gui::Cli2Gui;
 use crate::guinea::giraphe::Giraphe;
 use crate::unicorn::Model;
-use std::sync::mpsc::Receiver;
 
 mod cli2gui;
+mod components;
 mod design;
 mod error_handling;
 mod giraphe;

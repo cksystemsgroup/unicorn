@@ -9,7 +9,7 @@ use log::trace;
 
 use crate::guinea::giraphe::MachineWord::Concrete;
 use crate::guinea::giraphe::Value::{Array, Bitvector, Boolean};
-use crate::guinea::giraphe::{Giraphe, Spot, Value};
+use crate::guinea::giraphe::{Giraphe, MachineWord, Spot, Value};
 use crate::unicorn::{Model, Nid, Node, NodeRef};
 
 static XSIZE: f32 = 150.0;
@@ -626,6 +626,79 @@ impl Giraphe {
         spot.val_cur = val.clone();
 
         val
+    }
+
+    pub fn system_state(
+        &self,
+    ) -> (
+        Vec<Value>,
+        Option<String>,
+        bool,
+        HashMap<MachineWord, MachineWord>,
+    ) {
+        let regs = self
+            .registers
+            .as_ref()
+            .iter()
+            .map(|x| {
+                if let Some(x) = x {
+                    let s = self.nid_to_spot(x);
+                    s.val_cur.clone()
+                } else {
+                    Bitvector(Concrete(0))
+                }
+            })
+            .collect::<Vec<Value>>();
+
+        let mut pc = None;
+        let mut vm = HashMap::new();
+        let mut kernel_mode = false;
+
+        for x in &self.states {
+            let s = self.nid_to_spot(x);
+            match &*s.origin.borrow() {
+                Node::State { name, .. } => {
+                    let name = name.as_ref().unwrap().as_str();
+                    if name == "virtual-memory" {
+                        if let Array(hm) = &s.val_cur {
+                            vm = hm.clone();
+                        }
+                    }
+
+                    if name.starts_with("pc=") && s.val_cur == Boolean(true) {
+                        if pc.is_some() {
+                            panic!("Multiple PCs active at once: {:?} and {:?}", pc, x);
+                        }
+                        pc = Some(String::from(&name[3..]));
+                    }
+
+                    if name.starts_with("kernel") {
+                        kernel_mode |= Boolean(true) == s.val_cur;
+                    }
+                }
+                _ => unreachable!(),
+            };
+        }
+
+        (regs, pc, kernel_mode, vm)
+    }
+
+    pub fn a7_is_read_or_exit(&self) -> bool {
+        self.nid_to_spot(&self.registers[17].unwrap()).val_cur == Bitvector(Concrete(63))
+            || self.nid_to_spot(&self.registers[17].unwrap()).val_cur == Bitvector(Concrete(93))
+    }
+
+    pub fn is_in_kernel_mode(&self) -> bool {
+        self.states
+            .iter()
+            .map(|x| self.nid_to_spot(x))
+            .filter(|x| match &*x.origin.borrow() {
+                Node::State { name, .. } => name.as_ref().unwrap().starts_with("kernel"),
+                _ => unreachable!(),
+            })
+            .map(|x| x.val_cur == Boolean(true))
+            .reduce(|a, x| a || x)
+            .unwrap()
     }
 }
 

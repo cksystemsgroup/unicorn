@@ -1,4 +1,5 @@
 use crate::cli::SmtType;
+use crate::guinea::components::general;
 use crate::guinea::error_handling::{fix_memory, unpanic};
 use crate::guinea::print::{stringify_model, stringify_program};
 use crate::guinea::Guineacorn;
@@ -73,16 +74,8 @@ pub fn input_window(data: &mut Guineacorn, ui: &mut Ui) {
     ui.label("Selecting Input");
     ui.separator();
 
-    ui.horizontal_wrapped(|ui| {
-        ui.label("Select a file to start.");
-        if ui.button("Open file...").clicked() {
-            data.reset_model_params();
-            if let Some(path) = rfd::FileDialog::new().pick_file() {
-                data.picked_path = Some(path.display().to_string());
-            }
-        }
-        ui.checkbox(&mut data.cli2gui.from_beator, "Input is a BTOR2 file");
-    });
+    general::open_file(ui, data);
+    ui.checkbox(&mut data.cli2gui.from_beator, "Input is a BTOR2 file");
 
     let picked_path = data
         .picked_path
