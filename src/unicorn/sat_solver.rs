@@ -15,6 +15,8 @@ pub fn solve_bad_states(gate_model: &GateModel, sat_type: SatType) {
         SatType::Kissat => process_all_bad_states::<kissat_impl::KissatSolver>(gate_model),
         #[cfg(feature = "varisat")]
         SatType::Varisat => process_all_bad_states::<varisat_impl::VarisatSolver>(gate_model),
+        #[cfg(feature = "cadical")]
+        SatType::Cadical => process_all_bad_states::<cadical_impl::CadicalSolver>(gate_model),
     }
 }
 
