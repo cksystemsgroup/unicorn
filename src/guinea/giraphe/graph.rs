@@ -10,7 +10,7 @@ use log::trace;
 use crate::guinea::giraphe::MachineWord::Concrete;
 use crate::guinea::giraphe::Value::{Array, Bitvector, Boolean};
 use crate::guinea::giraphe::{Giraphe, MachineWord, Spot, Value};
-use crate::unicorn::{Model, Nid, Node, NodeRef};
+use crate::unicorn::{Model, Nid, Node, NodeRef, NodeType};
 
 static XSIZE: f32 = 150.0;
 static YSIZE: f32 = 200.0;
@@ -226,7 +226,8 @@ impl Giraphe {
             inputs,
             registers,
             is_ascii: false,
-            input: String::default(),
+            input_ascii: String::default(),
+            input_number: 0,
             states: states.clone(),
             pan: Vec2::default(),
             input_queue: vec![],
@@ -611,7 +612,39 @@ impl Giraphe {
                     let spot = &map_node_ref_to_nid(next);
                     self.evaluate(spot)
                 }
-                Node::Input { .. } => val_cur,
+                Node::Input { sort, .. } => {
+                    let ret = if self.is_ascii {
+                        let chars_taken = match sort {
+                            NodeType::Bit => unreachable!(),
+                            NodeType::Word => 8,
+                            NodeType::Memory => unreachable!(),
+                            NodeType::Input1Byte => 1,
+                            NodeType::Input2Byte => 2,
+                            NodeType::Input3Byte => 3,
+                            NodeType::Input4Byte => 4,
+                            NodeType::Input5Byte => 5,
+                            NodeType::Input6Byte => 6,
+                            NodeType::Input7Byte => 7,
+                        };
+
+                        let mut nr: u64 = 0;
+                        for i in 0..chars_taken {
+                            let char = if !self.input_ascii.is_empty() {
+                                self.input_ascii.remove(0) as u64
+                            } else {
+                                0
+                            };
+                            nr |= char << (i * 8);
+                        }
+                        nr
+                    } else {
+                        let val = self.input_number as u64;
+                        self.input_number = 0;
+                        val
+                    };
+                    self.input_queue.push(format!("{ret}"));
+                    Bitvector(Concrete(ret))
+                }
                 Node::Bad { cond, .. } => {
                     let spot = &map_node_ref_to_nid(cond);
                     self.evaluate(spot)
@@ -628,14 +661,7 @@ impl Giraphe {
         val
     }
 
-    pub fn system_state(
-        &self,
-    ) -> (
-        Vec<Value>,
-        Option<String>,
-        bool,
-        HashMap<MachineWord, MachineWord>,
-    ) {
+    pub fn system_state(&self) -> (Vec<Value>, u64, bool, HashMap<MachineWord, MachineWord>) {
         let regs = self
             .registers
             .as_ref()
@@ -650,7 +676,7 @@ impl Giraphe {
             })
             .collect::<Vec<Value>>();
 
-        let mut pc = None;
+        let mut pc = 0;
         let mut vm = HashMap::new();
         let mut kernel_mode = false;
 
@@ -666,10 +692,10 @@ impl Giraphe {
                     }
 
                     if name.starts_with("pc=") && s.val_cur == Boolean(true) {
-                        if pc.is_some() {
+                        if pc != 0 {
                             panic!("Multiple PCs active at once: {:?} and {:?}", pc, x);
                         }
-                        pc = Some(String::from(&name[3..]));
+                        pc = u64::from_str_radix(&name[5..], 16).unwrap();
                     }
 
                     if name.starts_with("kernel") {

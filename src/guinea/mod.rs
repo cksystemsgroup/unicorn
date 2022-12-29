@@ -1,3 +1,4 @@
+use riscu::Program;
 use std::sync::mpsc::Receiver;
 
 use crate::guinea::cli2gui::Cli2Gui;
@@ -37,6 +38,7 @@ impl Default for MemoryData {
 #[derive(Default)]
 pub struct Guineacorn {
     pub model: Option<Model>,
+    pub program: Option<Program>,
     pub picked_path: Option<String>,
     pub output: Option<String>,
     pub model_created: bool,

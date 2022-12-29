@@ -24,23 +24,27 @@ pub fn input_window(data: &mut Guineacorn, ui: &mut Ui) {
     ui.add_space(15.0);
 
     // Machine
-    ui.separator();
-    ui.heading("Navigation");
-    ui.separator();
-    machine::step(ui, &mut data.giraphe);
-    ui.add_space(10.0);
-    machine::input(ui, &mut data.giraphe);
-    ui.add_space(15.0);
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            ui.separator();
+            ui.heading("Navigation");
+            ui.separator();
+            machine::step(ui, &mut data.giraphe);
+            ui.add_space(10.0);
+            machine::input(ui, &mut data.giraphe);
+            ui.add_space(15.0);
 
-    ui.separator();
-    ui.heading("System State");
-    ui.separator();
-    let (regs, pc, kernel_mode, vm) = data.giraphe.system_state();
-    machine::registers(ui, regs);
-    ui.add_space(15.0);
-    machine::program_counter(ui, pc, kernel_mode, &data.giraphe);
-    ui.add_space(15.0);
-    machine::virtual_memory(ui, vm);
+            ui.separator();
+            ui.heading("System State");
+            ui.separator();
+            let (regs, pc, kernel_mode, vm) = data.giraphe.system_state();
+            machine::registers(ui, regs);
+            ui.add_space(15.0);
+            machine::program_counter(ui, pc, kernel_mode, data);
+            ui.add_space(15.0);
+            machine::virtual_memory(ui, vm);
+        });
 }
 
 pub fn output_window(data: &mut Guineacorn, ui: &mut Ui) {

@@ -1,7 +1,9 @@
 use crate::guinea::giraphe::MachineWord::Concrete;
-use crate::guinea::giraphe::Value::Bitvector;
 use crate::guinea::giraphe::{Giraphe, MachineWord, Value};
+use crate::guinea::print::stringify_program;
+use crate::guinea::Guineacorn;
 use egui::{RichText, Ui};
+use riscu::decode;
 use std::collections::HashMap;
 use std::iter::zip;
 
@@ -21,41 +23,17 @@ pub fn step(ui: &mut Ui, graph: &mut Giraphe) {
 
 pub fn input(ui: &mut Ui, graph: &mut Giraphe) {
     ui.horizontal(|ui| {
-        let edit = egui::TextEdit::singleline(&mut graph.input).hint_text("Value To Be Read");
-        ui.add(edit);
-        ui.checkbox(&mut graph.is_ascii, "Interpret as ASCII");
-        if ui.button("Submit").clicked() {
-            graph.input_queue.push(format!(
-                "{} ({})",
-                graph.input.clone(),
-                if graph.is_ascii { "ascii" } else { "number" }
-            ));
-            // TODO: dont crash on too large inputs
-            // TODO: let the evaluation consume these inputs as they come without submit
-            //      you only push into the inputlist when consumed and remove the first letter from string
-            //      also for numbers maybe separated with space bars, or better one number input field that resets if wrong
-            let str: u64 = if graph.is_ascii {
-                let mut result = 0;
-                for (i, c) in graph.input.chars().enumerate() {
-                    result |= (c as u64) << (i * 8);
-                }
-                result
-            } else {
-                graph.input.parse().unwrap()
-            };
-
-            for i in 0..graph.inputs.len() {
-                let ip = graph.inputs.get(i).unwrap();
-                let ip = graph.spot_lookup.get_mut(ip).unwrap();
-
-                if let Value::Array(_) = ip.val_cur {
-                } else {
-                    ip.val_cur = Bitvector(Concrete(str))
-                }
-            }
-
-            graph.input = String::default();
+        if graph.is_ascii {
+            let edit =
+                egui::TextEdit::singleline(&mut graph.input_ascii).hint_text("Character Buffer");
+            ui.add(edit)
+                .on_hover_text("Missing buffer item defaults to zero");
+        } else {
+            let nr = egui::DragValue::new(&mut graph.input_number);
+            ui.add(nr);
+            ui.label("(limited to max 2^8-1=255)");
         }
+        ui.checkbox(&mut graph.is_ascii, "Interpret as ASCII");
     });
     egui::ScrollArea::vertical()
         .max_height(30.0)
@@ -194,19 +172,39 @@ pub fn registers(ui: &mut Ui, regs: Vec<Value>) {
     });
 }
 
-pub fn program_counter(ui: &mut Ui, pc: Option<String>, kernel_mode: bool, graph: &Giraphe) {
-    // TODO: show instructions + what is the current inst
+pub fn program_counter(ui: &mut Ui, pc: u64, kernel_mode: bool, data: &Guineacorn) {
     ui.heading("Program Counter");
     ui.horizontal(|ui| {
-        ui.label("PC =");
-        ui.label(pc.unwrap_or_else(|| "Undefined".to_string()));
+        ui.monospace(if pc != 0 {
+            format!("PC = 0x{:08x}", pc)
+        } else {
+            "PC = Undefined".to_string()
+        });
         if kernel_mode {
-            let sys_id = graph
-                .nid_to_spot(&graph.registers[17].unwrap())
+            let sys_id = data
+                .giraphe
+                .nid_to_spot(&data.giraphe.registers[17].unwrap())
                 .val_cur
                 .clone();
             ui.label(format!("(kernel-mode is active, syscall: {})", sys_id));
         }
+        if pc != 0 {
+            let pc = pc - data.program.as_ref().unwrap().code.address;
+            let pc = pc / 4;
+            let inst = &data.program.as_ref().unwrap().code.content;
+            let chunks = inst.chunks(4).collect::<Vec<_>>();
+            let inst = chunks.get(pc as usize).unwrap();
+            let inst = ((inst[3] as u32) << 24)
+                + ((inst[2] as u32) << 16)
+                + ((inst[1] as u32) << 8)
+                + inst[0] as u32;
+            let inst = decode(inst).unwrap();
+            let inst = format!("corresponds to {:?}", inst);
+            ui.monospace(inst);
+        };
+    });
+    ui.collapsing("Full Program", |ui| {
+        ui.label(stringify_program(data.program.as_ref().unwrap()));
     });
 }
 
@@ -222,7 +220,7 @@ pub fn virtual_memory(ui: &mut Ui, vm: HashMap<MachineWord, MachineWord>) {
     // TODO: differentiate stack, heap and data segment
     egui::ScrollArea::vertical()
         .id_source("virtual memory scroll")
-        .auto_shrink([false; 2])
+        .auto_shrink([false, true])
         .show(ui, |ui| {
             egui::Grid::new("virtual memory grid").show(ui, |ui| {
                 for (k, v) in vm {

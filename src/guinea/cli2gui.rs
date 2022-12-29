@@ -144,6 +144,7 @@ pub fn input_window(data: &mut Guineacorn, ui: &mut Ui) {
                     let mut model = None;
                     let mut output = None;
 
+                    // TODO: add program to struct program + DRY
                     let program = program.unwrap();
                     unpanic(
                         AssertUnwindSafe(|| {

@@ -30,9 +30,16 @@ pub fn load_binary(ui: &mut Ui, data: &mut Guineacorn, after_fn: fn(&mut Guineac
     if ui.button("Load Binary").clicked() {
         let picked_path = data.picked_path.as_ref().unwrap();
         let path = PathBuf::from_str(picked_path).unwrap();
-        let program = load_object_file(path).unwrap();
+        data.program = load_object_file(path).ok();
         let argv = [vec![picked_path.clone()]].concat();
-        let mut model = generate_model(&program, ByteSize::mib(1).as_u64(), 8, 32, &argv).unwrap();
+        let mut model = generate_model(
+            data.program.as_ref().unwrap(),
+            ByteSize::mib(1).as_u64(),
+            8,
+            32,
+            &argv,
+        )
+        .unwrap();
         renumber_model(&mut model);
         data.model = Some(model);
         after_fn(data);

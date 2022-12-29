@@ -20,7 +20,8 @@ pub struct Giraphe {
     pub pan: Vec2,
     pub registers: [Option<Nid>; 32],
     pub is_ascii: bool,
-    pub input: String,
+    pub input_ascii: String,
+    pub input_number: u8,
     pub input_queue: Vec<String>,
 }
 

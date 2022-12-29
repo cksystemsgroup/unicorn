@@ -31,7 +31,6 @@ pub fn stringify_program(program: &Program) -> String {
         .data
         .content
         .chunks(8)
-        .rev()
         .zip((program.data.address..).step_by(8))
         .map(|(c, i)| {
             let mut res: u64 = 0;
