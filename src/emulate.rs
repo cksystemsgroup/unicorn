@@ -18,7 +18,7 @@ pub type EmulatorValue = u64;
 #[derive(Debug)]
 pub struct EmulatorState {
     registers: Vec<EmulatorValue>,
-    memory: VirtualMemory<EmulatorValue>,
+    memory: Vec<u8>,
     program_counter: EmulatorValue,
     program_break: EmulatorValue,
     opened: Vec<File>,
@@ -31,7 +31,7 @@ impl EmulatorState {
     pub fn new(memory_size: usize) -> Self {
         Self {
             registers: vec![0; NUMBER_OF_REGISTERS],
-            memory: VirtualMemory::new(memory_size / riscu::WORD_SIZE, PAGE_SIZE),
+            memory: vec![0; memory_size],
             program_counter: 0,
             program_break: 0,
             opened: Vec::new(),
@@ -44,8 +44,7 @@ impl EmulatorState {
     // Fully bootstraps the emulator to allow execution of the given
     // `program` from its beginning with given arguments `argv`.
     pub fn bootstrap(&mut self, program: &Program, argv: &[String]) {
-        let sp_value = self.memory.size() * riscu::WORD_SIZE;
-        self.set_reg(Register::Sp, sp_value as u64);
+        self.set_reg(Register::Sp, self.memory.len() as u64);
         self.program_counter = initial_program_counter(program);
         self.program_break = initial_program_break(program);
         self.load_code_segment(program);
@@ -126,37 +125,27 @@ impl EmulatorState {
     // TODO: Move to public portion of file.
     pub fn get_mem(&self, adr: EmulatorValue) -> EmulatorValue {
         assert!(adr & WORD_SIZE_MASK == 0, "address aligned");
-        self.memory[adr as usize / riscu::WORD_SIZE]
+        LittleEndian::read_u64(&self.memory[adr as usize..])
     }
 
     fn get_mem_typed<T: MyLittleEndian>(&self, adr: EmulatorValue) -> T {
         assert!(adr % (size_of::<T>() as u64) == 0, "address aligned");
-        let word_address = adr & !WORD_SIZE_MASK;
-        let word_offset = (adr & WORD_SIZE_MASK) as usize;
-        let bytes = self.get_mem(word_address).to_le_bytes();
-        MyLittleEndian::read(&bytes[word_offset..])
+        MyLittleEndian::read(&self.memory[adr as usize..])
     }
 
     // TODO: Move to public portion of file.
     pub fn set_mem(&mut self, adr: EmulatorValue, val: EmulatorValue) {
         assert!(adr & WORD_SIZE_MASK == 0, "address aligned");
-        self.memory[adr as usize / riscu::WORD_SIZE] = val;
+        LittleEndian::write_u64(&mut self.memory[adr as usize..], val);
     }
 
     fn set_mem_typed<T: MyLittleEndian>(&mut self, adr: EmulatorValue, val: T) {
         assert!(adr % (size_of::<T>() as u64) == 0, "address aligned");
-        let word_address = adr & !WORD_SIZE_MASK;
-        let word_offset = (adr & WORD_SIZE_MASK) as usize;
-        let mut bytes = self.get_mem(word_address).to_le_bytes();
-        MyLittleEndian::write(&mut bytes[word_offset..], val);
-        let word = EmulatorValue::from_le_bytes(bytes);
-        self.set_mem(word_address, word);
+        MyLittleEndian::write(&mut self.memory[adr as usize..], val);
     }
 
     fn copy_mem(&mut self, adr: EmulatorValue, src: &[u8]) {
-        src.iter()
-            .zip(adr..)
-            .for_each(|(b, a)| self.set_mem_typed::<u8>(a, *b));
+        self.memory[adr as usize..adr as usize + src.len()].copy_from_slice(src);
     }
 
     fn load_code_segment(&mut self, program: &Program) {
