@@ -1,4 +1,4 @@
-use crate::unicorn::solver::{none_impl, Solution, Solver};
+use crate::unicorn::smt_solver::{none_impl, SMTSolution, SMTSolver};
 use crate::unicorn::{HashableNodeRef, Model, Node, NodeRef, NodeType};
 use log::{debug, trace, warn};
 use std::cell::RefCell;
@@ -12,7 +12,7 @@ use std::time::Duration;
 // Public Interface
 //
 
-pub fn optimize_model_with_solver<S: Solver>(
+pub fn optimize_model_with_solver<S: SMTSolver>(
     model: &mut Model,
     timeout: Option<Duration>,
     minimize: bool,
@@ -32,7 +32,7 @@ pub fn optimize_model_with_input(model: &mut Model, inputs: &mut Vec<u64>) {
 // Private Implementation
 //
 
-fn optimize_model_impl<S: Solver>(
+fn optimize_model_impl<S: SMTSolver>(
     model: &mut Model,
     inputs: &mut Vec<u64>,
     timeout: Option<Duration>,
@@ -100,7 +100,7 @@ fn new_const(imm: u64) -> NodeRef {
     new_const_with_type(imm, NodeType::Word)
 }
 
-impl<'a, S: Solver> ConstantFolder<'a, S> {
+impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
     fn new(
         concrete_inputs: &'a mut Vec<u64>,
         timeout: Option<Duration>,
@@ -637,21 +637,21 @@ impl<'a, S: Solver> ConstantFolder<'a, S> {
             }
             if use_smt {
                 match self.smt_solver.solve(cond) {
-                    Solution::Sat => {
+                    SMTSolution::Sat => {
                         warn!(
                             "Bad state '{}' is satisfiable!",
                             name.as_deref().unwrap_or("?")
                         );
                         return true;
                     }
-                    Solution::Unsat => {
+                    SMTSolution::Unsat => {
                         debug!(
                             "Bad state '{}' is unsatisfiable, removing",
                             name.as_deref().unwrap_or("?")
                         );
                         return false;
                     }
-                    Solution::Timeout => (),
+                    SMTSolution::Timeout => (),
                 }
             }
             true

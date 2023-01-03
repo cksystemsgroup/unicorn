@@ -14,6 +14,8 @@ version ="0.4.1"
 default = []
 z3 = ["z3-solver", "z3-sys"]
 boolector = ["boolector-solver", "boolector-sys"]
+kissat = ["kissat-rs"]
+varisat = ["varisat-rs"]
 true-rng = []
 
 [lib]
@@ -31,7 +33,7 @@ strum = { version = "~0.24", features = ["derive"] }
 riscu = "~0.5"
 log = "~0.4"
 regex = "~1.7"
-env_logger = "~0.9"
+env_logger = "~0.10"
 bytesize = "~1.1"
 anyhow = "~1.0"
 thiserror = "~1.0"
@@ -39,6 +41,8 @@ boolector-solver = { package = "boolector", version = "~0.4", features = ["vendo
 boolector-sys = { version = "~0", features = ["vendor-lgl"], optional = true }
 z3-solver = { package = "z3", version = "~0.11", features = ["static-link-z3"], optional = true }
 z3-sys = { version = "~0", features = ["static-link-z3"], optional = true }
+kissat-rs = { git = "https://github.com/firefighterduck/kissat-rs", branch = "main", version = "0.1", optional = true }
+varisat-rs = { package = "varisat", version = "0.2.2", optional = true }
 pyo3 = { version = "~0.17", features = ["auto-initialize"] }
 
 [patch.crates-io]
@@ -51,7 +55,7 @@ rayon = "~1.6"
 tempfile = "~3.3"
 which = "~4.3"
 log = "~0.4"
-env_logger = "~0.9"
+env_logger = "~0.10"
 
 [dev-dependencies.cargo-husky]
 version = "1"
