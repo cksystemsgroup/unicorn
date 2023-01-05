@@ -193,10 +193,9 @@ fn main() -> Result<()> {
                     write_model(&model.unwrap(), stdout())?;
                 }
             } else if is_quarc {
-
                 let m = model.unwrap();
                 let mut qc = QuantumCircuit::new(&m, 64); // 64 is a paramater describing wordsize
-                                                                              // TODO: make wordsize parameter customizable from command line
+                                                          // TODO: make wordsize parameter customizable from command line
                 let _ = qc.process_model(1);
                 if has_concrete_inputs {
                     let inputs = expect_optional_arg::<String>(args, "inputs")?;

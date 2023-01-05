@@ -288,12 +288,12 @@ fn is_target_in_controls(controls: &[QubitRef], target: &QubitRef) -> bool {
         }
     }
 
-    return false;
+    false
 }
 
 fn prepare_controls_for_mcx(
     controls: &[QubitRef],
-    target: &QubitRef,
+    _target: &QubitRef,
 ) -> (Option<bool>, Vec<QubitRef>) {
     let mut is_used: HashSet<HashableQubitRef> = HashSet::new();
     // is_used.insert(target_key); // TODO: manage properly when target is also control
@@ -396,7 +396,7 @@ impl<'a> QuantumCircuit<'a> {
         &mut self,
         qubit: &mut QubitRef,
         gates_to_uncompute_: Option<&mut Vec<UnitaryRef>>,
-    )  -> QubitRef {
+    ) -> QubitRef {
         if let Some(value) = get_constant(qubit) {
             if value {
                 QubitRef::from(Qubit::ConstFalse)
@@ -408,7 +408,7 @@ impl<'a> QuantumCircuit<'a> {
                 input: qubit.clone(),
             });
             self.circuit_stack.push(not_gate.clone());
-    
+
             self.add_gate_to_qubit_stack(qubit, not_gate.clone());
             if let Some(gates_to_uncompute) = gates_to_uncompute_ {
                 gates_to_uncompute.push(not_gate);
@@ -567,8 +567,13 @@ impl<'a> QuantumCircuit<'a> {
             let mut local_gates_to_uncompute: Vec<UnitaryRef> = Vec::new();
 
             let mut ancilla_controls = self.get_memory();
-            self.add_mcx_gate(controls.iter_mut().collect(), &mut target.clone(), Some(&mut local_gates_to_uncompute));
-            ancilla_controls = self.add_not_gate(&mut ancilla_controls, Some(&mut local_gates_to_uncompute));
+            self.add_mcx_gate(
+                controls.iter_mut().collect(),
+                &mut target.clone(),
+                Some(&mut local_gates_to_uncompute),
+            );
+            ancilla_controls =
+                self.add_not_gate(&mut ancilla_controls, Some(&mut local_gates_to_uncompute));
 
             let mut qubit_out = if is_rom {
                 self.get_rom(None)
@@ -580,9 +585,17 @@ impl<'a> QuantumCircuit<'a> {
                 for gate in local_gates_to_uncompute {
                     gates_to_uncompute.push(gate);
                 }
-                self.add_mcx_gate(vec![&mut ancilla_controls, &mut target.clone()], &mut qubit_out, Some(gates_to_uncompute));
+                self.add_mcx_gate(
+                    vec![&mut ancilla_controls, &mut target.clone()],
+                    &mut qubit_out,
+                    Some(gates_to_uncompute),
+                );
             } else {
-                self.add_mcx_gate(vec![&mut ancilla_controls, &mut target.clone()], &mut qubit_out, None);
+                self.add_mcx_gate(
+                    vec![&mut ancilla_controls, &mut target.clone()],
+                    &mut qubit_out,
+                    None,
+                );
                 let prev_length = self.used_ancillas.len();
                 self.uncompute(&local_gates_to_uncompute);
                 assert!(self.used_ancillas.len() == prev_length - 1);
@@ -597,12 +610,19 @@ impl<'a> QuantumCircuit<'a> {
         target_: &Option<QubitRef>,
         gates_to_uncompute: &mut Vec<UnitaryRef>,
         is_rom: bool,
-        allow_push: bool
+        allow_push: bool,
     ) -> QubitRef {
         let mut target = if let Some(qubit) = target_ {
-            if is_rom && !self.is_qubit_rom(qubit){
-                let new_target = QubitRef::from(Qubit::QBit { name: "".to_string(), dependency: None, stack: VecDeque::new() });
-                self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot { control: qubit.clone(), target: new_target.clone() }));
+            if is_rom && !self.is_qubit_rom(qubit) {
+                let new_target = QubitRef::from(Qubit::QBit {
+                    name: "".to_string(),
+                    dependency: None,
+                    stack: VecDeque::new(),
+                });
+                self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot {
+                    control: qubit.clone(),
+                    target: new_target.clone(),
+                }));
                 new_target
             } else {
                 qubit.clone()
@@ -662,8 +682,8 @@ impl<'a> QuantumCircuit<'a> {
             } else {
                 true
             };
-            
-            if controls.len() == 1 && !target_ghost_value { 
+
+            if controls.len() == 1 && !target_ghost_value {
                 controls[0].clone()
             } else {
                 let mut target_final;
@@ -676,7 +696,8 @@ impl<'a> QuantumCircuit<'a> {
 
                     if target_value {
                         if !is_rom {
-                           target_final = self.add_not_gate(&mut target_final, Some(gates_to_uncompute));
+                            target_final =
+                                self.add_not_gate(&mut target_final, Some(gates_to_uncompute));
                         } else {
                             target_final = self.add_not_gate(&mut target_final, None);
                         }
@@ -704,7 +725,7 @@ impl<'a> QuantumCircuit<'a> {
                 }
                 if is_rom {
                     assert!(self.is_qubit_rom(&target_final));
-                } 
+                }
                 target_final
             }
         }
@@ -779,7 +800,11 @@ impl<'a> QuantumCircuit<'a> {
         }
     }
 
-    fn get_safe_uncomputable_rom(&mut self, gates_to_uncompute: &[UnitaryRef], replacement: &[QubitRef]) -> Vec<QubitRef> {
+    fn get_safe_uncomputable_rom(
+        &mut self,
+        gates_to_uncompute: &[UnitaryRef],
+        replacement: &[QubitRef],
+    ) -> Vec<QubitRef> {
         let mut new_replacement = Vec::new();
 
         let mut non_const_qubits = HashSet::new();
@@ -796,7 +821,10 @@ impl<'a> QuantumCircuit<'a> {
             if non_const_qubits.contains(&r_key) {
                 let dep = self.get_dependency(r);
                 let new_qubit = self.get_rom(dep);
-                self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot { control: r.clone(), target: new_qubit.clone() }));
+                self.circuit_stack.push(UnitaryRef::from(Unitary::Cnot {
+                    control: r.clone(),
+                    target: new_qubit.clone(),
+                }));
                 new_replacement.push(new_qubit);
             } else {
                 new_replacement.push(r.clone());
@@ -808,19 +836,13 @@ impl<'a> QuantumCircuit<'a> {
 
     fn get_qubit_to_uncompute(&self, gate: &UnitaryRef) -> Option<QubitRef> {
         match &*gate.borrow() {
-            Unitary::Not { input } => {
-                Some(input.clone())
-            }
-            Unitary::Cnot { control: _, target } => {
-                Some(target.clone())
-            }
+            Unitary::Not { input } => Some(input.clone()),
+            Unitary::Cnot { control: _, target } => Some(target.clone()),
             Unitary::Mcx {
                 controls: _,
                 target,
-            } => {
-                Some(target.clone())
-            }
-            Unitary::Barrier => { None}
+            } => Some(target.clone()),
+            Unitary::Barrier => None,
         }
     }
 
@@ -907,8 +929,13 @@ impl<'a> QuantumCircuit<'a> {
                 controls.push(qubitset[index].clone());
                 let target = result[sort - 1 - i + index].clone();
 
-                result[sort - 1 - i + index] =
-                    self.apply_mcx_gate(&mut controls, &Some(target), gates_to_uncompute, is_rom, false);
+                result[sort - 1 - i + index] = self.apply_mcx_gate(
+                    &mut controls,
+                    &Some(target),
+                    gates_to_uncompute,
+                    is_rom,
+                    false,
+                );
             }
         }
         assert!(result.len() == sort);
@@ -935,7 +962,7 @@ impl<'a> QuantumCircuit<'a> {
         left_operand: &[QubitRef],
         right_operand: &[QubitRef],
         gates_to_uncompute: &mut Vec<UnitaryRef>,
-        is_rom: bool
+        is_rom: bool,
     ) -> Vec<QubitRef> {
         assert!(left_operand.len() == right_operand.len());
         let mut replacement: Vec<QubitRef> = vec![];
@@ -959,7 +986,7 @@ impl<'a> QuantumCircuit<'a> {
         left_operand: &[QubitRef],
         right_operand: &[QubitRef],
         gates_to_uncompute: &mut Vec<UnitaryRef>,
-        is_rom: bool
+        is_rom: bool,
     ) -> Vec<QubitRef> {
         assert!(left_operand.len() == right_operand.len());
         let (to_uncompute, negated_right) = self.twos_complement(right_operand);
@@ -1002,8 +1029,13 @@ impl<'a> QuantumCircuit<'a> {
         for i in 0..sort - 1 {
             let target = result1[sort - i - 1].clone();
             let mut controls = result1[..(sort - i - 1)].to_vec();
-            result1[sort - i - 1] =
-                self.apply_mcx_gate(&mut controls, &Some(target), &mut gates_to_uncompute, false, false);
+            result1[sort - i - 1] = self.apply_mcx_gate(
+                &mut controls,
+                &Some(target),
+                &mut gates_to_uncompute,
+                false,
+                false,
+            );
         }
 
         assert!(result1.len() == qubitset.len());
@@ -1030,7 +1062,7 @@ impl<'a> QuantumCircuit<'a> {
         bit: &QubitRef,
         shift: usize,
         gates_to_uncompute: &mut Vec<UnitaryRef>,
-        is_rom: bool
+        is_rom: bool,
     ) -> Vec<QubitRef> {
         let mut result: Vec<QubitRef> = Vec::new();
 
@@ -1066,13 +1098,12 @@ impl<'a> QuantumCircuit<'a> {
                             result.push(QubitRef::from(Qubit::ConstFalse));
                         }
                     } else {
-                        
                         let target = self.apply_mcx_gate(
                             &mut [word[i].clone(), bit.clone()],
                             &None,
                             gates_to_uncompute,
                             is_rom,
-                            false
+                            false,
                         );
                         result.push(target.clone());
                     }
@@ -1089,7 +1120,7 @@ impl<'a> QuantumCircuit<'a> {
         left_operand: &[QubitRef],
         right_operand: &[QubitRef],
         gates_to_uncompute: &mut Vec<UnitaryRef>,
-        is_rom: bool
+        is_rom: bool,
     ) -> Vec<QubitRef> {
         assert!(left_operand.len() == right_operand.len());
         let mut replacement: Vec<QubitRef> = Vec::new();
@@ -1098,14 +1129,16 @@ impl<'a> QuantumCircuit<'a> {
             replacement.push(QubitRef::from(Qubit::ConstFalse));
         }
         for (index, bit) in left_operand.iter().enumerate() {
-            let result = self.multiply_word_by_bit(right_operand, bit, index, gates_to_uncompute, false);
-            
+            let result =
+                self.multiply_word_by_bit(right_operand, bit, index, gates_to_uncompute, false);
+
             if index + 1 == left_operand.len() {
-                replacement = self.add_one_qubitset(&result, replacement, gates_to_uncompute, is_rom);
+                replacement =
+                    self.add_one_qubitset(&result, replacement, gates_to_uncompute, is_rom);
             } else {
-                replacement = self.add_one_qubitset(&result, replacement, gates_to_uncompute, false);
+                replacement =
+                    self.add_one_qubitset(&result, replacement, gates_to_uncompute, false);
             }
-            
         }
         assert!(replacement.len() == left_operand.len());
         replacement
@@ -1119,7 +1152,7 @@ impl<'a> QuantumCircuit<'a> {
         _prefix: String,
         gates_to_uncompute: &mut Vec<UnitaryRef>,
         is_rom: bool,
-        allow_push: bool
+        allow_push: bool,
     ) -> Vec<QubitRef> {
         assert!(left_operand.len() == right_operand.len());
         let mut controls: Vec<QubitRef> = vec![];
@@ -1147,8 +1180,13 @@ impl<'a> QuantumCircuit<'a> {
                     l_qubit.clone()
                 };
 
-                let target: QubitRef =
-                    self.apply_mcx_gate(&mut [control.clone()], &None, gates_to_uncompute, false, allow_push);
+                let target: QubitRef = self.apply_mcx_gate(
+                    &mut [control.clone()],
+                    &None,
+                    gates_to_uncompute,
+                    false,
+                    allow_push,
+                );
                 // controls.push(target.clone());
                 assert!(!is_constant(&target));
                 let target_key = HashableQubitRef::from(target.clone());
@@ -1156,13 +1194,18 @@ impl<'a> QuantumCircuit<'a> {
                     qubits_to_not.insert(target_key);
                     qubit_to_not_vec.push(target);
                 }
-                
+
                 // self.add_not_gate(&mut target, Some(gates_to_uncompute));
             } else {
                 // no constants
-                let mut target: QubitRef =
-                    self.apply_mcx_gate(&mut [l_qubit.clone()], &None, gates_to_uncompute, false, allow_push);
-                
+                let mut target: QubitRef = self.apply_mcx_gate(
+                    &mut [l_qubit.clone()],
+                    &None,
+                    gates_to_uncompute,
+                    false,
+                    allow_push,
+                );
+
                 assert!(!is_constant(&target));
 
                 target = self.apply_mcx_gate(
@@ -1170,9 +1213,9 @@ impl<'a> QuantumCircuit<'a> {
                     &Some(target.clone()),
                     gates_to_uncompute,
                     false,
-                    true
+                    true,
                 );
-                
+
                 // target = self.add_not_gate(&mut target, Some(gates_to_uncompute));
                 // controls.push(target.clone());
                 let target_key = HashableQubitRef::from(target.clone());
@@ -1182,7 +1225,7 @@ impl<'a> QuantumCircuit<'a> {
                 }
             }
         }
-        
+
         for q in qubit_to_not_vec.iter_mut() {
             controls.push(self.add_not_gate(q, Some(gates_to_uncompute)));
         }
@@ -1278,7 +1321,7 @@ impl<'a> QuantumCircuit<'a> {
                 "div_eq".to_string(),
                 &mut gates_to_uncompute,
                 false,
-                false
+                false,
             );
             assert!(res_eq.len() == 1);
 
@@ -1290,7 +1333,7 @@ impl<'a> QuantumCircuit<'a> {
                 &None,
                 &mut gates_to_uncompute,
                 true,
-                false
+                false,
             );
 
             {
@@ -1309,7 +1352,6 @@ impl<'a> QuantumCircuit<'a> {
                         dummy_zero.push(QubitRef::from(Qubit::ConstFalse));
                     }
 
-                    
                     let eq_dummy_zero = self.eq(
                         &dummy_zero,
                         &right_operand,
@@ -1317,7 +1359,7 @@ impl<'a> QuantumCircuit<'a> {
                         "div_eq_dummy_zero".to_string(),
                         &mut gates_to_uncompute,
                         false,
-                        false
+                        false,
                     );
                     assert!(eq_dummy_zero.len() == 1);
 
@@ -1326,7 +1368,11 @@ impl<'a> QuantumCircuit<'a> {
                             panic!("There is a division by zero!");
                         }
                         assert!(self.is_qubit_rom(&true_constraints_target));
-                        true_constraints_target = self.get_safe_uncomputable_rom(&gates_to_uncompute, &[true_constraints_target.clone()])[0].clone();
+                        true_constraints_target = self.get_safe_uncomputable_rom(
+                            &gates_to_uncompute,
+                            &[true_constraints_target.clone()],
+                        )[0]
+                        .clone();
                         self.insert_into_constraints(&true_constraints_target, true);
                     } else {
                         let mut all_constraints_target = self.get_rom(None);
@@ -1345,9 +1391,10 @@ impl<'a> QuantumCircuit<'a> {
                                 input: eq_dummy_zero[0].clone(),
                             }));
                         }
-                        
+
                         // NOT target
-                        let key_all_constraints = HashableQubitRef::from(all_constraints_target.clone());
+                        let key_all_constraints =
+                            HashableQubitRef::from(all_constraints_target.clone());
                         assert!(key_all_constraints != key_zero_dummy);
                         assert!(key_all_constraints != key_true_constraints);
                         self.circuit_stack.push(UnitaryRef::from(Unitary::Not {
@@ -1366,7 +1413,11 @@ impl<'a> QuantumCircuit<'a> {
                             target: all_constraints_target.clone(),
                         }));
                         assert!(self.is_qubit_rom(&all_constraints_target));
-                        all_constraints_target = self.get_safe_uncomputable_rom(&gates_to_uncompute, &[all_constraints_target.clone()])[0].clone();
+                        all_constraints_target = self.get_safe_uncomputable_rom(
+                            &gates_to_uncompute,
+                            &[all_constraints_target.clone()],
+                        )[0]
+                        .clone();
                         self.insert_into_constraints(&all_constraints_target, true);
 
                         // Uncompute NOT on operands
@@ -1555,7 +1606,7 @@ impl<'a> QuantumCircuit<'a> {
         right: &[QubitRef],
         is_division: &bool,
         gates_to_uncompute: &mut Vec<UnitaryRef>,
-        is_rom: bool
+        is_rom: bool,
     ) -> Vec<QubitRef> {
         let mut left_operand = left.to_owned();
         let mut right_operand = right.to_owned();
@@ -1657,7 +1708,7 @@ impl<'a> QuantumCircuit<'a> {
                             &None,
                             &mut gates_to_uncompute,
                             true,
-                            true
+                            true,
                         );
                         replacement.push(target);
                     } else {
@@ -1667,7 +1718,7 @@ impl<'a> QuantumCircuit<'a> {
                             &None,
                             &mut gates_to_uncompute,
                             true,
-                            true
+                            true,
                         );
 
                         assert!(gates_to_uncompute.is_empty());
@@ -1703,13 +1754,13 @@ impl<'a> QuantumCircuit<'a> {
                     "".to_string(),
                     &mut gates_to_uncompute,
                     true,
-                    true
+                    true,
                 );
                 assert!(self.is_rom(&replacement));
                 replacement = self.get_safe_uncomputable_rom(&gates_to_uncompute, &replacement);
                 self.uncompute(&gates_to_uncompute);
                 // assert!(self.used_ancillas.is_empty());
-                
+
                 self.record_mapping(node, self.current_n, replacement)
             }
             Node::Add { left, right, .. } => {
@@ -1719,7 +1770,8 @@ impl<'a> QuantumCircuit<'a> {
                 assert!(self.is_rom(&right_operand));
 
                 let mut gates_to_uncompute = Vec::new();
-                let replacement = self.add(&left_operand, &right_operand, &mut gates_to_uncompute, true);
+                let replacement =
+                    self.add(&left_operand, &right_operand, &mut gates_to_uncompute, true);
                 self.uncompute(&gates_to_uncompute);
                 assert!(self.is_rom(&replacement));
                 // assert!(self.used_ancillas.is_empty());
@@ -1766,7 +1818,7 @@ impl<'a> QuantumCircuit<'a> {
                                     &None,
                                     &mut gates_to_uncompute,
                                     true,
-                                    false
+                                    false,
                                 );
                                 target = self.add_not_gate(&mut target, None);
                                 replacement.push(target.clone());
@@ -1782,7 +1834,7 @@ impl<'a> QuantumCircuit<'a> {
                                     &None,
                                     &mut gates_to_uncompute,
                                     true,
-                                    false
+                                    false,
                                 );
                                 self.add_not_gate(&mut cond_operand[0].clone(), None);
                                 t
@@ -1794,7 +1846,7 @@ impl<'a> QuantumCircuit<'a> {
                                     &None,
                                     &mut gates_to_uncompute,
                                     true,
-                                    true
+                                    true,
                                 )
                             };
                             replacement.push(target);
@@ -1808,7 +1860,7 @@ impl<'a> QuantumCircuit<'a> {
                                 &None,
                                 &mut gates_to_uncompute,
                                 true,
-                                false
+                                false,
                             );
 
                             self.add_not_gate(&mut cond_operand[0].clone(), None);
@@ -1818,7 +1870,7 @@ impl<'a> QuantumCircuit<'a> {
                                 &Some(target),
                                 &mut gates_to_uncompute,
                                 true,
-                                false
+                                false,
                             );
 
                             self.add_not_gate(&mut cond_operand[0].clone(), None);
@@ -1837,7 +1889,8 @@ impl<'a> QuantumCircuit<'a> {
                 assert!(self.is_rom(&left_operand));
                 assert!(self.is_rom(&right_operand));
                 let mut gates_to_uncompute = Vec::new();
-                let replacement = self.sub(&left_operand, &right_operand, &mut gates_to_uncompute, true);
+                let replacement =
+                    self.sub(&left_operand, &right_operand, &mut gates_to_uncompute, true);
                 self.uncompute(&gates_to_uncompute);
                 // assert!(self.used_ancillas.is_empty());
                 assert!(self.is_rom(&replacement));
@@ -1855,7 +1908,7 @@ impl<'a> QuantumCircuit<'a> {
                     &right_operand,
                     &false,
                     &mut gates_to_uncompute,
-                    true
+                    true,
                 );
                 assert!(result.len() == left_operand.len() + 1);
                 let replacement = vec![result[result.len() - 1].clone()];
@@ -1870,7 +1923,8 @@ impl<'a> QuantumCircuit<'a> {
                 assert!(self.is_rom(&left_operand));
                 assert!(self.is_rom(&right_operand));
                 let mut gates_to_uncompute = Vec::new();
-                let mut replacement = self.mul(&left_operand, &right_operand, &mut gates_to_uncompute, true);
+                let mut replacement =
+                    self.mul(&left_operand, &right_operand, &mut gates_to_uncompute, true);
                 assert!(self.is_rom(&replacement));
                 replacement = self.get_safe_uncomputable_rom(&gates_to_uncompute, &replacement);
                 self.uncompute(&gates_to_uncompute);
@@ -2577,7 +2631,8 @@ mod tests {
                 let left_operand = get_qubitset_from_constant(&(i as u64), &wordsize);
                 let right_operand = get_qubitset_from_constant(&(j as u64), &wordsize);
 
-                let res_qubitset = qc.add(&left_operand, &right_operand, &mut gates_to_uncompute, true);
+                let res_qubitset =
+                    qc.add(&left_operand, &right_operand, &mut gates_to_uncompute, true);
 
                 let mut local_result = 0;
                 let mut curr_power = 1;
@@ -2610,7 +2665,8 @@ mod tests {
                 let right_operand = get_qubitset_from_constant(&(j as u64), &wordsize);
 
                 let mut gates_to_uncompute = Vec::new();
-                let res_qubitset = qc.sub(&left_operand, &right_operand, &mut gates_to_uncompute, true);
+                let res_qubitset =
+                    qc.sub(&left_operand, &right_operand, &mut gates_to_uncompute, true);
 
                 let mut local_result = 0;
                 let mut curr_power = 1;
@@ -2672,7 +2728,7 @@ mod tests {
                     &right_operand,
                     &false,
                     &mut gates_to_uncompute,
-                    true
+                    true,
                 );
                 let ult_result = res_qubitset[res_qubitset.len() - 1].clone();
                 // println!(
@@ -2922,10 +2978,7 @@ mod tests {
             // ("division-by-zero-3-35.m", (86, HashSet::from([48]))),
             // ("memory-access-fail-1-35.m", (72, all_inputs_bad)),
             ("nested-if-else-1-35.m", (123, HashSet::from([49]))),
-            (
-                "nested-if-else-reverse-1-35.m",
-                (122, HashSet::from([49])),
-            ),
+            ("nested-if-else-reverse-1-35.m", (122, HashSet::from([49]))),
             // ("return-from-loop-1-35.m", (105, HashSet::from([48]))), //
             // (
             //     "simple-assignment-1-35.m",
