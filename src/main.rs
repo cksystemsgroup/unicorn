@@ -18,6 +18,7 @@ use crate::unicorn::sat_solver::solve_bad_states;
 use crate::unicorn::smt_solver::*;
 use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
 use crate::unicorn::write_model;
+use crate::unicorn::horizon::print_reasoning_horizon;
 
 use ::unicorn::disassemble::disassemble;
 use ::unicorn::emulate::EmulatorState;
@@ -33,6 +34,7 @@ use std::{
     path::PathBuf,
     str::FromStr,
     time::Duration,
+    cmp::min
 };
 
 fn main() -> Result<()> {
@@ -85,6 +87,7 @@ fn main() -> Result<()> {
             let input_is_dimacs = !is_beator && args.get_flag("from-dimacs");
             let compile_model = is_beator && args.get_flag("compile");
             let emulate_model = is_beator && args.get_flag("emulate");
+            let stride = args.get_flag("stride");
             let arg0 = expect_arg::<String>(args, "input-file")?;
             let extras = collect_arg_values(args, "extras");
 
@@ -112,32 +115,57 @@ fn main() -> Result<()> {
                     } else {
                         vec![]
                     };
-                    for n in 0..unroll_depth {
-                        unroll_model(&mut model, n);
-                        if has_concrete_inputs {
-                            optimize_model_with_input(&mut model, &mut input_values)
-                        }
-                    }
-                    if prune {
-                        prune_model(&mut model);
-                    }
+
                     let timeout = solver_timeout.map(|&ms| Duration::from_millis(ms));
-                    match smt_solver {
-                        #[rustfmt::skip]
-                        SmtType::Generic => {
-                            optimize_model_with_solver::<none_impl::NoneSolver>(&mut model, timeout, minimize)
-                        },
-                        #[rustfmt::skip]
-                        #[cfg(feature = "boolector")]
-                        SmtType::Boolector => {
-                            optimize_model_with_solver::<boolector_impl::BoolectorSolver>(&mut model, timeout, minimize)
-                        },
-                        #[rustfmt::skip]
-                        #[cfg(feature = "z3")]
-                        SmtType::Z3 => {
-                            optimize_model_with_solver::<z3solver_impl::Z3SolverWrapper>(&mut model, timeout, minimize)
-                        },
+
+                    let mut n: usize = if stride { 1 } else { unroll_depth };
+                    loop {
+                        // TODO: Maybe we can get rid of this clone for each
+                        // iteration, which is basically required if pruning is
+                        // enabled. However, it is much faster this way than
+                        // without pruning and not cloning the model.
+                        let mut model_copy = model.clone();
+
+                        for m in 0..n {
+                            unroll_model(&mut model_copy, m);
+
+                            if has_concrete_inputs {
+                                optimize_model_with_input(&mut model_copy, &mut input_values)
+                            }
+                        }
+
+                        if prune {
+                          prune_model(&mut model_copy);
+                        }
+
+                        match smt_solver {
+                            #[rustfmt::skip]
+                            SmtType::Generic => {
+                                optimize_model_with_solver::<none_impl::NoneSolver>(&mut model_copy, timeout, minimize)
+                            },
+                            #[rustfmt::skip]
+                            #[cfg(feature = "boolector")]
+                            SmtType::Boolector => {
+                                optimize_model_with_solver::<boolector_impl::BoolectorSolver>(&mut model_copy, timeout, minimize)
+                            },
+                            #[rustfmt::skip]
+                            #[cfg(feature = "z3")]
+                            SmtType::Z3 => {
+                                optimize_model_with_solver::<z3solver_impl::Z3SolverWrapper>(&mut model_copy, timeout, minimize)
+                            },
+                        }
+
+                        if !stride || !model_copy.bad_states_initial.is_empty() {
+                            if !model_copy.bad_states_initial.is_empty() {
+                              print_reasoning_horizon(&mut model_copy, n, stride);
+                            }
+
+                            break;
+                        }
+
+                        n = min(2 * n, unroll_depth);
                     }
+
                     if renumber {
                         renumber_model(&mut model);
                     }

@@ -24,11 +24,12 @@ pub mod qubot;
 pub mod sat_solver;
 pub mod smt_solver;
 pub mod unroller;
+pub mod horizon;
 
 pub type Nid = u64;
 pub type NodeRef = Rc<RefCell<Node>>;
 
-#[derive(Debug)]
+#[derive(Clone,Debug)]
 pub enum Node {
     Const {
         nid: Nid,
@@ -176,7 +177,7 @@ pub fn get_nodetype(n: usize) -> NodeType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Model {
     pub lines: Vec<NodeRef>,
     pub sequentials: Vec<NodeRef>,
