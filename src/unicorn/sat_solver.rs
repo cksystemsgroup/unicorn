@@ -15,6 +15,8 @@ pub fn solve_bad_states(gate_model: &GateModel, sat_type: SatType) {
         SatType::Kissat => process_all_bad_states::<kissat_impl::KissatSolver>(gate_model),
         #[cfg(feature = "varisat")]
         SatType::Varisat => process_all_bad_states::<varisat_impl::VarisatSolver>(gate_model),
+        #[cfg(feature = "cadical")]
+        SatType::Cadical => process_all_bad_states::<cadical_impl::CadicalSolver>(gate_model),
     }
 }
 
@@ -255,6 +257,101 @@ pub mod varisat_impl {
             match self.builder.container_mut().solver.solve().unwrap() {
                 true => SATSolution::Sat,
                 false => SATSolution::Unsat,
+            }
+        }
+    }
+}
+
+// TODO: Move this module into separate file.
+#[cfg(feature = "cadical")]
+pub mod cadical_impl {
+    use crate::unicorn::bitblasting::{GateModel, GateRef};
+    use crate::unicorn::cnf::{CNFBuilder, CNFContainer};
+    use crate::unicorn::sat_solver::{SATSolution, SATSolver};
+    use cadical_rs::Solver;
+
+    pub struct CadicalSolver {
+        builder: CNFBuilder<CadicalContainer>,
+    }
+
+    struct CadicalContainer {
+        current_var: i32,
+        solver: Solver,
+    }
+
+    impl CNFContainer for CadicalContainer {
+        type Variable = i32;
+        type Literal = i32;
+
+        fn new() -> Self {
+            Self {
+                current_var: 1,
+                solver: Solver::new(),
+            }
+        }
+
+        fn name() -> &'static str {
+            "CaDiCal"
+        }
+
+        fn var(var: i32) -> i32 {
+            var
+        }
+
+        fn neg(var: i32) -> i32 {
+            -var
+        }
+
+        fn new_var(&mut self) -> i32 {
+            let var = self.current_var;
+            self.current_var += 1;
+            var
+        }
+
+        fn add_clause(&mut self, literals: &[i32]) {
+            self.solver.add_clause(literals.to_vec())
+        }
+
+        fn record_variable_name(&mut self, _var: i32, _name: String) {
+            // nothing to be done here
+        }
+    }
+
+    impl SATSolver for CadicalSolver {
+        fn new() -> Self {
+            Self {
+                builder: CNFBuilder::<CadicalContainer>::new(),
+            }
+        }
+
+        fn name() -> &'static str {
+            "CaDiCal"
+        }
+
+        fn prepare(&mut self, gate_model: &GateModel) {
+            for (gate, val) in &gate_model.constraints {
+                let constraint_var = self.builder.visit(&gate.value);
+                let constraint_lit = if *val {
+                    CadicalContainer::var(constraint_var)
+                } else {
+                    CadicalContainer::neg(constraint_var)
+                };
+                self.builder.container_mut().add_clause(&[constraint_lit]);
+            }
+        }
+
+        fn decide(&mut self, _gate_model: &GateModel, gate: &GateRef) -> SATSolution {
+            let bad_state_var = self.builder.visit(gate);
+            let bad_state_lit = CadicalContainer::var(bad_state_var);
+            match self
+                .builder
+                .container_mut()
+                .solver
+                .solve_with((&[bad_state_lit]).iter().copied())
+            {
+                Some(true) => SATSolution::Sat,
+                Some(false) => SATSolution::Unsat,
+                None => SATSolution::Timeout,
             }
         }
     }

@@ -33,6 +33,8 @@ pub enum SatType {
     Kissat,
     #[cfg(feature = "varisat")]
     Varisat,
+    #[cfg(feature = "cadical")]
+    Cadical,
 }
 
 const DEFAULT_MEMORY_SIZE: &str = "1"; // 1 MiB
