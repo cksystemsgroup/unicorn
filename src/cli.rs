@@ -244,6 +244,13 @@ pub fn args() -> Command {
                         .allow_hyphen_values(true)
                         .num_args(1..)
                 )
+                .arg(
+                  Arg::new("stride")
+                      .help("Find unroll level where SMT solver times out")
+                      .short('l')
+                      .long("stride")
+                      .num_args(0)
+                )
         )
         .subcommand(
             Command::new("qubot")
