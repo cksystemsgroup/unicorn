@@ -1,11 +1,13 @@
 use crate::unicorn::solver::{Solution, Solver};
 use crate::unicorn::{HashableNodeRef, Node, NodeRef, NodeType};
 use std::collections::HashMap;
+#[cfg(feature = "z3")]
 use z3_solver::{
     ast::{Ast, Bool, Dynamic, BV},
     Config, Context, SatResult, Solver as Z3Solver,
 };
 
+#[cfg(feature = "z3")]
 pub struct Z3SolverWrapper<'ctx> {
     context: &'ctx Context,
     solver: Z3Solver<'ctx>,
@@ -14,6 +16,7 @@ pub struct Z3SolverWrapper<'ctx> {
     one: BV<'ctx>,
 }
 
+#[cfg(feature = "z3")]
 impl<'ctx> Solver for Z3SolverWrapper<'ctx> {
     fn name() -> &'static str {
         "Z3"
@@ -56,6 +59,7 @@ impl<'ctx> Solver for Z3SolverWrapper<'ctx> {
     }
 }
 
+#[cfg(feature = "z3")]
 impl<'ctx> Z3SolverWrapper<'ctx> {
     fn solve_impl(&mut self, z3_bool: &Bool<'ctx>) -> Solution {
         self.solver.push();

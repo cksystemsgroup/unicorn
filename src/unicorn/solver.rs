@@ -224,4 +224,3 @@ pub mod boolector_impl {
         }
     }
 }
-

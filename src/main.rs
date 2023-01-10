@@ -14,11 +14,12 @@ use unicorn::unicorn::memory::replace_memory;
 use unicorn::unicorn::optimize::{optimize_model, optimize_model_with_input};
 use unicorn::unicorn::qubot::{InputEvaluator, Qubot};
 use unicorn::unicorn::solver::*;
-use unicorn::unicorn::z3solver_impl;
+
 use unicorn::unicorn::unroller::{prune_model, renumber_model, unroll_model};
 use unicorn::unicorn::write_model;
+#[cfg(feature = "z3")]
+use unicorn::unicorn::z3solver_impl;
 
-use unicorn::unicorn::quarc::QuantumCircuit;
 use ::unicorn::disassemble::disassemble;
 use ::unicorn::emulate::EmulatorState;
 use anyhow::{Context, Result};
@@ -33,6 +34,7 @@ use std::{
     path::PathBuf,
     str::FromStr,
 };
+use unicorn::unicorn::quarc::QuantumCircuit;
 
 fn main() -> Result<()> {
     let matches = cli::args().get_matches();
@@ -83,7 +85,6 @@ fn main() -> Result<()> {
             let arg0 = expect_arg::<String>(args, "input-file")?;
             let extras = collect_arg_values(args, "extras");
             println!("arg0: {:?}", arg0);
-
 
             let model = if !input_is_dimacs {
                 let mut model = if !input_is_btor2 {

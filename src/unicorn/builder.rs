@@ -1,6 +1,11 @@
-use crate::{unicorn::{Model, Nid, Node, NodeRef, NodeType}, engine, util};
+use crate::{
+    engine,
+    unicorn::{Model, Nid, Node, NodeRef, NodeType},
+    util,
+};
 use anyhow::{Context, Result};
 use byteorder::{ByteOrder, LittleEndian};
+use engine::system::{prepare_unix_stack, SyscallId, NUMBER_OF_REGISTERS};
 use log::{debug, trace, warn};
 use riscu::{decode, types::*, Instruction, Program, Register};
 use std::cell::RefCell;
@@ -8,7 +13,6 @@ use std::collections::HashMap;
 use std::mem::size_of;
 use std::ops::Range;
 use std::rc::Rc;
-use engine::system::{prepare_unix_stack, SyscallId, NUMBER_OF_REGISTERS};
 use util::next_multiple_of;
 
 //

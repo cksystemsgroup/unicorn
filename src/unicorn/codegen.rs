@@ -1,12 +1,12 @@
-use crate::{disassemble, emulate, engine};
 use crate::unicorn::emulate_loader::{name_to_pc_value, name_to_register};
 use crate::unicorn::{Model, Node, NodeRef, NodeType};
+use crate::{disassemble, emulate, engine};
 use byteorder::{ByteOrder, LittleEndian};
-use log::{debug, info, trace, warn};
-use riscu::{DecodedProgram, Instruction, Program, ProgramSegment, Register};
 use disassemble::Disassembly;
 use emulate::{EmulatorState, EmulatorValue};
 use engine::system::NUMBER_OF_REGISTERS;
+use log::{debug, info, trace, warn};
+use riscu::{DecodedProgram, Instruction, Program, ProgramSegment, Register};
 
 //
 // Public Interface
