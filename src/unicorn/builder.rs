@@ -1,4 +1,4 @@
-use crate::unicorn::{Model, Nid, Node, NodeRef, NodeType};
+use crate::{unicorn::{Model, Nid, Node, NodeRef, NodeType}, engine, util};
 use anyhow::{Context, Result};
 use byteorder::{ByteOrder, LittleEndian};
 use log::{debug, trace, warn};
@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use std::mem::size_of;
 use std::ops::Range;
 use std::rc::Rc;
-use unicorn::engine::system::{prepare_unix_stack, SyscallId, NUMBER_OF_REGISTERS};
-use unicorn::util::next_multiple_of;
+use engine::system::{prepare_unix_stack, SyscallId, NUMBER_OF_REGISTERS};
+use util::next_multiple_of;
 
 //
 // Public Interface
@@ -33,7 +33,7 @@ pub fn generate_model(
 //
 
 const INSTRUCTION_SIZE: u64 = riscu::INSTRUCTION_SIZE as u64;
-const PAGE_SIZE: u64 = unicorn::engine::system::PAGE_SIZE as u64;
+const PAGE_SIZE: u64 = engine::system::PAGE_SIZE as u64;
 
 // TODO: Add implementation of all syscalls.
 // TODO: Fix initialization of `current_nid` based on binary size.

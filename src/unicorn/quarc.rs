@@ -2302,7 +2302,7 @@ mod tests {
     use std::path::Path;
 
     use super::*;
-    use crate::parse_btor2_file;
+    use crate::unicorn::btor2file_parser::parse_btor2_file;
 
     #[test]
     fn test_constants_funcs() {
