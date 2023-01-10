@@ -23,6 +23,7 @@ pub mod quarc;
 pub mod qubot;
 pub mod solver;
 pub mod unroller;
+pub mod z3solver_impl;
 
 pub type Nid = u64;
 pub type NodeRef = Rc<RefCell<Node>>;
