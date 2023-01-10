@@ -33,7 +33,7 @@ btor2: $(BTORS)
 cnf: $(CNFS)
 
 data.csv: $(DATAS)
-	@echo "name,#unroll,#sat,btormc,unicorn+boolector,unicorn+z3,klee" > $@
+	@echo "name,#unroll,#sat,btormc,unicorn+boolector,unicorn+z3,unicorn+kissat,unicorn+cadical,klee" > $@
 	@for f in $^; do \
 	  echo -n $$(grep -oP 'name : \K\S+' $$f),                          >> $@; \
 	  echo -n $$(grep -oP 'unroll : \K\S+' $$f),                        >> $@; \
@@ -41,6 +41,8 @@ data.csv: $(DATAS)
 	  echo -n $$(grep -oP 'btormc-time : \K\S+' $$f),                   >> $@; \
 	  echo -n $$(grep -oP 'unicorn-boolector-time : \K\S+' $$f),        >> $@; \
 	  echo -n $$(grep -oP 'unicorn-z3-time : \K\S+' $$f),               >> $@; \
+	  echo -n $$(grep -oP 'unicorn-kissat-time : \K\S+' $$f),           >> $@; \
+	  echo -n $$(grep -oP 'unicorn-cadical-time : \K\S+' $$f),          >> $@; \
 	  echo -n $$(grep -oP 'klee-time : \K\S+' $$f),                     >> $@; \
 	  echo >> $@; \
 	done
@@ -74,6 +76,10 @@ data.csv: $(DATAS)
 	$(MYTIME) $(UNICORN) beator $*.m -u $(UNROLL) -p -s boolector --fast-minimize >> $@
 	@echo -n "unicorn-z3-time : " >> $@
 	$(MYTIME) $(UNICORN) beator $*.m -u $(UNROLL) -p -s z3 --fast-minimize >> $@
+	@echo -n "unicorn-kissat-time : " >> $@
+	$(MYTIME) $(UNICORN) beator $*.m -u $(UNROLL) -p --sat-solver kissat --discretize-memory >> $@
+	@echo -n "unicorn-cadical-time : " >> $@
+	$(MYTIME) $(UNICORN) beator $*.m -u $(UNROLL) -p --sat-solver cadical --discretize-memory >> $@
 	@echo -n "klee-time : " >> $@
 	$(MYTIME) $(KLEE) $*.bc >> $@
 	#$(MINISAT) $*.cnf | tee -a $@
