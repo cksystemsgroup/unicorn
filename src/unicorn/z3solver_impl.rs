@@ -1,6 +1,11 @@
+
+#[cfg(feature = "z3")]
 use crate::unicorn::solver::{Solution, Solver};
+#[cfg(feature = "z3")]
 use crate::unicorn::{HashableNodeRef, Node, NodeRef, NodeType};
+#[cfg(feature = "z3")]
 use std::collections::HashMap;
+
 #[cfg(feature = "z3")]
 use z3_solver::{
     ast::{Ast, Bool, Dynamic, BV},
