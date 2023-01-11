@@ -241,7 +241,7 @@ fn get_word_value(
     Some(answer)
 }
 
-fn get_constant(gate_type: &QubitRef) -> Option<bool> {
+pub fn get_constant(gate_type: &QubitRef) -> Option<bool> {
     match &*gate_type.borrow() {
         Qubit::ConstFalse => Some(false),
         Qubit::ConstTrue => Some(true),
