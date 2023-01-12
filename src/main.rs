@@ -118,7 +118,8 @@ fn main() -> Result<()> {
 
                     let timeout = solver_timeout.map(|&ms| Duration::from_millis(ms));
 
-                    let mut n: usize = if stride { 1 } else { unroll_depth };
+                    let mut n: usize = if stride { 0 } else { unroll_depth };
+                    let mut prev_n: usize = 0;
                     loop {
                         // TODO: Maybe we can get rid of this clone for each
                         // iteration, which is basically required if pruning is
@@ -126,7 +127,7 @@ fn main() -> Result<()> {
                         // without pruning and not cloning the model.
                         let mut model_copy = model.clone();
 
-                        for m in 0..n {
+                        for m in prev_n..n {
                             unroll_model(&mut model_copy, m);
 
                             if has_concrete_inputs {
@@ -135,7 +136,7 @@ fn main() -> Result<()> {
                         }
 
                         if prune {
-                          prune_model(&mut model_copy);
+                            prune_model(&mut model_copy);
                         }
 
                         match smt_solver {
@@ -157,13 +158,14 @@ fn main() -> Result<()> {
 
                         if !stride || !model_copy.bad_states_initial.is_empty() {
                             if !model_copy.bad_states_initial.is_empty() {
-                              print_reasoning_horizon(&mut model_copy, n, stride);
+                                print_reasoning_horizon(&mut model_copy);
                             }
 
                             break;
                         }
 
-                        n = min(2 * n, unroll_depth);
+                        prev_n = n;
+                        n = min(2*n, unroll_depth);
                     }
 
                     if renumber {
