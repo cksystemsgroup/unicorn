@@ -820,7 +820,7 @@ fn exec_mulw(state: &mut EmulatorState, rtype: RType) {
     state.pc_next();
 }
 
-// rd = rs1 / rs2
+// rd = rs1 /s rs2
 // pc = pc + 4
 fn exec_div(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
@@ -832,7 +832,7 @@ fn exec_div(state: &mut EmulatorState, rtype: RType) {
     state.pc_next();
 }
 
-// rd = s64(rs1{32} / rs2{32})
+// rd = s64(rs1{32} /s rs2{32})
 // pc = pc + 4
 fn exec_divw(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
@@ -856,7 +856,7 @@ fn exec_divu(state: &mut EmulatorState, rtype: RType) {
     state.pc_next();
 }
 
-// rd = rs1 % rs2
+// rd = rs1 %s rs2
 // pc = pc + 4
 fn exec_rem(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
@@ -868,7 +868,7 @@ fn exec_rem(state: &mut EmulatorState, rtype: RType) {
     state.pc_next();
 }
 
-// rd = s64(rs1{32} % rs2{32})
+// rd = s64(rs1{32} %s rs2{32})
 // pc = pc + 4
 fn exec_remw(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
