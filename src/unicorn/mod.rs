@@ -29,7 +29,7 @@ pub mod horizon;
 pub type Nid = u64;
 pub type NodeRef = Rc<RefCell<Node>>;
 
-#[derive(Clone,Debug)]
+#[derive(Debug)]
 pub enum Node {
     Const {
         nid: Nid,
