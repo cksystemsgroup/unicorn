@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use egui::{Response, Ui, Widget};
 
 use crate::guinea::giraphe::MachineWord::Concrete;
-use crate::guinea::giraphe::Value::{Bitvector, Boolean, Immediate};
+use crate::guinea::giraphe::Value::{Bitvector, Boolean};
 use crate::guinea::giraphe::{Spot, Value};
 use crate::unicorn::{Node, NodeRef, NodeType};
 
@@ -27,7 +27,7 @@ impl Spot {
                 | NodeType::Input5Byte
                 | NodeType::Input6Byte
                 | NodeType::Input7Byte => Value::Undefined,
-                NodeType::Memory => Value::default_array(),
+                NodeType::Memory => Value::Array(HashMap::new()),
                 x => unreachable!("caused by {:?}", x),
             },
             _ => Value::Undefined,
@@ -38,23 +38,7 @@ impl Spot {
             val_old: Value::Undefined,
             val_cur,
             origin: n.clone(),
-            position: Default::default(),
         }
-    }
-
-    pub fn from_spot(s: &Spot) -> Spot {
-        Self {
-            tick: s.tick,
-            val_old: s.val_old.clone(),
-            val_cur: s.val_cur.clone(),
-            origin: s.origin.clone(),
-            position: s.position,
-        }
-    }
-
-    pub fn set_position(&mut self, x: f32, y: f32) {
-        self.position.x = x;
-        self.position.y = y;
     }
 
     pub fn set_value(&mut self, val: Value) {
@@ -107,23 +91,5 @@ impl Widget for Spot {
             ui.label(now);
         })
         .response
-    }
-}
-
-impl Value {
-    pub fn _default_bool() -> Self {
-        Boolean(false)
-    }
-
-    pub fn default_array() -> Self {
-        Self::Array(HashMap::new())
-    }
-
-    pub fn _default_string() -> Self {
-        Self::String("no name".to_string())
-    }
-
-    pub fn _default_imm() -> Self {
-        Immediate(0)
     }
 }

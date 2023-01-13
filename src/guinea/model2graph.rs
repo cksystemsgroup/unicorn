@@ -16,6 +16,9 @@ pub fn input_window(data: &mut Guineacorn, ui: &mut Ui) {
         general::load_binary(ui, data, |data: &mut Guineacorn| {
             data.giraphe = Giraphe::from(data.model.as_ref().unwrap());
         });
+        general::load_model(ui, data, |data: &mut Guineacorn| {
+            data.giraphe = Giraphe::from(data.model.as_ref().unwrap());
+        });
     });
 
     if data.model.is_none() {

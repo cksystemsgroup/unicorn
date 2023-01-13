@@ -1,4 +1,5 @@
 use crate::guinea::Guineacorn;
+use crate::unicorn::btor2file_parser::parse_btor2_file;
 use crate::unicorn::builder::generate_model;
 use crate::unicorn::unroller::renumber_model;
 use bytesize::ByteSize;
@@ -40,6 +41,17 @@ pub fn load_binary(ui: &mut Ui, data: &mut Guineacorn, after_fn: fn(&mut Guineac
             &argv,
         )
         .unwrap();
+        renumber_model(&mut model);
+        data.model = Some(model);
+        after_fn(data);
+    }
+}
+
+pub fn load_model(ui: &mut Ui, data: &mut Guineacorn, after_fn: fn(&mut Guineacorn)) {
+    if ui.button("Load Model").clicked() {
+        let picked_path = data.picked_path.as_ref().unwrap();
+        let path = PathBuf::from_str(picked_path).unwrap();
+        let mut model = parse_btor2_file(&path);
         renumber_model(&mut model);
         data.model = Some(model);
         after_fn(data);

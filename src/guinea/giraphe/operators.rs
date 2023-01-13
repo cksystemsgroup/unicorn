@@ -92,6 +92,10 @@ impl PartialEq for Value {
             (Self::Bitvector(lhs), Self::Bitvector(rhs)) => lhs == rhs,
             (Self::Boolean(lhs), Self::Boolean(rhs)) => lhs == rhs,
             (Self::Array(lhs), Self::Array(rhs)) => lhs == rhs,
+            (Self::Bitvector(_), Self::Undefined) => false,
+            (Self::Boolean(_), Self::Undefined) => false,
+            (Self::Array(_), Self::Undefined) => false,
+            (Self::Undefined, Self::Undefined) => true,
             (x, y) => panic!("Can't equal {:?} and {:?}", x, y),
         }
     }

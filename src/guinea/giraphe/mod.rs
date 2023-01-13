@@ -1,10 +1,12 @@
+mod draw;
 mod graph;
 mod operators;
 mod spot;
 
+use crate::guinea::giraphe::draw::Layout;
 use crate::guinea::giraphe::MachineWord::Concrete;
 use crate::unicorn::{Nid, NodeRef};
-use egui::{Pos2, Vec2};
+use egui::Vec2;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 
@@ -13,8 +15,7 @@ use std::fmt::{Display, Formatter};
 pub struct Giraphe {
     pub(crate) tick: isize,
     pub spot_lookup: HashMap<Nid, Spot>,
-    pub spot_list: Vec<Nid>,
-    pub leaves: Vec<Nid>,
+    pub roots: Vec<Nid>,
     pub inputs: Vec<Nid>,
     pub states: Vec<Nid>,
     pub pan: Vec2,
@@ -23,16 +24,16 @@ pub struct Giraphe {
     pub input_ascii: String,
     pub input_number: u8,
     pub input_queue: Vec<String>,
+    pub layout: Layout,
 }
 
 #[allow(unused)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Spot {
     tick: isize,
     pub(crate) val_old: Value,
     pub(crate) val_cur: Value,
     pub(crate) origin: NodeRef,
-    pub(crate) position: Pos2,
 }
 
 #[allow(unused)]
@@ -47,9 +48,7 @@ pub enum MachineWord {
 pub enum Value {
     Boolean(bool),
     Bitvector(MachineWord),
-    String(String),
     Array(HashMap<MachineWord, MachineWord>),
-    Immediate(u64),
     Undefined,
 }
 
@@ -58,9 +57,7 @@ impl Display for Value {
         match self {
             Value::Boolean(x) => write!(f, "{}", x),
             Value::Bitvector(x) => write!(f, "{}", x),
-            Value::String(x) => write!(f, "{}", x),
             Value::Array(_) => write!(f, "virtual memory",),
-            Value::Immediate(x) => write!(f, "{}", x),
             Value::Undefined => write!(f, "undefined",),
         }
     }
