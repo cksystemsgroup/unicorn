@@ -1,6 +1,5 @@
-use std::collections::HashMap;
-
 use egui::{Response, Ui, Widget};
+use indexmap::IndexMap;
 
 use crate::guinea::giraphe::MachineWord::Concrete;
 use crate::guinea::giraphe::Value::{Bitvector, Boolean};
@@ -27,7 +26,7 @@ impl Spot {
                 | NodeType::Input5Byte
                 | NodeType::Input6Byte
                 | NodeType::Input7Byte => Value::Undefined,
-                NodeType::Memory => Value::Array(HashMap::new()),
+                NodeType::Memory => Value::Array(IndexMap::new()),
                 x => unreachable!("caused by {:?}", x),
             },
             _ => Value::Undefined,

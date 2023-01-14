@@ -1,8 +1,8 @@
-use std::collections::HashMap;
 use std::default::Default;
 use std::iter::zip;
 
 use egui::{Ui, Vec2};
+use indexmap::IndexMap;
 use log::trace;
 
 use crate::guinea::giraphe::MachineWord::Concrete;
@@ -26,7 +26,7 @@ impl Giraphe {
             "Can't convert model before it was renumbered!"
         );
 
-        let mut spot_lookup: HashMap<Nid, Spot> = HashMap::new();
+        let mut spot_lookup: IndexMap<Nid, Spot> = IndexMap::new();
         let mut leaves: Vec<Nid> = Vec::new();
         let mut inputs: Vec<Nid> = Vec::new();
 
@@ -402,7 +402,7 @@ impl Giraphe {
         val
     }
 
-    pub fn system_state(&self) -> (Vec<Value>, u64, bool, HashMap<MachineWord, MachineWord>) {
+    pub fn system_state(&self) -> (Vec<Value>, u64, bool, IndexMap<MachineWord, MachineWord>) {
         let regs = self
             .registers
             .as_ref()
@@ -418,7 +418,7 @@ impl Giraphe {
             .collect::<Vec<Value>>();
 
         let mut pc = 0;
-        let mut vm = HashMap::new();
+        let mut vm = IndexMap::new();
         let mut kernel_mode = false;
 
         for x in &self.states {

@@ -3,8 +3,8 @@ use crate::guinea::giraphe::{Giraphe, MachineWord, Value};
 use crate::guinea::print::stringify_program;
 use crate::guinea::Guineacorn;
 use egui::{RichText, Ui};
+use indexmap::IndexMap;
 use riscu::decode;
-use std::collections::HashMap;
 use std::iter::zip;
 
 pub fn step(ui: &mut Ui, graph: &mut Giraphe) {
@@ -208,7 +208,7 @@ pub fn program_counter(ui: &mut Ui, pc: u64, kernel_mode: bool, data: &Guineacor
     });
 }
 
-pub fn virtual_memory(ui: &mut Ui, vm: HashMap<MachineWord, MachineWord>) {
+pub fn virtual_memory(ui: &mut Ui, vm: IndexMap<MachineWord, MachineWord>) {
     ui.heading("Virtual Memory");
     let mut vm: Vec<_> = vm.iter().collect();
     vm.sort_by(|(x, _), (y, _)| {

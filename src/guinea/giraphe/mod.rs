@@ -7,14 +7,14 @@ use crate::guinea::giraphe::draw::Layout;
 use crate::guinea::giraphe::MachineWord::Concrete;
 use crate::unicorn::{Nid, NodeRef};
 use egui::Vec2;
-use std::collections::HashMap;
+use indexmap::IndexMap;
 use std::fmt::{Display, Formatter};
 
 #[allow(unused)]
 #[derive(Default, Debug)]
 pub struct Giraphe {
     pub(crate) tick: isize,
-    pub spot_lookup: HashMap<Nid, Spot>,
+    pub spot_lookup: IndexMap<Nid, Spot>,
     pub roots: Vec<Nid>,
     pub inputs: Vec<Nid>,
     pub states: Vec<Nid>,
@@ -48,7 +48,7 @@ pub enum MachineWord {
 pub enum Value {
     Boolean(bool),
     Bitvector(MachineWord),
-    Array(HashMap<MachineWord, MachineWord>),
+    Array(IndexMap<MachineWord, MachineWord>),
     Undefined,
 }
 

@@ -1,6 +1,9 @@
-use std::collections::HashMap;
+use std::cmp::Ordering;
+use std::hash::{Hash, Hasher};
+use std::iter::zip;
 
 use egui::{Color32, Pos2, Rect, Rounding, Stroke, Ui, Vec2};
+use indexmap::IndexMap;
 
 use crate::guinea::giraphe::draw::SugiNode::{Dummy, Real};
 use crate::guinea::giraphe::Giraphe;
@@ -14,166 +17,180 @@ enum SugiNode {
     Dummy(Nid),
 }
 
-#[derive(Default, Debug)]
-pub struct Layout {
-    parent_to_children: HashMap<SugiNode, Vec<SugiNode>>,
-    _child_to_parents: HashMap<SugiNode, Vec<SugiNode>>,
-    node_to_layer: HashMap<SugiNode, isize>,
-    layer_to_node: HashMap<isize, Vec<SugiNode>>,
+#[derive(Debug)]
+struct Pos {
+    x: f32,
+    y: f32,
 }
 
-impl Giraphe {
-    fn layer_rec(&self, x: Nid, layers: &mut HashMap<SugiNode, isize>) {
-        for p in self.spot_parents(x) {
-            let layer_p = layers.get(&Real(p)).unwrap_or(&-1);
-            let layer_x = layers.get(&Real(x)).unwrap_or(&-1);
-            if layer_p < &(layer_x + 1) {
-                layers.insert(Real(p), layer_x + 1);
-                self.layer_rec(p, layers);
-            }
-        }
+impl PartialEq for Pos {
+    fn eq(&self, other: &Self) -> bool {
+        self.key() == other.key()
+    }
+}
+
+impl Eq for Pos {}
+
+impl Pos {
+    fn key(&self) -> u64 {
+        ((self.x.to_bits() as u64) << 32) + self.y.to_bits() as u64
     }
 
+    fn new(x: f32, y: f32) -> Self {
+        Self { x, y }
+    }
+}
+
+impl Hash for Pos {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.key().hash(state)
+    }
+}
+
+#[derive(Default, Debug)]
+pub struct Layout {
+    layers: Vec<Vec<SugiNode>>,
+    child_edges: IndexMap<SugiNode, Vec<SugiNode>>,
+    positions: IndexMap<SugiNode, Pos>,
+}
+
+static X_SPACING: f32 = 50.0;
+static Y_SPACING: f32 = 100.0;
+impl Giraphe {
     fn layer(&self) -> Layout {
-        let mut node_to_layer = HashMap::new();
-        let mut parent_to_children = HashMap::new();
-        let mut child_to_parents = HashMap::new();
+        let mut layers: Vec<Vec<_>> = vec![];
+        let mut node_to_layer = IndexMap::<SugiNode, isize>::new();
+        let mut child_edges = IndexMap::<SugiNode, Vec<SugiNode>>::new();
 
-        // layers for real nodes
-        for n in &self.roots {
-            node_to_layer.insert(Real(*n), 0);
-            self.layer_rec(*n, &mut node_to_layer);
-        }
+        let mut dummy_idx = 0;
+        for k in self.spot_lookup.keys().rev() {
+            for c in self.spot_parents(*k) {
+                let e = child_edges.entry(Real(c)).or_insert_with(Vec::new);
+                e.push(Real(*k));
+            }
+            let edges = child_edges.get(&Real(*k));
+            let layer = if let Some(edges) = edges {
+                edges
+                    .iter()
+                    .map(|x| node_to_layer.get(x).unwrap_or(&-1))
+                    .max()
+                    .unwrap_or(&-1)
+                    + 1
+            } else {
+                0
+            };
 
-        // dummy nodes and edges
-        let mut dummy_id = 0;
-        for nid in self.spot_lookup.keys() {
-            let node_layer = *node_to_layer.get(&Real(*nid)).expect("Has to be mapped");
-            for child_nid in self.spot_parents(*nid) {
-                let child_layer = *node_to_layer
-                    .get(&Real(child_nid))
-                    .expect("Has to be mapped");
-                let mut n = Real(*nid);
+            let more_than_one_layer_difference: Vec<_> =
+                if let Some(edges) = child_edges.get(&Real(*k)) {
+                    edges
+                        .iter()
+                        .filter(|x| layer - 1 != *node_to_layer.get(*x).unwrap())
+                        .cloned()
+                        .collect()
+                } else {
+                    vec![]
+                };
+
+            // TODO: somewhere here populate parent_edges
+            for p in &more_than_one_layer_difference {
+                let p_layer = *node_to_layer.get(p).unwrap();
                 let mut i = 1;
-                while i < child_layer - node_layer {
-                    let entry_ptc = parent_to_children.entry(n).or_insert_with(Vec::new);
-                    let dummy = Dummy(dummy_id);
-                    let entry_ctp = child_to_parents.entry(dummy).or_insert_with(Vec::new);
-
-                    entry_ptc.push(dummy);
-                    entry_ctp.push(n);
-                    node_to_layer.insert(dummy, node_layer + i);
-                    n = dummy;
-                    dummy_id += 1;
+                let mut n = *p;
+                while i < layer - p_layer {
+                    let d = Dummy(dummy_idx);
+                    let e = child_edges.entry(d).or_insert_with(Vec::new);
+                    node_to_layer.insert(d, p_layer + i);
+                    layers[(p_layer + i) as usize].push(d);
+                    e.push(n);
+                    n = d;
+                    dummy_idx += 1;
                     i += 1;
                 }
-                let entry_ptc = parent_to_children.entry(n).or_insert_with(Vec::new);
-                let c = Real(child_nid);
-                let entry_ctp = child_to_parents.entry(c).or_insert_with(Vec::new);
-                entry_ptc.push(c);
-                entry_ctp.push(n);
+                let e = child_edges.entry(Real(*k)).or_insert_with(Vec::new);
+                e.push(n);
             }
-        }
 
-        // transform hashmap into vec/hashmap with inverted key values
-        let mut layer_to_node = HashMap::new();
-        for (k, v) in &node_to_layer {
-            layer_to_node.entry(*v).or_insert_with(Vec::new).push(*k);
+            if let Some(edges) = child_edges.get(&Real(*k)) {
+                let new_edges: Vec<_> = edges
+                    .iter()
+                    .filter(|item| !more_than_one_layer_difference.contains(item))
+                    .copied()
+                    .collect();
+                child_edges.insert(Real(*k), new_edges);
+            }
+
+            node_to_layer.insert(Real(*k), layer);
+            if layers.len() <= layer as usize {
+                layers.push(vec![Real(*k)]);
+            } else {
+                layers[layer as usize].push(Real(*k));
+            }
         }
 
         Layout {
-            layer_to_node,
-            parent_to_children,
-            _child_to_parents: child_to_parents,
-            node_to_layer,
+            layers,
+            child_edges,
+            positions: IndexMap::new(),
         }
     }
 
-    // TODO: reduce eye sore
-    fn minimize_crossings(&self, layout: Layout) -> Layout {
-        // // up
-        // let mut layer_to_node_ordered_up = HashMap::new();
-        // let mut layers: Vec<_> = layout.layer_to_node.iter().collect();
-        // layers.sort_by(|(x, _), (y, _)| x.cmp(y));
-        // let mut layer_iter = layers.into_iter();
-        //
-        // let (zero, roots) = layer_iter.next().unwrap();
-        // layer_to_node_ordered_up.insert(*zero, roots.clone());
-        // for (k, v) in layer_iter {
-        //     let med = |x: &SugiNode| {
-        //         let layer = layout.node_to_layer.get(x).expect("Must be mapped");
-        //         let layer = layout
-        //             .layer_to_node
-        //             .get(&(layer - 1))
-        //             .expect("Must be mapped");
-        //         let pos: Vec<_> = layout
-        //             .child_to_parents
-        //             .get(x)
-        //             .expect("Must be mapped")
-        //             .iter()
-        //             .map(|x| layer.iter().position(|y| y == x).unwrap())
-        //             .collect();
-        //         let mid = pos.len() / 2;
-        //         if pos.len() == 0 {
-        //             0.0
-        //         } else if pos.len() % 2 == 0 {
-        //             (pos[mid - 1] + pos[mid]) as f32 / 2.0
-        //         } else {
-        //             pos[mid] as f32
-        //         }
-        //     };
-        //     let mut layer: Vec<_> = v.iter().map(|x| (x, med(x))).collect();
-        //     layer.sort_by(|(_, a), (_, b)| a.total_cmp(b));
-        //     let layer: Vec<_> = layer.iter().map(|x| *x.0).collect();
-        //     layer_to_node_ordered_up.insert(*k, layer);
-        // }
-        // layout.layer_to_node = layer_to_node_ordered_up;
-        //
-        // // down
-        // let mut layer_to_node_ordered_down = HashMap::new();
-        // let mut layers: Vec<_> = layout.layer_to_node.iter().collect();
-        // layers.sort_by(|(x, _), (y, _)| y.cmp(x));
-        // let mut layer_iter = layers.into_iter();
-        //
-        // let (zero, roots) = layer_iter.next().unwrap();
-        // layer_to_node_ordered_down.insert(*zero, roots.clone());
-        // for (k, v) in layer_iter {
-        //     let med = |x: &SugiNode| {
-        //         let layer = layout.node_to_layer.get(x).expect("Must be mapped");
-        //         let layer = layout
-        //             .layer_to_node
-        //             .get(&(layer + 1))
-        //             .expect("Must be mapped");
-        //         let pos = layout.parent_to_children.get(x);
-        //         if let Some(pos) = pos {
-        //             let pos: Vec<_> = pos
-        //                 .iter()
-        //                 .map(|x| layer.iter().position(|y| y == x).unwrap())
-        //                 .collect();
-        //             let mid = pos.len() / 2;
-        //             if pos.len() % 2 == 0 {
-        //                 (pos[mid - 1] + pos[mid]) as f32 / 2.0
-        //             } else {
-        //                 pos[mid] as f32
-        //             }
-        //         } else {
-        //             0.0
-        //         }
-        //     };
-        //     let mut layer: Vec<_> = v.iter().map(|x| (x, med(x))).collect();
-        //     layer.sort_by(|(_, a), (_, b)| a.total_cmp(b));
-        //     let layer: Vec<_> = layer.iter().map(|x| *x.0).collect();
-        //     layer_to_node_ordered_down.insert(*k, layer);
-        // }
-        // layout.layer_to_node = layer_to_node_ordered_down;
+    fn minimize_crossings(&self, mut layout: Layout) -> Layout {
+        // TODO: median ordering
 
-        // median sorting with another hashmap for the x position
+        let mut node_positions = IndexMap::<SugiNode, Pos>::new();
+        let mut used_positions = IndexMap::<Pos, Vec<SugiNode>>::new();
+
+        for (i, node) in layout.layers[0].iter().enumerate() {
+            node_positions.insert(*node, Pos::new(i as f32, 0.0));
+        }
+
+        for (i, layer) in layout.layers.iter().enumerate().skip(1) {
+            for n in layer {
+                let edges: Option<&Vec<SugiNode>> = layout.child_edges.get(n);
+                let med_n = if let Some(edges) = edges {
+                    fn get_y(z: &SugiNode, pos_map: &IndexMap<SugiNode, Pos>) -> f32 {
+                        pos_map.get(z).unwrap().x
+                    }
+                    let mut vals = Vec::new();
+                    for e in edges {
+                        vals.push(get_y(e, &node_positions));
+                    }
+                    // TODO: avoid overlap
+                    // TODO: also one down movement
+                    median(vals.as_slice()).unwrap_or(0.0)
+                } else {
+                    unreachable!("Only roots should have no children");
+                };
+
+                node_positions.insert(*n, Pos::new(med_n, i as f32));
+                let overlaps = used_positions
+                    .entry(Pos::new(med_n, i as f32))
+                    .or_insert_with(Vec::new);
+                overlaps.push(*n);
+            }
+        }
+
+        // post process node positions (remove overlaps)
+        for (k, v) in used_positions {
+            let nr_of_overlaps = v.len();
+            if nr_of_overlaps == 1 {
+                continue;
+            }
+
+            let x: f32 = k.x - 0.5;
+            for (n, i) in zip(v, 0..nr_of_overlaps) {
+                node_positions.insert(
+                    n,
+                    Pos::new(x + (i as f32) / ((nr_of_overlaps - 1) as f32), k.y),
+                );
+            }
+        }
+
+        layout.positions = node_positions;
+
         layout
     }
 
-    // layer with min amount of layers https://youtu.be/pKs53CuAo-8?t=82 oder das mit nr of roots: https://youtu.be/pKs53CuAo-8?t=408
-    // minimize crossings: https://www.youtube.com/watch?v=K377XgzNkEA median/bary und dann greedy switch
-    // layout 🥵: https://youtu.be/9B3ZXsRbiCw?t=228
     pub fn sugiyamer(&mut self) {
         let layout = self.layer();
         let layout = self.minimize_crossings(layout);
@@ -182,53 +199,101 @@ impl Giraphe {
 
     pub fn draw(&mut self, ui: &mut Ui) {
         let top_left = ui.min_rect().min.to_vec2() + Vec2::from([100.0, 100.0]) + self.pan;
-        // TODO: proper positioning
 
         // draw edges
-        for (parent, children) in &self.layout.parent_to_children {
-            for child in children {
-                let pos = |x| {
-                    let layer = self.layout.node_to_layer.get(x).unwrap();
-                    let x_pos = self
-                        .layout
-                        .layer_to_node
-                        .get(layer)
-                        .unwrap()
-                        .iter()
-                        .position(|y| y == x)
-                        .unwrap();
-                    Pos2::from([x_pos as f32 * 40.0, *layer as f32 * 40.0])
-                };
-                let parent_pos = pos(parent) + top_left;
-                let child_pos = pos(child) + top_left;
-                if ui.min_rect().contains(parent_pos) || ui.min_rect().contains(child_pos) {
-                    ui.painter().line_segment(
-                        [parent_pos, child_pos],
-                        Stroke::from((5.0, Color32::from_gray(255))),
-                    );
-                }
-            }
-        }
-
-        // draw nodes
-        let mut layers: Vec<_> = self.layout.layer_to_node.iter().collect();
-        layers.sort_by(|(x, _), (y, _)| x.cmp(y));
-        for (y, nodes) in layers {
-            for (x, n) in nodes.iter().enumerate() {
-                if let Real(_) = n {
-                    let rect = Rect::from_center_size(
-                        Pos2::from([x as f32 * 40.0, *y as f32 * 40.0]) + top_left,
-                        Vec2::from([20.0, 20.0]),
-                    );
-                    if ui.min_rect().intersects(rect) {
-                        ui.painter().rect_filled(
-                            rect,
-                            Rounding::from(10.0),
-                            Color32::from_gray(40),
+        for (node, pos) in &self.layout.positions {
+            let edges: Option<&Vec<SugiNode>> = self.layout.child_edges.get(node);
+            if let Some(edges) = edges {
+                for c_pos in edges.iter().map(|x| self.layout.positions.get(x).unwrap()) {
+                    let parent_pos = Pos2::from((pos.x * X_SPACING, pos.y * Y_SPACING)) + top_left;
+                    let child_pos =
+                        Pos2::from((c_pos.x * X_SPACING, c_pos.y * Y_SPACING)) + top_left;
+                    if ui.min_rect().contains(parent_pos) || ui.min_rect().contains(child_pos) {
+                        ui.painter().line_segment(
+                            [parent_pos, child_pos],
+                            Stroke::from((5.0, Color32::from_gray(255))),
                         );
                     }
                 }
             }
         }
+
+        // draw nodes
+        for (node, pos) in &self.layout.positions {
+            if pos.y * Y_SPACING > ui.min_rect().bottom() {
+                break;
+            }
+
+            if let Real(_) = node {
+                let pos_x = pos.x * X_SPACING + top_left.x;
+                if pos_x < ui.min_rect().left() || pos_x > ui.min_rect().right() {
+                    continue;
+                }
+                let rect = Rect::from_center_size(
+                    Pos2::from([pos.x * X_SPACING, pos.y * Y_SPACING]) + top_left,
+                    Vec2::from([20.0, 20.0]),
+                );
+
+                ui.painter()
+                    .rect_filled(rect, Rounding::from(10.0), Color32::from_gray(100));
+            }
+        }
+    }
+}
+
+fn partition(data: &[f32]) -> Option<(Vec<f32>, f32, Vec<f32>)> {
+    match data.len() {
+        0 => None,
+        _ => {
+            let (pivot_slice, tail) = data.split_at(1);
+            let pivot = pivot_slice[0];
+            let (left, right) = tail.iter().fold((vec![], vec![]), |mut splits, next| {
+                {
+                    let (ref mut left, ref mut right) = &mut splits;
+                    if next < &pivot {
+                        left.push(*next);
+                    } else {
+                        right.push(*next);
+                    }
+                }
+                splits
+            });
+
+            Some((left, pivot, right))
+        }
+    }
+}
+
+fn select(data: &[f32], k: usize) -> Option<f32> {
+    let part = partition(data);
+
+    match part {
+        None => None,
+        Some((left, pivot, right)) => {
+            let pivot_idx = left.len();
+
+            match pivot_idx.cmp(&k) {
+                Ordering::Equal => Some(pivot),
+                Ordering::Greater => select(&left, k),
+                Ordering::Less => select(&right, k - (pivot_idx + 1)),
+            }
+        }
+    }
+}
+
+fn median(data: &[f32]) -> Option<f32> {
+    let size = data.len();
+
+    match size {
+        even if even % 2 == 0 => {
+            let fst_med = select(data, (even / 2) - 1);
+            let snd_med = select(data, even / 2);
+
+            match (fst_med, snd_med) {
+                (Some(fst), Some(snd)) => Some((fst + snd) / 2.0),
+                _ => None,
+            }
+        }
+        odd => select(data, odd / 2),
     }
 }
