@@ -45,7 +45,6 @@ z3-sys = { version = "~0", features = ["static-link-z3"], optional = true }
 kissat-rs = { git = "https://github.com/firefighterduck/kissat-rs", branch = "main", version = "0.1", optional = true }
 varisat-rs = { package = "varisat", version = "0.2.2", optional = true }
 cadical-rs = { package = "cadical", version = "0.1.14", optional = true }
-pyo3 = { version = "~0.17", features = ["auto-initialize"] }
 
 [patch.crates-io]
 # TODO: Allows us to work on `riscu` and `unicorn` in parallel. Remove
