@@ -1,6 +1,6 @@
 // cksystemsgroup.github.io/unicorn
 // @SOLUTIONS = 1
-// @UNROLL = 133
+// @UNROLL = 124
 
 uint64_t main() {
   uint64_t  a;
@@ -8,11 +8,16 @@ uint64_t main() {
 
   x = VERIFIER_nondet_uchar();
 
-  x = x - 48;
+  a = 0;
 
-  // division by zero if the input is '0' (== 48 == b00110000)
-  a = 41 + (1 / x);
+  while (a < 10) {
 
+    // non-zero exit code if the input is a digit
+    if (x - 48 == a)
+      return 1;
+
+    a = a + 1;
+  }
 
   return 0;
 }
