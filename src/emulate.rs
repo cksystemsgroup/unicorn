@@ -750,7 +750,7 @@ fn exec_sra(state: &mut EmulatorState, rtype: RType) {
     state.pc_next();
 }
 
-// rd = 1                     ||| if (rs1 < rs2)
+// rd = 1                     ||| if (rs1 <s rs2)
 // rd = 0                     ||| otherwise
 // pc = pc + 4
 fn exec_slt(state: &mut EmulatorState, rtype: RType) {
