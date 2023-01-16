@@ -52,7 +52,7 @@ data.csv: $(DATAS)
 
 %.bc: %.c
 	clang -Werror -Wno-main-return-type -Wno-return-type -O0 \
-	      -Xclang -disable-O0-optnone -include ../tools/cstar-klee.h \
+	      -Xclang -disable-O0-optnone -include ../tools/cstar-klee.h\
 	      -emit-llvm -c $< -o $@
 
 # Generates a non-unrolled non-optimized BTOR2 file.
@@ -71,15 +71,15 @@ data.csv: $(DATAS)
 	@echo unroll : $(UNROLL) >> $@
 	@echo solutions : $(SOLUTIONS) >> $@
 	@echo -n "btormc-time : " >> $@
-	$(MYTIME) $(BTORMC) -kmax $(UNROLL) $*.btor2 >> $@
+	timeout 5m bash $(MYTIME) $(BTORMC) -kmax $(UNROLL) $*.btor2 >> $@ || echo timeout >> $@
 	@echo -n "unicorn-boolector-time : " >> $@
-	$(MYTIME) $(UNICORN) beator $*.m -u $(UNROLL) -p -s boolector --fast-minimize >> $@
-	@echo -n "unicorn-z3-time : " >> $@
-	$(MYTIME) $(UNICORN) beator $*.m -u $(UNROLL) -p -s z3 --fast-minimize >> $@
+	timeout 5m bash $(MYTIME) $(UNICORN) beator $*.m -u $(UNROLL) -p -s boolector --fast-minimize >> $@ || echo timeout >> $@
+	@echo -n "unicorn-z3-time : " >> $@ 
+	timeout 5m bash $(MYTIME) $(UNICORN) beator $*.m -u $(UNROLL) -p -s z3 --fast-minimize >> $@ || echo timeout >> $@
 	@echo -n "unicorn-kissat-time : " >> $@
-	$(MYTIME) $(UNICORN) beator $*.m -u $(UNROLL) -p --sat-solver kissat --discretize-memory >> $@
+	timeout 5m bash $(MYTIME) $(UNICORN) beator $*.m -u $(UNROLL) -p --sat-solver kissat --discretize-memory >> $@ || echo timeout >> $@
 	@echo -n "unicorn-cadical-time : " >> $@
-	$(MYTIME) $(UNICORN) beator $*.m -u $(UNROLL) -p --sat-solver cadical --discretize-memory >> $@
+	timeout 5m bash $(MYTIME) $(UNICORN) beator $*.m -u $(UNROLL) -p --sat-solver cadical --discretize-memory >> $@ || echo timeout >> $@
 	@echo -n "klee-time : " >> $@
-	$(MYTIME) $(KLEE) $*.bc >> $@
+	timeout 5m bash $(MYTIME) $(KLEE) $*.bc >> $@ || echo timeout >> $@
 	#$(MINISAT) $*.cnf | tee -a $@
