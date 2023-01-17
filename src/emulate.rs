@@ -1,9 +1,8 @@
-use crate::engine::memory::VirtualMemory;
 use crate::engine::system::{prepare_unix_stack, SyscallId, NUMBER_OF_REGISTERS, PAGE_SIZE};
 use crate::util::next_multiple_of;
 use byteorder::{ByteOrder, LittleEndian};
 use log::{debug, info, trace, warn};
-use riscu::{types::*, Instruction, Program, Register};
+use riscu::{instruction_length, types::*, Instruction, Program, Register};
 use std::cmp::min;
 use std::fs::File;
 use std::io::{self, Read, Stdin, Stdout, Write};
@@ -74,7 +73,7 @@ impl EmulatorState {
 // Private Implementation
 //
 
-const INSTRUCTION_SIZE_MASK: u64 = riscu::INSTRUCTION_SIZE as u64 - 1;
+const INSTRUCTION_SIZE_MASK: u64 = 2_u64 - 1;
 const WORD_SIZE_MASK: u64 = riscu::WORD_SIZE as u64 - 1;
 const MAX_FILENAME_LENGTH: usize = 128;
 const FIRST_REAL_FD: usize = 3;
@@ -94,8 +93,12 @@ impl EmulatorState {
         self.program_counter = self.program_counter.wrapping_add(imm);
     }
 
+    fn current_instruction_lenght(&self) -> usize {
+        instruction_length(self.get_mem_typed::<u16>(self.program_counter))
+    }
+
     fn pc_next(&mut self) {
-        self.pc_add(riscu::INSTRUCTION_SIZE as u64);
+        self.pc_add(self.current_instruction_lenght() as u64);
     }
 
     // TODO: Move to public portion of file.
@@ -129,7 +132,10 @@ impl EmulatorState {
     }
 
     fn get_mem_typed<T: MyLittleEndian>(&self, adr: EmulatorValue) -> T {
-        assert!(adr % (size_of::<T>() as u64) == 0, "address aligned");
+        MyLittleEndian::read(&self.memory[adr as usize..])
+    }
+
+    fn get_mem_unaligned<T: MyLittleEndian>(&self, adr: EmulatorValue) -> T {
         MyLittleEndian::read(&self.memory[adr as usize..])
     }
 
@@ -209,8 +215,7 @@ impl EmulatorState {
 
 fn fetch(state: &mut EmulatorState) -> u32 {
     assert!(state.program_counter & INSTRUCTION_SIZE_MASK == 0);
-    assert!(riscu::INSTRUCTION_SIZE == size_of::<u32>());
-    state.get_mem_typed::<u32>(state.program_counter)
+    state.get_mem_unaligned::<u32>(state.program_counter)
 }
 
 fn decode(instruction_half_word: u32) -> Instruction {
@@ -294,7 +299,7 @@ fn execute(state: &mut EmulatorState, instr: Instruction) {
 //
 
 // rd = s64(imm{20}) << 12
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_lui(state: &mut EmulatorState, utype: UType) {
     let rd_value = ((utype.imm() as i32) << 12) as u64;
     trace_utype(state, "lui", utype, rd_value);
@@ -303,7 +308,7 @@ fn exec_lui(state: &mut EmulatorState, utype: UType) {
 }
 
 // rd = pc + s64(imm{20}) << 12
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_auipc(state: &mut EmulatorState, utype: UType) {
     let rd_value = ((utype.imm() as i32) << 12) as u64 + state.program_counter;
     trace_utype(state, "auipc", utype, rd_value);
@@ -311,10 +316,10 @@ fn exec_auipc(state: &mut EmulatorState, utype: UType) {
     state.pc_next();
 }
 
-// rd = pc + 4
+// rd = pc + instruction_length
 // pc = pc + s64(imm)
 fn exec_jal(state: &mut EmulatorState, jtype: JType) {
-    let rd_value = state.program_counter + riscu::INSTRUCTION_SIZE as u64;
+    let rd_value = state.program_counter + (state.current_instruction_lenght() as u64);
     trace_jtype(state, "jal", jtype, rd_value);
     state.set_reg_maybe(jtype.rd(), rd_value);
     state.pc_add(jtype.imm() as u64);
@@ -324,15 +329,15 @@ fn exec_jal(state: &mut EmulatorState, jtype: JType) {
 // pc = rs1 + s64(imm)
 fn exec_jalr(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
-    let rd_value = state.program_counter + riscu::INSTRUCTION_SIZE as u64;
+    let rd_value = state.program_counter + (state.current_instruction_lenght() as u64);
     let pc_value = rs1_value.wrapping_add(itype.imm() as u64);
     trace_itype(state, "jalr", itype, rd_value);
     state.set_reg_maybe(itype.rd(), rd_value);
     state.pc_set(pc_value);
 }
 
-// pc = pc + s64(imm)         ||| if (rs1 == rs2)
-// pc = pc + 4                ||| otherwise
+// pc = pc + s64(imm)           ||| if (rs1 == rs2)
+// pc = pc + instruction_length ||| otherwise
 fn exec_beq(state: &mut EmulatorState, btype: BType) {
     let rs1_value = state.get_reg(btype.rs1());
     let rs2_value = state.get_reg(btype.rs2());
@@ -345,8 +350,8 @@ fn exec_beq(state: &mut EmulatorState, btype: BType) {
     }
 }
 
-// pc = pc + s64(imm)         ||| if (rs1 != rs2)
-// pc = pc + 4                ||| otherwise
+// pc = pc + s64(imm)           ||| if (rs1 != rs2)
+// pc = pc + instruction_length ||| otherwise
 fn exec_bne(state: &mut EmulatorState, btype: BType) {
     let rs1_value = state.get_reg(btype.rs1());
     let rs2_value = state.get_reg(btype.rs2());
@@ -359,8 +364,8 @@ fn exec_bne(state: &mut EmulatorState, btype: BType) {
     }
 }
 
-// pc = pc + s64(imm)         ||| if (rs1 <s rs2)
-// pc = pc + 4                ||| otherwise
+// pc = pc + s64(imm)           ||| if (rs1 <s rs2)
+// pc = pc + instruction_length ||| otherwise
 fn exec_blt(state: &mut EmulatorState, btype: BType) {
     let rs1_value = state.get_reg(btype.rs1());
     let rs2_value = state.get_reg(btype.rs2());
@@ -373,8 +378,8 @@ fn exec_blt(state: &mut EmulatorState, btype: BType) {
     }
 }
 
-// pc = pc + s64(imm)         ||| if (rs1 >=s rs2)
-// pc = pc + 4                ||| otherwise
+// pc = pc + s64(imm)           ||| if (rs1 >=s rs2)
+// pc = pc + instruction_length ||| otherwise
 fn exec_bge(state: &mut EmulatorState, btype: BType) {
     let rs1_value = state.get_reg(btype.rs1());
     let rs2_value = state.get_reg(btype.rs2());
@@ -387,8 +392,8 @@ fn exec_bge(state: &mut EmulatorState, btype: BType) {
     }
 }
 
-// pc = pc + s64(imm)         ||| if (rs1 <u rs2)
-// pc = pc + 4                ||| otherwise
+// pc = pc + s64(imm)           ||| if (rs1 <u rs2)
+// pc = pc + instruction_length ||| otherwise
 fn exec_bltu(state: &mut EmulatorState, btype: BType) {
     let rs1_value = state.get_reg(btype.rs1());
     let rs2_value = state.get_reg(btype.rs2());
@@ -401,8 +406,8 @@ fn exec_bltu(state: &mut EmulatorState, btype: BType) {
     }
 }
 
-// pc = pc + s64(imm)         ||| if (rs1 >=u rs2)
-// pc = pc + 4                ||| otherwise
+// pc = pc + s64(imm)           ||| if (rs1 >=u rs2)
+// pc = pc + instruction_length ||| otherwise
 fn exec_bgeu(state: &mut EmulatorState, btype: BType) {
     let rs1_value = state.get_reg(btype.rs1());
     let rs2_value = state.get_reg(btype.rs2());
@@ -416,7 +421,7 @@ fn exec_bgeu(state: &mut EmulatorState, btype: BType) {
 }
 
 // rd = s64(mem8[rs1 + s64(imm{12})])
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_lb(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
     let address = rs1_value.wrapping_add(itype.imm() as u64);
@@ -427,7 +432,7 @@ fn exec_lb(state: &mut EmulatorState, itype: IType) {
 }
 
 // rd = z64(mem8[rs1 + s64(imm{12})])
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_lbu(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
     let address = rs1_value.wrapping_add(itype.imm() as u64);
@@ -438,7 +443,7 @@ fn exec_lbu(state: &mut EmulatorState, itype: IType) {
 }
 
 // rd = s64(mem16[rs1 + s64(imm{12})])
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_lh(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
     let address = rs1_value.wrapping_add(itype.imm() as u64);
@@ -449,7 +454,7 @@ fn exec_lh(state: &mut EmulatorState, itype: IType) {
 }
 
 // rd = z64(mem16[rs1 + s64(imm{12})])
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_lhu(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
     let address = rs1_value.wrapping_add(itype.imm() as u64);
@@ -460,7 +465,7 @@ fn exec_lhu(state: &mut EmulatorState, itype: IType) {
 }
 
 // rd = s64(mem32[rs1 + s64(imm{12})])
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_lw(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
     let address = rs1_value.wrapping_add(itype.imm() as u64);
@@ -471,7 +476,7 @@ fn exec_lw(state: &mut EmulatorState, itype: IType) {
 }
 
 // rd = mem[rs1 + s64(imm{12})]
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_ld(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
     let address = rs1_value.wrapping_add(itype.imm() as u64);
@@ -482,7 +487,7 @@ fn exec_ld(state: &mut EmulatorState, itype: IType) {
 }
 
 // mem8[rs1 + s64(imm{12})] = rs2{8}
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_sb(state: &mut EmulatorState, stype: SType) {
     let rs1_value = state.get_reg(stype.rs1());
     let rs2_value = state.get_reg(stype.rs2());
@@ -493,7 +498,7 @@ fn exec_sb(state: &mut EmulatorState, stype: SType) {
 }
 
 // mem16[rs1 + s64(imm{12})] = rs2{16}
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_sh(state: &mut EmulatorState, stype: SType) {
     let rs1_value = state.get_reg(stype.rs1());
     let rs2_value = state.get_reg(stype.rs2());
@@ -504,7 +509,7 @@ fn exec_sh(state: &mut EmulatorState, stype: SType) {
 }
 
 // mem32[rs1 + s64(imm{12})] = rs2{32}
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_sw(state: &mut EmulatorState, stype: SType) {
     let rs1_value = state.get_reg(stype.rs1());
     let rs2_value = state.get_reg(stype.rs2());
@@ -515,7 +520,7 @@ fn exec_sw(state: &mut EmulatorState, stype: SType) {
 }
 
 // mem[rs1 + s64(imm{12})] = rs2
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_sd(state: &mut EmulatorState, stype: SType) {
     let rs1_value = state.get_reg(stype.rs1());
     let rs2_value = state.get_reg(stype.rs2());
@@ -526,7 +531,7 @@ fn exec_sd(state: &mut EmulatorState, stype: SType) {
 }
 
 // rd = rs1 + s64(imm{12})
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_addi(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
     let rd_value = rs1_value.wrapping_add(itype.imm() as u64);
@@ -536,7 +541,7 @@ fn exec_addi(state: &mut EmulatorState, itype: IType) {
 }
 
 // rd = s64(rs1{32} + s32(imm{12}))
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_addiw(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
     let rd_value = (rs1_value as i32).wrapping_add(itype.imm()) as u64;
@@ -547,7 +552,7 @@ fn exec_addiw(state: &mut EmulatorState, itype: IType) {
 
 // rd = 1                     ||| if (rs1 <u s64(imm{12}))
 // rd = 0                     ||| otherwise
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_sltiu(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
     let condition = rs1_value < (itype.imm() as u64);
@@ -558,7 +563,7 @@ fn exec_sltiu(state: &mut EmulatorState, itype: IType) {
 }
 
 // rd = rs1 ^ s64(imm{12})
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_xori(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
     let rd_value = rs1_value ^ (itype.imm() as u64);
@@ -568,7 +573,7 @@ fn exec_xori(state: &mut EmulatorState, itype: IType) {
 }
 
 // rd = rs1 | s64(imm{12})
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_ori(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
     let rd_value = rs1_value | (itype.imm() as u64);
@@ -578,7 +583,7 @@ fn exec_ori(state: &mut EmulatorState, itype: IType) {
 }
 
 // rd = rs1 & s64(imm{12})
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_andi(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
     let rd_value = rs1_value & (itype.imm() as u64);
@@ -588,7 +593,7 @@ fn exec_andi(state: &mut EmulatorState, itype: IType) {
 }
 
 // rd = rs1 << z32(imm{6})
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_slli(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
     let rd_value = rs1_value.wrapping_shl(itype.imm() as u32);
@@ -598,7 +603,7 @@ fn exec_slli(state: &mut EmulatorState, itype: IType) {
 }
 
 // rd = s64(rs1{32} << z32(imm{5}))
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_slliw(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
     let rd_value = (rs1_value as i32).wrapping_shl(itype.imm() as u32) as u64;
@@ -608,7 +613,7 @@ fn exec_slliw(state: &mut EmulatorState, itype: IType) {
 }
 
 // rd = rs1 >>u z32(imm{6})
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_srli(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
     let rd_value = rs1_value.wrapping_shr(itype.imm() as u32);
@@ -618,7 +623,7 @@ fn exec_srli(state: &mut EmulatorState, itype: IType) {
 }
 
 // rd = s64(rs1{32} >>u z32(imm{5}))
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_srliw(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
     let rd_value = (rs1_value as u32).wrapping_shr(itype.imm() as u32) as i32 as u64;
@@ -628,7 +633,7 @@ fn exec_srliw(state: &mut EmulatorState, itype: IType) {
 }
 
 // rd = rs1 >>s z32(imm{6})
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_srai(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
     let rd_value = (rs1_value as i64).wrapping_shr(itype.imm() as u32) as u64;
@@ -638,7 +643,7 @@ fn exec_srai(state: &mut EmulatorState, itype: IType) {
 }
 
 // rd = s64(rs1{32} >>s z32(imm{5}))
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_sraiw(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
     let rd_value = (rs1_value as i32).wrapping_shr(itype.imm() as u32) as u64;
@@ -648,7 +653,7 @@ fn exec_sraiw(state: &mut EmulatorState, itype: IType) {
 }
 
 // rd = rs1 + rs2
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_add(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
     let rs2_value = state.get_reg(rtype.rs2());
@@ -659,7 +664,7 @@ fn exec_add(state: &mut EmulatorState, rtype: RType) {
 }
 
 // rd = s64(rs1{32} + rs2{32})
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_addw(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
     let rs2_value = state.get_reg(rtype.rs2());
@@ -670,7 +675,7 @@ fn exec_addw(state: &mut EmulatorState, rtype: RType) {
 }
 
 // rd = rs1 - rs2
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_sub(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
     let rs2_value = state.get_reg(rtype.rs2());
@@ -681,7 +686,7 @@ fn exec_sub(state: &mut EmulatorState, rtype: RType) {
 }
 
 // rd = s64(rs1{32} - rs2{32})
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_subw(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
     let rs2_value = state.get_reg(rtype.rs2());
@@ -692,7 +697,7 @@ fn exec_subw(state: &mut EmulatorState, rtype: RType) {
 }
 
 // rd = rs1 << z32(rs2{6})
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_sll(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
     let rs2_value = state.get_reg(rtype.rs2());
@@ -703,7 +708,7 @@ fn exec_sll(state: &mut EmulatorState, rtype: RType) {
 }
 
 // rd = s64(rs1{32} << z32(rs2{5}))
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_sllw(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
     let rs2_value = state.get_reg(rtype.rs2());
@@ -714,7 +719,7 @@ fn exec_sllw(state: &mut EmulatorState, rtype: RType) {
 }
 
 // rd = rs1 >>u z32(rs2{6})
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_srl(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
     let rs2_value = state.get_reg(rtype.rs2());
@@ -725,7 +730,7 @@ fn exec_srl(state: &mut EmulatorState, rtype: RType) {
 }
 
 // rd = rs1 >>s z32(rs2{6})
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_sra(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
     let rs2_value = state.get_reg(rtype.rs2());
@@ -737,7 +742,7 @@ fn exec_sra(state: &mut EmulatorState, rtype: RType) {
 
 // rd = 1                     ||| if (rs1 <u rs2)
 // rd = 0                     ||| otherwise
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_sltu(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
     let rs2_value = state.get_reg(rtype.rs2());
@@ -749,7 +754,7 @@ fn exec_sltu(state: &mut EmulatorState, rtype: RType) {
 }
 
 // rd = rs1 | rs2
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_or(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
     let rs2_value = state.get_reg(rtype.rs2());
@@ -760,7 +765,7 @@ fn exec_or(state: &mut EmulatorState, rtype: RType) {
 }
 
 // rd = rs1 & rs2
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_and(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
     let rs2_value = state.get_reg(rtype.rs2());
@@ -771,7 +776,7 @@ fn exec_and(state: &mut EmulatorState, rtype: RType) {
 }
 
 // rd = rs1 * rs2
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_mul(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
     let rs2_value = state.get_reg(rtype.rs2());
@@ -782,7 +787,7 @@ fn exec_mul(state: &mut EmulatorState, rtype: RType) {
 }
 
 // rd = s64(rs1{32} * rs2{32})
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_mulw(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
     let rs2_value = state.get_reg(rtype.rs2());
@@ -793,7 +798,7 @@ fn exec_mulw(state: &mut EmulatorState, rtype: RType) {
 }
 
 // rd = rs1 /s rs2
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_div(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
     let rs2_value = state.get_reg(rtype.rs2());
@@ -805,7 +810,7 @@ fn exec_div(state: &mut EmulatorState, rtype: RType) {
 }
 
 // rd = rs1 /u rs2
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_divu(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
     let rs2_value = state.get_reg(rtype.rs2());
@@ -817,7 +822,7 @@ fn exec_divu(state: &mut EmulatorState, rtype: RType) {
 }
 
 // rd = rs1 %u rs2
-// pc = pc + 4
+// pc = pc + instruction_length
 fn exec_remu(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
     let rs2_value = state.get_reg(rtype.rs2());
