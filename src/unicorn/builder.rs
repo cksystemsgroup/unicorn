@@ -490,10 +490,9 @@ impl ModelBuilder {
     fn model_addiw(&mut self, itype: IType) {
         let imm_node = self.new_const(itype.imm() as u64);
         let add_node = self.new_add(self.reg_node(itype.rs1()), imm_node);
-        let thirtytwo = self.new_const(32); // for (val << 32) >>s 32
-        let sll_node = self.new_sll(add_node, thirtytwo.clone());
-        let sra_node = self.new_sra(sll_node, thirtytwo);
-        self.reg_flow_ite(itype.rd(), sra_node);
+        let thirtytwo = self.new_const((-1 as u32) as u64);
+        let and_node = self.new_and_bit(add_node, thirtytwo);
+        self.reg_flow_ite(itype.rd(), and_node);
     }
 
     fn model_xori(&mut self, itype: IType) {
