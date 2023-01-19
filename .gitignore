@@ -11,6 +11,7 @@
 lion/*.bc
 lion/*.btor2
 lion/*.cnf
+lion/*.cnf2
 lion/*.data
 lion/*.m
 lion/data.csv
