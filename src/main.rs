@@ -57,7 +57,7 @@ fn main() -> Result<()> {
             let extras = collect_arg_values(args, "extras");
 
             let argv = [vec![arg0], extras].concat();
-            let program = load_object_file(&input)?;
+            let program = load_object_file(input)?;
             let mut emulator = EmulatorState::new(memory_size as usize);
             emulator.bootstrap(&program, &argv);
             emulator.run();

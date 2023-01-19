@@ -367,7 +367,7 @@ pub mod cadical_impl {
                 .builder
                 .container_mut()
                 .solver
-                .solve_with((&[bad_state_lit]).iter().copied())
+                .solve_with([bad_state_lit].iter().copied())
             {
                 Some(true) => SATSolution::Sat,
                 Some(false) => SATSolution::Unsat,
