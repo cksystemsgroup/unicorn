@@ -66,7 +66,7 @@ data.csv: $(DATAS)
 	$(SELFIE) -c ../tools/cstar-lib.c $< -o $@ > /dev/null
 
 %.bc: %.c
-	clang  -Werror -Wno-main-return-type -Wno-return-type -O0 \
+	clang -Werror -Wno-main-return-type -Wno-return-type -O0 \
 	      -Xclang -disable-O0-optnone -include ../tools/cstar-klee.h\
 	      -emit-llvm -c $< -o $@
 
@@ -87,7 +87,7 @@ data.csv: $(DATAS)
 # Generates the a CNF file with CBMC.
 %.cnf2: %.c
 	$(eval UNROLL := $(shell grep -oP '// @UNROLL = \K\d+' $*.c))
-	$(CBMC) cbmc_srcs/$< --outfile $@ -depth $(UNROLL) --slice-formula --bounds-check --pointer-check --div-by-zero-check --dimacs
+	$(CBMC) cbmc_srcs/$< --outfile $@ --depth $(UNROLL) --slice-formula --bounds-check --pointer-check --div-by-zero-check --dimacs
 
 %.data: %.btor2 %.m %.bc %.c2 %.cnf %.cnf2
 	$(eval UNROLL := $(shell grep -oP '// @UNROLL = \K\d+' $*.c))
