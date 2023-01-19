@@ -1,6 +1,7 @@
 use crate::unicorn::bitblasting::{GateModel, GateRef};
 use crate::unicorn::{Node, NodeRef};
 use crate::SatType;
+use anyhow::{anyhow, Result};
 use log::{debug, warn};
 
 //
@@ -8,15 +9,25 @@ use log::{debug, warn};
 //
 
 #[allow(unused_variables)]
-pub fn solve_bad_states(gate_model: &GateModel, sat_type: SatType) {
+pub fn solve_bad_states(
+    gate_model: &GateModel,
+    sat_type: SatType,
+    terminate_on_bad: bool,
+) -> Result<()> {
     match sat_type {
         SatType::None => unreachable!(),
         #[cfg(feature = "kissat")]
-        SatType::Kissat => process_all_bad_states::<kissat_impl::KissatSolver>(gate_model),
+        SatType::Kissat => {
+            process_all_bad_states::<kissat_impl::KissatSolver>(gate_model, terminate_on_bad)
+        }
         #[cfg(feature = "varisat")]
-        SatType::Varisat => process_all_bad_states::<varisat_impl::VarisatSolver>(gate_model),
+        SatType::Varisat => {
+            process_all_bad_states::<varisat_impl::VarisatSolver>(gate_model, terminate_on_bad)
+        }
         #[cfg(feature = "cadical")]
-        SatType::Cadical => process_all_bad_states::<cadical_impl::CadicalSolver>(gate_model),
+        SatType::Cadical => {
+            process_all_bad_states::<cadical_impl::CadicalSolver>(gate_model, terminate_on_bad)
+        }
     }
 }
 
@@ -44,7 +55,8 @@ fn process_single_bad_state<S: SATSolver>(
     gate_model: &GateModel,
     bad_state: &NodeRef,
     gate: &GateRef,
-) {
+    terminate_on_bad: bool,
+) -> Result<()> {
     if let Node::Bad { name, .. } = &*bad_state.borrow() {
         let solution = solver.decide(gate_model, gate);
         match solution {
@@ -54,6 +66,9 @@ fn process_single_bad_state<S: SATSolver>(
                     name.as_deref().unwrap_or("?"),
                     S::name()
                 );
+                if terminate_on_bad {
+                    return Err(anyhow!("Bad state satisfiable"));
+                }
             }
             SATSolution::Unsat => {
                 debug!(
@@ -64,13 +79,17 @@ fn process_single_bad_state<S: SATSolver>(
             }
             SATSolution::Timeout => unimplemented!(),
         }
+        Ok(())
     } else {
         panic!("expecting 'Bad' node here");
     }
 }
 
 #[allow(dead_code)]
-fn process_all_bad_states<S: SATSolver>(gate_model: &GateModel) {
+fn process_all_bad_states<S: SATSolver>(
+    gate_model: &GateModel,
+    terminate_on_bad: bool,
+) -> Result<()> {
     debug!("Using {:?} to decide bad states ...", S::name());
     let mut solver = S::new();
     let zip = gate_model
@@ -78,8 +97,9 @@ fn process_all_bad_states<S: SATSolver>(gate_model: &GateModel) {
         .iter()
         .zip(gate_model.bad_state_gates.iter());
     for (bad_state, gate) in zip {
-        process_single_bad_state(&mut solver, gate_model, bad_state, gate)
+        process_single_bad_state(&mut solver, gate_model, bad_state, gate, terminate_on_bad)?
     }
+    Ok(())
 }
 
 // TODO: Move this module into separate file.

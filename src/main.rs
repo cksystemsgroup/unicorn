@@ -80,6 +80,7 @@ fn main() -> Result<()> {
             let prune = !is_beator || args.get_flag("prune-model");
             let minimize = is_beator && !args.get_flag("fast-minimize");
             let discretize = !is_beator || args.get_flag("discretize-memory");
+            let terminate_on_bad = is_beator && args.get_flag("terminate-on-bad");
             let renumber = !is_beator || output.is_some();
             let input_is_btor2 = args.get_flag("from-btor2");
             let input_is_dimacs = !is_beator && args.get_flag("from-dimacs");
@@ -193,7 +194,7 @@ fn main() -> Result<()> {
                     let gate_model = bitblast_model(&model.unwrap(), true, 64);
 
                     if sat_solver != SatType::None {
-                        solve_bad_states(&gate_model, sat_solver);
+                        solve_bad_states(&gate_model, sat_solver, terminate_on_bad)?
                     }
 
                     if output_to_stdout {
