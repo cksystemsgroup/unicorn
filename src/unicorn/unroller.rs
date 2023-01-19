@@ -23,7 +23,7 @@ pub fn unroll_model(model: &mut Model, n: usize) {
     }
     for bad_state in &model.bad_states_sequential {
         let bad_copy = model_unroller.unroll(bad_state);
-        model.bad_states_initial.push(bad_copy);
+        model.bad_states_initial.insert(0, bad_copy);
     }
     for (state, new_init) in replacements {
         if let Node::State { ref mut init, .. } = *state.borrow_mut() {
