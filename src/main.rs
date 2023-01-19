@@ -126,17 +126,17 @@ fn main() -> Result<()> {
                     match smt_solver {
                         #[rustfmt::skip]
                         SmtType::Generic => {
-                            optimize_model_with_solver::<none_impl::NoneSolver>(&mut model, timeout, minimize)
+                            optimize_model_with_solver::<none_impl::NoneSolver>(&mut model, timeout, minimize, terminate_on_bad)
                         },
                         #[rustfmt::skip]
                         #[cfg(feature = "boolector")]
                         SmtType::Boolector => {
-                            optimize_model_with_solver::<boolector_impl::BoolectorSolver>(&mut model, timeout, minimize)
+                            optimize_model_with_solver::<boolector_impl::BoolectorSolver>(&mut model, timeout, minimize, terminate_on_bad)
                         },
                         #[rustfmt::skip]
                         #[cfg(feature = "z3")]
                         SmtType::Z3 => {
-                            optimize_model_with_solver::<z3solver_impl::Z3SolverWrapper>(&mut model, timeout, minimize)
+                            optimize_model_with_solver::<z3solver_impl::Z3SolverWrapper>(&mut model, timeout, minimize, terminate_on_bad)
                         },
                     }
                     if renumber {

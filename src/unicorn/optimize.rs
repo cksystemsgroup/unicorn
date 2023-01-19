@@ -16,16 +16,17 @@ pub fn optimize_model_with_solver<S: SMTSolver>(
     model: &mut Model,
     timeout: Option<Duration>,
     minimize: bool,
+    terminate_on_bad: bool,
 ) {
     debug!("Optimizing model using '{}' SMT solver ...", S::name());
     debug!("Setting SMT solver timeout to {:?} per query ...", timeout);
     debug!("Using SMT solver to minimize graph: {} ...", minimize);
-    optimize_model_impl::<S>(model, &mut vec![], timeout, minimize);
+    optimize_model_impl::<S>(model, &mut vec![], timeout, minimize, terminate_on_bad)
 }
 
 pub fn optimize_model_with_input(model: &mut Model, inputs: &mut Vec<u64>) {
     debug!("Optimizing model with {} concrete inputs ...", inputs.len());
-    optimize_model_impl::<none_impl::NoneSolver>(model, inputs, None, false);
+    optimize_model_impl::<none_impl::NoneSolver>(model, inputs, None, false, false);
 }
 
 //
@@ -37,6 +38,7 @@ fn optimize_model_impl<S: SMTSolver>(
     inputs: &mut Vec<u64>,
     timeout: Option<Duration>,
     minimize: bool,
+    terminate_on_bad: bool,
 ) {
     let mut constant_folder = ConstantFolder::<S>::new(inputs, timeout, minimize);
     model
@@ -47,10 +49,10 @@ fn optimize_model_impl<S: SMTSolver>(
     }
     model
         .bad_states_initial
-        .retain(|s| constant_folder.should_retain_bad_state(s, true));
+        .retain(|s| constant_folder.should_retain_bad_state(s, true, terminate_on_bad));
     model
         .bad_states_sequential
-        .retain(|s| constant_folder.should_retain_bad_state(s, false));
+        .retain(|s| constant_folder.should_retain_bad_state(s, false, terminate_on_bad));
 }
 
 struct ConstantFolder<'a, S> {
@@ -618,7 +620,12 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
         }
     }
 
-    fn should_retain_bad_state(&mut self, bad_state: &NodeRef, use_smt: bool) -> bool {
+    fn should_retain_bad_state(
+        &mut self,
+        bad_state: &NodeRef,
+        use_smt: bool,
+        terminate_on_bad: bool,
+    ) -> bool {
         self.visit(bad_state);
         if let Node::Bad { cond, name, .. } = &*bad_state.borrow() {
             if is_const_false(cond) {
@@ -633,6 +640,10 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
                     "Bad state '{}' became statically reachable!",
                     name.as_deref().unwrap_or("?")
                 );
+                if terminate_on_bad {
+                    // TODO: Change this to use return Result<> instead of panic!
+                    panic!("Bad state always true");
+                }
                 return true;
             }
             if use_smt {
@@ -642,6 +653,10 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
                             "Bad state '{}' is satisfiable!",
                             name.as_deref().unwrap_or("?")
                         );
+                        if terminate_on_bad {
+                            // TODO: Change this to use return Result<> instead of panic!
+                            panic!("Bad state satisfiable");
+                        }
                         return true;
                     }
                     SMTSolution::Unsat => {
