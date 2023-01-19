@@ -1,6 +1,6 @@
 // cksystemsgroup.github.io/unicorn
 // @SOLUTIONS = 1
-// @UNROLL = 137
+// @UNROLL = 131
 
 uint64_t main() {
   uint64_t  a;
