@@ -132,10 +132,10 @@ fn process_all_bad_states<S: SATSolver>(
         if gate_model.bad_state_gates.len() == 0{
             ored_bad_states = GateRef::from(Gate::ConstFalse);
         } else if gate_model.bad_state_gates.len() == 1 {
-            ored_bad_states = gate_model.bad_state_gates[0];
+            ored_bad_states = gate_model.bad_state_gates[0].clone();
         } else {
-            let first_element = gate_model.bad_state_gates[0];
-            let second_element = gate_model.bad_state_gates[1];
+            let first_element = gate_model.bad_state_gates[0].clone();
+            let second_element = gate_model.bad_state_gates[1].clone();
             ored_bad_states = or_gate(get_constant(&first_element), get_constant(&second_element), &first_element, &second_element);
         }
         for gate in gate_model.bad_state_gates.iter().skip(2) {
