@@ -17,16 +17,24 @@ pub fn optimize_model_with_solver<S: SMTSolver>(
     timeout: Option<Duration>,
     minimize: bool,
     terminate_on_bad: bool,
+    one_query: bool,
 ) {
     debug!("Optimizing model using '{}' SMT solver ...", S::name());
     debug!("Setting SMT solver timeout to {:?} per query ...", timeout);
     debug!("Using SMT solver to minimize graph: {} ...", minimize);
-    optimize_model_impl::<S>(model, &mut vec![], timeout, minimize, terminate_on_bad)
+    optimize_model_impl::<S>(
+        model,
+        &mut vec![],
+        timeout,
+        minimize,
+        terminate_on_bad,
+        one_query,
+    )
 }
 
 pub fn optimize_model_with_input(model: &mut Model, inputs: &mut Vec<u64>) {
     debug!("Optimizing model with {} concrete inputs ...", inputs.len());
-    optimize_model_impl::<none_impl::NoneSolver>(model, inputs, None, false, false);
+    optimize_model_impl::<none_impl::NoneSolver>(model, inputs, None, false, false, false);
 }
 
 //
@@ -39,6 +47,7 @@ fn optimize_model_impl<S: SMTSolver>(
     timeout: Option<Duration>,
     minimize: bool,
     terminate_on_bad: bool,
+    one_query: bool,
 ) {
     let mut constant_folder = ConstantFolder::<S>::new(inputs, timeout, minimize);
     model
@@ -47,12 +56,56 @@ fn optimize_model_impl<S: SMTSolver>(
     for sequential in &model.sequentials {
         constant_folder.visit(sequential);
     }
-    model
-        .bad_states_initial
-        .retain(|s| constant_folder.should_retain_bad_state(s, true, terminate_on_bad));
-    model
-        .bad_states_sequential
-        .retain(|s| constant_folder.should_retain_bad_state(s, false, terminate_on_bad));
+    if !one_query {
+        model.bad_states_initial.retain(|s| {
+            constant_folder.should_retain_bad_state(s, true, terminate_on_bad, one_query)
+        });
+        model.bad_states_sequential.retain(|s| {
+            constant_folder.should_retain_bad_state(s, false, terminate_on_bad, one_query)
+        });
+    } else {
+        model
+            .bad_states_initial
+            .retain(|s| constant_folder.should_retain_bad_state(s, false, true, one_query));
+        model
+            .bad_states_sequential
+            .retain(|s| constant_folder.should_retain_bad_state(s, false, true, one_query));
+
+        let mut all_bad_states: Vec<&NodeRef> = Vec::new();
+
+        for bad_state in model.bad_states_initial.iter() {
+            all_bad_states.push(bad_state);
+        }
+
+        for bad_state in model.bad_states_sequential.iter() {
+            all_bad_states.push(bad_state);
+        }
+
+        if all_bad_states.is_empty() {
+            panic!("No bad states happen");
+        } else if all_bad_states.len() == 1 {
+            constant_folder.should_retain_bad_state(all_bad_states[0], true, true, false);
+            panic!("No bad states happen");
+        } else {
+            let mut ored_bad_states = NodeRef::from(Node::Or {
+                nid: u64::MAX,
+                sort: NodeType::Bit,
+                left: all_bad_states[0].clone(),
+                right: all_bad_states[1].clone(),
+            });
+
+            for bad_state in all_bad_states.iter().skip(2) {
+                ored_bad_states = NodeRef::from(Node::Or {
+                    nid: u64::MAX,
+                    sort: NodeType::Bit,
+                    left: ored_bad_states.clone(),
+                    right: (*bad_state).clone(),
+                });
+            }
+
+            constant_folder.should_retain_bad_state(&ored_bad_states, true, true, true);
+        }
+    }
 }
 
 struct ConstantFolder<'a, S> {
@@ -339,6 +392,26 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
         self.fold_any_binary(left, right, |a, b| a & b, "AND")
     }
 
+    fn fold_or(&self, left: &NodeRef, right: &NodeRef, sort: &NodeType) -> Option<NodeRef> {
+        if is_const_zeroes(left, sort) {
+            trace!("Folding OR(zeroes,x) -> x");
+            return Some(right.clone());
+        }
+        if is_const_zeroes(right, sort) {
+            trace!("Folding OR(x,zeroes) -> x");
+            return Some(left.clone());
+        }
+        if is_const_ones(left, sort) {
+            trace!("Strength-reducing AND(ones,_) -> ones");
+            return Some(left.clone());
+        }
+        if is_const_ones(right, sort) {
+            trace!("Strength-reducing AND(x,ones) -> ones");
+            return Some(right.clone());
+        }
+        self.fold_any_binary(left, right, |a, b| a | b, "OR")
+    }
+
     fn solve_and_bit(
         &mut self,
         node: &NodeRef,
@@ -561,6 +634,11 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
                 if let Some(n) = self.visit(right) { *right = n }
                 self.fold_and(left, right, sort)
             }
+            Node::Or { ref sort, ref mut left, ref mut right, .. } => {
+                if let Some(n) = self.visit(left) { *left = n }
+                if let Some(n) = self.visit(right) { *right = n }
+                self.fold_or(left, right, sort)
+            }
             Node::Not { ref sort, ref mut value, .. } => {
                 if let Some(n) = self.visit(value) { *value = n }
                 self.fold_not(value, sort)
@@ -625,6 +703,7 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
         bad_state: &NodeRef,
         use_smt: bool,
         terminate_on_bad: bool,
+        one_query: bool,
     ) -> bool {
         self.visit(bad_state);
         if let Node::Bad { cond, name, .. } = &*bad_state.borrow() {
@@ -671,7 +750,18 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
             }
             true
         } else {
-            panic!("expecting 'Bad' node here");
+            assert!(one_query);
+            assert!(use_smt);
+            match self.smt_solver.solve(bad_state) {
+                SMTSolution::Sat => {
+                    panic!("Bad states satisfiable");
+                }
+                SMTSolution::Unsat => {
+                    panic!("Bad states unsatisfiable");
+                }
+                SMTSolution::Timeout => (),
+            }
+            true
         }
     }
 
