@@ -261,7 +261,9 @@ pub mod boolector_impl {
                     BV::new(self.solver.clone(), width, Some(name)).into()
                 }
                 Node::Next { .. } => panic!("should be unreachable"),
-                Node::Bad { .. } => panic!("should be unreachable"),
+                Node::Bad { cond, .. } => {
+                    self.visit(cond)
+                },
                 Node::Comment(_) => panic!("cannot translate"),
             }
         }
@@ -504,7 +506,9 @@ pub mod z3solver_impl {
                     BV::new_const(self.context, name.to_owned(), width).into()
                 }
                 Node::Next { .. } => panic!("should be unreachable"),
-                Node::Bad { .. } => panic!("should be unreachable"),
+                Node::Bad { cond, .. } => {
+                    self.visit(cond).clone()
+                },
                 Node::Comment(_) => panic!("cannot translate"),
             }
         }

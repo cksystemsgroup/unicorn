@@ -61,7 +61,7 @@ fn optimize_model_impl<S: SMTSolver>(
             constant_folder.should_retain_bad_state(s, true, terminate_on_bad, one_query)
         });
         model.bad_states_sequential.retain(|s| {
-            constant_folder.should_retain_bad_state(s, false, terminate_on_bad, one_query)
+            constant_folder.should_retain_bad_state(s, true, terminate_on_bad, one_query)
         });
     } else {
         model
@@ -102,7 +102,7 @@ fn optimize_model_impl<S: SMTSolver>(
                     right: (*bad_state).clone(),
                 });
             }
-
+            println!("bad states len {}", all_bad_states.len());
             constant_folder.should_retain_bad_state(&ored_bad_states, true, true, true);
         }
     }
