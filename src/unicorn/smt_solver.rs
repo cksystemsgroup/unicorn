@@ -240,6 +240,11 @@ pub mod boolector_impl {
                     let bv_right = self.visit(right).into_bv();
                     bv_left.and(&bv_right).into()
                 }
+                Node::Or { left, right, .. } => {
+                    let bv_left = self.visit(left).into_bv();
+                    let bv_right = self.visit(right).into_bv();
+                    bv_left.or(&bv_right).into()
+                }
                 Node::Not { value, .. } => {
                     let bv_value = self.visit(value).into_bv();
                     bv_value.not().into()
@@ -465,6 +470,16 @@ pub mod z3solver_impl {
                     let z3_left = self.visit(left).as_bv().expect("bv");
                     let z3_right = self.visit(right).as_bv().expect("bv");
                     z3_left.bvand(&z3_right).into()
+                }
+                Node::Or { sort: NodeType::Bit, left, right, .. } => {
+                    let z3_left = self.visit(left).as_bool().expect("bool");
+                    let z3_right = self.visit(right).as_bool().expect("bool");
+                    Bool::or(self.context, &[&z3_left, &z3_right]).into()
+                }
+                Node::Or { left, right, .. } => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvor(&z3_right).into()
                 }
                 Node::Not { value, .. } => {
                     let z3_value = self.visit(value).as_bool().expect("bool");
