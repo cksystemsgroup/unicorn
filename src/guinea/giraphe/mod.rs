@@ -18,6 +18,8 @@ pub struct Giraphe {
     pub roots: Vec<Nid>,
     pub inputs: Vec<Nid>,
     pub states: Vec<Nid>,
+    pub spot_to_children: IndexMap<Nid, Vec<Nid>>,
+    pub spot_to_parents: IndexMap<Nid, Vec<Nid>>,
     pub pan: Vec2,
     pub registers: [Option<Nid>; 32],
     pub is_ascii: bool,

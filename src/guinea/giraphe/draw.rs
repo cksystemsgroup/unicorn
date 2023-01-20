@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 use std::iter::zip;
 
+use egui::epaint::{CubicBezierShape, QuadraticBezierShape};
 use egui::{Color32, Pos2, Rect, Rounding, Stroke, Ui, Vec2};
 use indexmap::IndexMap;
 
@@ -9,8 +10,6 @@ use crate::guinea::giraphe::draw::SugiNode::{Dummy, Real};
 use crate::guinea::giraphe::Giraphe;
 use crate::unicorn::Nid;
 
-// struct was edge ist mit in und out edge
-// layout struct um das layout zu speichern und bei dem impl draw um das zu zeichnen
 #[derive(Eq, PartialEq, Hash, Debug, Copy, Clone)]
 enum SugiNode {
     Real(Nid),
@@ -52,6 +51,7 @@ pub struct Layout {
     layers: Vec<Vec<SugiNode>>,
     child_edges: IndexMap<SugiNode, Vec<SugiNode>>,
     positions: IndexMap<SugiNode, Pos>,
+    edges_to_its_dummies: IndexMap<(SugiNode, SugiNode), Vec<SugiNode>>,
 }
 
 static X_SPACING: f32 = 50.0;
@@ -61,11 +61,13 @@ impl Giraphe {
         let mut layers: Vec<Vec<_>> = vec![];
         let mut node_to_layer = IndexMap::<SugiNode, isize>::new();
         let mut child_edges = IndexMap::<SugiNode, Vec<SugiNode>>::new();
+        let mut edges_to_its_dummies = IndexMap::<(SugiNode, SugiNode), Vec<SugiNode>>::new();
 
+        // insert dummy nodes
         let mut dummy_idx = 0;
         for k in self.spot_lookup.keys().rev() {
-            for c in self.spot_parents(*k) {
-                let e = child_edges.entry(Real(c)).or_insert_with(Vec::new);
+            for c in self.spot_to_parents.get(k).unwrap() {
+                let e = child_edges.entry(Real(*c)).or_insert_with(Vec::new);
                 e.push(Real(*k));
             }
             let edges = child_edges.get(&Real(*k));
@@ -93,11 +95,15 @@ impl Giraphe {
 
             // TODO: somewhere here populate parent_edges
             for p in &more_than_one_layer_difference {
+                let intermediate_dummies = edges_to_its_dummies
+                    .entry((Real(*k), *p))
+                    .or_insert_with(Vec::new);
                 let p_layer = *node_to_layer.get(p).unwrap();
                 let mut i = 1;
                 let mut n = *p;
                 while i < layer - p_layer {
                     let d = Dummy(dummy_idx);
+                    intermediate_dummies.push(d);
                     let e = child_edges.entry(d).or_insert_with(Vec::new);
                     node_to_layer.insert(d, p_layer + i);
                     layers[(p_layer + i) as usize].push(d);
@@ -131,6 +137,7 @@ impl Giraphe {
             layers,
             child_edges,
             positions: IndexMap::new(),
+            edges_to_its_dummies,
         }
     }
 
@@ -200,44 +207,135 @@ impl Giraphe {
     pub fn draw(&mut self, ui: &mut Ui) {
         let top_left = ui.min_rect().min.to_vec2() + Vec2::from([100.0, 100.0]) + self.pan;
 
-        // draw edges
-        for (node, pos) in &self.layout.positions {
-            let edges: Option<&Vec<SugiNode>> = self.layout.child_edges.get(node);
-            if let Some(edges) = edges {
-                for c_pos in edges.iter().map(|x| self.layout.positions.get(x).unwrap()) {
-                    let parent_pos = Pos2::from((pos.x * X_SPACING, pos.y * Y_SPACING)) + top_left;
-                    let child_pos =
-                        Pos2::from((c_pos.x * X_SPACING, c_pos.y * Y_SPACING)) + top_left;
-                    if ui.min_rect().contains(parent_pos) || ui.min_rect().contains(child_pos) {
-                        ui.painter().line_segment(
-                            [parent_pos, child_pos],
+        let mut nodes_to_draw = IndexMap::<Nid, Rect>::new();
+        // determine nodes to draw
+        for nid in self.spot_lookup.keys() {
+            let pos = self.layout.positions.get(&Real(*nid)).unwrap();
+
+            let rect = Rect::from_center_size(
+                Pos2::from([pos.x * X_SPACING, pos.y * Y_SPACING]) + top_left,
+                Vec2::from([20.0, 20.0]),
+            );
+
+            if ui.min_rect().contains_rect(rect) {
+                nodes_to_draw.insert(*nid, rect);
+            }
+        }
+
+        ui.label(format!(
+            "{} {} {}",
+            self.layout.positions.len(),
+            self.spot_lookup.len(),
+            nodes_to_draw.len(),
+        ));
+
+        let mut edges_drawn = 0;
+        let mut nodes_drawn = IndexMap::<Nid, ()>::new();
+        for (nid, rect) in &nodes_to_draw {
+            for parent in self.spot_to_parents.get(nid).unwrap() {
+                let p1 = rect.center();
+                let p2 = self.layout.positions.get(&Real(*parent)).unwrap();
+                let p2 = Pos2::from((p2.x * X_SPACING, p2.y * Y_SPACING)) + top_left;
+
+                let control_points = self
+                    .layout
+                    .edges_to_its_dummies
+                    .get(&(Real(*parent), Real(*nid)));
+                if let Some(control_points) = control_points {
+                    if control_points.len() > 1 {
+                        let control1 = control_points[0];
+                        let control2 = control_points.last().unwrap();
+                        let control1 = self.layout.positions.get(&control1).unwrap();
+                        let control1 =
+                            Pos2::from((control1.x * X_SPACING, control1.y * Y_SPACING)) + top_left;
+                        let control2 = self.layout.positions.get(control2).unwrap();
+                        let control2 =
+                            Pos2::from((control2.x * X_SPACING, control2.y * Y_SPACING)) + top_left;
+                        let curve = CubicBezierShape::from_points_stroke(
+                            [p1, control1, control2, p2],
+                            false,
+                            Color32::TRANSPARENT,
                             Stroke::from((5.0, Color32::from_gray(255))),
                         );
+                        ui.painter().add(curve);
+                    } else {
+                        let control1 = control_points[0];
+                        let control1 = self.layout.positions.get(&control1).unwrap();
+                        let control1 =
+                            Pos2::from((control1.x * X_SPACING, control1.y * Y_SPACING)) + top_left;
+                        let curve = QuadraticBezierShape::from_points_stroke(
+                            [p1, control1, p2],
+                            false,
+                            Color32::TRANSPARENT,
+                            Stroke::from((5.0, Color32::from_gray(255))),
+                        );
+                        ui.painter().add(curve);
                     }
+                } else {
+                    ui.painter()
+                        .line_segment([p1, p2], Stroke::from((5.0, Color32::from_gray(255))));
+                }
+                edges_drawn += 1;
+            }
+            nodes_drawn.insert(*nid, ());
+            for child in self.spot_to_children.get(nid).unwrap() {
+                if !nodes_drawn.contains_key(child) {
+                    let p1 = rect.center();
+                    let p2 = self.layout.positions.get(&Real(*child)).unwrap();
+                    let p2 = Pos2::from((p2.x * X_SPACING, p2.y * Y_SPACING)) + top_left;
+
+                    let control_points = self
+                        .layout
+                        .edges_to_its_dummies
+                        .get(&(Real(*child), Real(*nid)));
+                    if let Some(control_points) = control_points {
+                        if control_points.len() > 1 {
+                            let control1 = control_points[0];
+                            let control2 = control_points.last().unwrap();
+                            let control1 = self.layout.positions.get(&control1).unwrap();
+                            let control1 =
+                                Pos2::from((control1.x * X_SPACING, control1.y * Y_SPACING))
+                                    + top_left;
+                            let control2 = self.layout.positions.get(control2).unwrap();
+                            let control2 =
+                                Pos2::from((control2.x * X_SPACING, control2.y * Y_SPACING))
+                                    + top_left;
+                            let curve = CubicBezierShape::from_points_stroke(
+                                [p1, control1, control2, p2],
+                                false,
+                                Color32::TRANSPARENT,
+                                Stroke::from((5.0, Color32::from_gray(255))),
+                            );
+                            ui.painter().add(curve);
+                        } else {
+                            let control1 = control_points[0];
+                            let control1 = self.layout.positions.get(&control1).unwrap();
+                            let control1 =
+                                Pos2::from((control1.x * X_SPACING, control1.y * Y_SPACING))
+                                    + top_left;
+                            let curve = QuadraticBezierShape::from_points_stroke(
+                                [p1, control1, p2],
+                                false,
+                                Color32::TRANSPARENT,
+                                Stroke::from((5.0, Color32::from_gray(255))),
+                            );
+                            ui.painter().add(curve);
+                        }
+                    } else {
+                        ui.painter()
+                            .line_segment([p1, p2], Stroke::from((5.0, Color32::from_gray(255))));
+                    }
+                    edges_drawn += 1;
                 }
             }
         }
 
-        // draw nodes
-        for (node, pos) in &self.layout.positions {
-            if pos.y * Y_SPACING > ui.min_rect().bottom() {
-                break;
-            }
-
-            if let Real(_) = node {
-                let pos_x = pos.x * X_SPACING + top_left.x;
-                if pos_x < ui.min_rect().left() || pos_x > ui.min_rect().right() {
-                    continue;
-                }
-                let rect = Rect::from_center_size(
-                    Pos2::from([pos.x * X_SPACING, pos.y * Y_SPACING]) + top_left,
-                    Vec2::from([20.0, 20.0]),
-                );
-
-                ui.painter()
-                    .rect_filled(rect, Rounding::from(10.0), Color32::from_gray(100));
-            }
+        for (_, rect) in nodes_to_draw {
+            ui.painter()
+                .rect_filled(rect, Rounding::from(10.0), Color32::from_gray(100));
         }
+
+        ui.label(format!("Edges: {}", edges_drawn));
     }
 }
 

@@ -10,15 +10,6 @@ use crate::guinea::giraphe::Value::{Array, Bitvector, Boolean};
 use crate::guinea::giraphe::{Giraphe, MachineWord, Spot, Value};
 use crate::unicorn::{Model, Nid, Node, NodeRef, NodeType};
 
-// TODO:
-//   inputs in the graph
-//   preprocess the graph
-//    - collapse if then else block
-//    - collapse input gathering
-//    - unroll once to remove all unnecessary extras
-//   better layout:
-//    - directly dependant nodes near each other
-//    - less density
 impl Giraphe {
     pub fn from(model: &Model) -> Self {
         assert!(
@@ -32,6 +23,8 @@ impl Giraphe {
 
         let mut states: Vec<Nid> = Vec::new();
         let mut registers: [Option<Nid>; 32] = Default::default();
+        let mut spot_to_children = IndexMap::new();
+        let mut spot_to_parents = IndexMap::new();
 
         for node in &model.lines {
             let n = &*node.borrow();
@@ -44,25 +37,111 @@ impl Giraphe {
             };
 
             match &*node.borrow() {
-                Node::Const { nid, .. }
-                | Node::Not { nid, .. }
-                | Node::Ext { nid, .. }
-                | Node::Read { nid, .. }
-                | Node::Add { nid, .. }
-                | Node::Sub { nid, .. }
-                | Node::Mul { nid, .. }
-                | Node::Div { nid, .. }
-                | Node::Rem { nid, .. }
-                | Node::Sll { nid, .. }
-                | Node::Srl { nid, .. }
-                | Node::Ult { nid, .. }
-                | Node::Eq { nid, .. }
-                | Node::And { nid, .. }
-                | Node::Ite { nid, .. }
-                | Node::Write { nid, .. } => {
+                Node::Const { nid, .. } => {
+                    spot_lookup.insert(*nid, spot);
+                    spot_to_parents.entry(*nid).or_insert_with(Vec::new);
+                }
+                Node::Not { nid, value, .. } | Node::Ext { nid, value, .. } => {
+                    spot_lookup.insert(*nid, spot);
+                    let p1 = noderef_to_nid(value);
+                    spot_to_parents
+                        .entry(*nid)
+                        .or_insert_with(Vec::new)
+                        .append(&mut vec![p1]);
+                    spot_to_children
+                        .entry(p1)
+                        .or_insert_with(Vec::new)
+                        .push(*nid);
+                }
+                Node::Read {
+                    nid,
+                    memory: left,
+                    address: right,
+                    ..
+                }
+                | Node::Add {
+                    nid, left, right, ..
+                }
+                | Node::Sub {
+                    nid, left, right, ..
+                }
+                | Node::Mul {
+                    nid, left, right, ..
+                }
+                | Node::Div {
+                    nid, left, right, ..
+                }
+                | Node::Rem {
+                    nid, left, right, ..
+                }
+                | Node::Sll {
+                    nid, left, right, ..
+                }
+                | Node::Srl {
+                    nid, left, right, ..
+                }
+                | Node::Ult {
+                    nid, left, right, ..
+                }
+                | Node::Eq {
+                    nid, left, right, ..
+                }
+                | Node::And {
+                    nid, left, right, ..
+                } => {
+                    let p1 = noderef_to_nid(left);
+                    let p2 = noderef_to_nid(right);
+                    spot_to_parents
+                        .entry(*nid)
+                        .or_insert_with(Vec::new)
+                        .append(&mut vec![p1, p2]);
+                    spot_to_children
+                        .entry(p1)
+                        .or_insert_with(Vec::new)
+                        .push(*nid);
+                    spot_to_children
+                        .entry(p2)
+                        .or_insert_with(Vec::new)
+                        .push(*nid);
+                    spot_lookup.insert(*nid, spot);
+                }
+                Node::Ite {
+                    nid,
+                    cond,
+                    left,
+                    right,
+                    ..
+                }
+                | Node::Write {
+                    nid,
+                    memory: cond,
+                    address: left,
+                    value: right,
+                    ..
+                } => {
+                    let p0 = noderef_to_nid(cond);
+                    let p1 = noderef_to_nid(left);
+                    let p2 = noderef_to_nid(right);
+                    spot_to_parents
+                        .entry(*nid)
+                        .or_insert_with(Vec::new)
+                        .append(&mut vec![p0, p1, p2]);
+                    spot_to_children
+                        .entry(p0)
+                        .or_insert_with(Vec::new)
+                        .push(*nid);
+                    spot_to_children
+                        .entry(p1)
+                        .or_insert_with(Vec::new)
+                        .push(*nid);
+                    spot_to_children
+                        .entry(p2)
+                        .or_insert_with(Vec::new)
+                        .push(*nid);
                     spot_lookup.insert(*nid, spot);
                 }
                 Node::Input { nid, .. } => {
+                    spot_to_parents.entry(*nid).or_insert_with(Vec::new);
                     inputs.push(*nid);
                     spot_lookup.insert(*nid, spot);
                 }
@@ -70,8 +149,18 @@ impl Giraphe {
                     nid, init, name, ..
                 } => {
                     if init.is_none() {
+                        spot_to_parents.entry(*nid).or_insert_with(Vec::new);
                         inputs.push(*nid);
                     } else {
+                        let p1 = noderef_to_nid(init.as_ref().unwrap());
+                        spot_to_parents
+                            .entry(*nid)
+                            .or_insert_with(Vec::new)
+                            .append(&mut vec![p1]);
+                        spot_to_children
+                            .entry(p1)
+                            .or_insert_with(Vec::new)
+                            .push(*nid);
                         states.push(*nid);
                     }
 
@@ -79,7 +168,38 @@ impl Giraphe {
 
                     spot_lookup.insert(*nid, spot);
                 }
-                Node::Next { nid, .. } | Node::Bad { nid, .. } => {
+                Node::Next {
+                    nid, state, next, ..
+                } => {
+                    let p1 = noderef_to_nid(state);
+                    let p2 = noderef_to_nid(next);
+                    spot_to_parents
+                        .entry(*nid)
+                        .or_insert_with(Vec::new)
+                        .append(&mut vec![p1, p2]);
+                    spot_to_children
+                        .entry(p1)
+                        .or_insert_with(Vec::new)
+                        .push(*nid);
+                    spot_to_children
+                        .entry(p2)
+                        .or_insert_with(Vec::new)
+                        .push(*nid);
+                    leaves.push(*nid);
+                    spot_to_children.entry(*nid).or_insert_with(Vec::new);
+                    spot_lookup.insert(*nid, spot);
+                }
+                Node::Bad { nid, cond, .. } => {
+                    let p1 = noderef_to_nid(cond);
+                    spot_to_children.entry(*nid).or_insert_with(Vec::new);
+                    spot_to_parents
+                        .entry(*nid)
+                        .or_insert_with(Vec::new)
+                        .append(&mut vec![p1]);
+                    spot_to_children
+                        .entry(p1)
+                        .or_insert_with(Vec::new)
+                        .push(*nid);
                     leaves.push(*nid);
                     spot_lookup.insert(*nid, spot);
                 }
@@ -110,6 +230,8 @@ impl Giraphe {
             pan: Vec2::default(),
             input_queue: vec![],
             layout: Default::default(),
+            spot_to_children,
+            spot_to_parents,
         };
 
         g.tick = -1;
@@ -466,73 +588,6 @@ impl Giraphe {
             .map(|x| x.val_cur == Boolean(true))
             .reduce(|a, x| a || x)
             .unwrap()
-    }
-
-    pub fn spot_parents(&self, nid: Nid) -> Vec<Nid> {
-        match &*self.nid_to_spot(&nid).origin.borrow() {
-            Node::Const { .. } | Node::Input { .. } => vec![],
-            Node::Bad { cond: a, .. } | Node::Ext { value: a, .. } | Node::Not { value: a, .. } => {
-                vec![noderef_to_nid(a)]
-            }
-            Node::Read {
-                memory: a,
-                address: b,
-                ..
-            }
-            | Node::Add {
-                left: a, right: b, ..
-            }
-            | Node::Sub {
-                left: a, right: b, ..
-            }
-            | Node::Mul {
-                left: a, right: b, ..
-            }
-            | Node::Div {
-                left: a, right: b, ..
-            }
-            | Node::Rem {
-                left: a, right: b, ..
-            }
-            | Node::Sll {
-                left: a, right: b, ..
-            }
-            | Node::Srl {
-                left: a, right: b, ..
-            }
-            | Node::Ult {
-                left: a, right: b, ..
-            }
-            | Node::Eq {
-                left: a, right: b, ..
-            }
-            | Node::And {
-                left: a, right: b, ..
-            }
-            | Node::Next {
-                state: a, next: b, ..
-            } => vec![noderef_to_nid(a), noderef_to_nid(b)],
-            Node::Write {
-                memory: a,
-                address: b,
-                value: c,
-                ..
-            }
-            | Node::Ite {
-                cond: a,
-                left: b,
-                right: c,
-                ..
-            } => vec![noderef_to_nid(a), noderef_to_nid(b), noderef_to_nid(c)],
-            Node::State { init, .. } => {
-                if let Some(a) = init {
-                    vec![noderef_to_nid(a)]
-                } else {
-                    vec![]
-                }
-            }
-            Node::Comment(_) => unreachable!(),
-        }
     }
 }
 

@@ -52,8 +52,8 @@ pub fn registers(ui: &mut Ui, regs: Vec<Value>) {
     ui.horizontal_top(|ui| {
         egui::Grid::new("registers1")
             .striped(true)
-            .min_col_width(50.0)
-            .max_col_width(50.0)
+            .min_col_width(40.0)
+            .max_col_width(40.0)
             .show(ui, |ui| {
                 ui.label("zero");
                 ui.label(format!("{}", regs.get(0).unwrap()));
