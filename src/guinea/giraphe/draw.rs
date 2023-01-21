@@ -3,12 +3,13 @@ use std::hash::{Hash, Hasher};
 use std::iter::zip;
 
 use egui::epaint::{CubicBezierShape, QuadraticBezierShape};
-use egui::{Color32, Pos2, Rect, Rounding, Stroke, Ui, Vec2};
+use egui::{Color32, Direction, Pos2, Rect, Response, RichText, Rounding, Stroke, Ui, Vec2};
 use indexmap::IndexMap;
 
 use crate::guinea::giraphe::draw::SugiNode::{Dummy, Real};
-use crate::guinea::giraphe::Giraphe;
-use crate::unicorn::Nid;
+use crate::guinea::giraphe::graph::noderef_to_nid;
+use crate::guinea::giraphe::{Giraphe, Spot};
+use crate::unicorn::{Nid, Node};
 
 #[derive(Eq, PartialEq, Hash, Debug, Copy, Clone)]
 enum SugiNode {
@@ -56,6 +57,7 @@ pub struct Layout {
 
 static X_SPACING: f32 = 50.0;
 static Y_SPACING: f32 = 100.0;
+static NODE_SIZE: f32 = 30.0;
 impl Giraphe {
     fn layer(&self) -> Layout {
         let mut layers: Vec<Vec<_>> = vec![];
@@ -214,7 +216,7 @@ impl Giraphe {
 
             let rect = Rect::from_center_size(
                 Pos2::from([pos.x * X_SPACING, pos.y * Y_SPACING]) + top_left,
-                Vec2::from([20.0, 20.0]),
+                Vec2::from([NODE_SIZE, NODE_SIZE]),
             );
 
             if ui.min_rect().contains_rect(rect) {
@@ -222,14 +224,6 @@ impl Giraphe {
             }
         }
 
-        ui.label(format!(
-            "{} {} {}",
-            self.layout.positions.len(),
-            self.spot_lookup.len(),
-            nodes_to_draw.len(),
-        ));
-
-        let mut edges_drawn = 0;
         let mut nodes_drawn = IndexMap::<Nid, ()>::new();
         for (nid, rect) in &nodes_to_draw {
             for parent in self.spot_to_parents.get(nid).unwrap() {
@@ -275,7 +269,6 @@ impl Giraphe {
                     ui.painter()
                         .line_segment([p1, p2], Stroke::from((5.0, Color32::from_gray(255))));
                 }
-                edges_drawn += 1;
             }
             nodes_drawn.insert(*nid, ());
             for child in self.spot_to_children.get(nid).unwrap() {
@@ -325,17 +318,214 @@ impl Giraphe {
                         ui.painter()
                             .line_segment([p1, p2], Stroke::from((5.0, Color32::from_gray(255))));
                     }
-                    edges_drawn += 1;
                 }
             }
         }
 
-        for (_, rect) in nodes_to_draw {
+        for (nid, rect) in nodes_to_draw {
+            let spot = self.spot_lookup.get(&nid).unwrap();
             ui.painter()
-                .rect_filled(rect, Rounding::from(10.0), Color32::from_gray(100));
+                .rect_filled(rect, Rounding::from(NODE_SIZE / 2.0), spot.color());
+            let mut child_ui = ui.child_ui(
+                rect,
+                egui::Layout::centered_and_justified(Direction::LeftToRight),
+            );
+            self.draw_spot(spot, &mut child_ui);
         }
+    }
 
-        ui.label(format!("Edges: {}", edges_drawn));
+    fn draw_spot(&self, spot: &Spot, ui: &mut Ui) -> Response {
+        ui.label(
+            RichText::new(spot.display_value_abbreviated())
+                .monospace()
+                .color(Color32::from_gray(255)),
+        )
+        .on_hover_ui(|ui| {
+            ui.heading(spot.title());
+            let node_name = spot.node_name();
+            if let Some(node_name) = node_name {
+                ui.label(node_name);
+            }
+            ui.add_space(5.0);
+            ui.label(format!("Current value: {}", spot.display_value()));
+
+            let operation = match &*spot.origin.borrow() {
+                Node::Const { .. } => {
+                    format!("Constant: {}", spot.display_value())
+                }
+                Node::Read {
+                    memory, address, ..
+                } => {
+                    let memory = self.spot_lookup.get(&noderef_to_nid(memory)).unwrap();
+                    let address = self.spot_lookup.get(&noderef_to_nid(address)).unwrap();
+                    format!(
+                        "{}[{}] = {}",
+                        memory.display_value(),
+                        address.display_value(),
+                        spot.display_value()
+                    )
+                }
+                Node::Write {
+                    memory,
+                    address,
+                    value,
+                    ..
+                } => {
+                    let memory = self.spot_lookup.get(&noderef_to_nid(memory)).unwrap();
+                    let address = self.spot_lookup.get(&noderef_to_nid(address)).unwrap();
+                    let value = self.spot_lookup.get(&noderef_to_nid(value)).unwrap();
+                    format!(
+                        "{}[{}] = {} => {}",
+                        memory.display_value(),
+                        address.display_value(),
+                        value.display_value(),
+                        spot.display_value()
+                    )
+                }
+                Node::Add { left, right, .. } => {
+                    let left = self.spot_lookup.get(&noderef_to_nid(left)).unwrap();
+                    let right = self.spot_lookup.get(&noderef_to_nid(right)).unwrap();
+                    format!(
+                        "{} + {} = {}",
+                        left.display_value(),
+                        right.display_value(),
+                        spot.display_value()
+                    )
+                }
+                Node::Sub { left, right, .. } => {
+                    let left = self.spot_lookup.get(&noderef_to_nid(left)).unwrap();
+                    let right = self.spot_lookup.get(&noderef_to_nid(right)).unwrap();
+                    format!(
+                        "{} - {} = {}",
+                        left.display_value(),
+                        right.display_value(),
+                        spot.display_value()
+                    )
+                }
+                Node::Mul { left, right, .. } => {
+                    let left = self.spot_lookup.get(&noderef_to_nid(left)).unwrap();
+                    let right = self.spot_lookup.get(&noderef_to_nid(right)).unwrap();
+                    format!(
+                        "{} * {} = {}",
+                        left.display_value(),
+                        right.display_value(),
+                        spot.display_value()
+                    )
+                }
+                Node::Div { left, right, .. } => {
+                    let left = self.spot_lookup.get(&noderef_to_nid(left)).unwrap();
+                    let right = self.spot_lookup.get(&noderef_to_nid(right)).unwrap();
+                    format!(
+                        "{} / {} = {}",
+                        left.display_value(),
+                        right.display_value(),
+                        spot.display_value()
+                    )
+                }
+                Node::Rem { left, right, .. } => {
+                    let left = self.spot_lookup.get(&noderef_to_nid(left)).unwrap();
+                    let right = self.spot_lookup.get(&noderef_to_nid(right)).unwrap();
+                    format!(
+                        "{} % {} = {}",
+                        left.display_value(),
+                        right.display_value(),
+                        spot.display_value()
+                    )
+                }
+                Node::Sll { left, right, .. } => {
+                    let left = self.spot_lookup.get(&noderef_to_nid(left)).unwrap();
+                    let right = self.spot_lookup.get(&noderef_to_nid(right)).unwrap();
+                    format!(
+                        "{} << {} = {}",
+                        left.display_value(),
+                        right.display_value(),
+                        spot.display_value()
+                    )
+                }
+                Node::Srl { left, right, .. } => {
+                    let left = self.spot_lookup.get(&noderef_to_nid(left)).unwrap();
+                    let right = self.spot_lookup.get(&noderef_to_nid(right)).unwrap();
+                    format!(
+                        "{} >> {} = {}",
+                        left.display_value(),
+                        right.display_value(),
+                        spot.display_value()
+                    )
+                }
+                Node::Ult { left, right, .. } => {
+                    let left = self.spot_lookup.get(&noderef_to_nid(left)).unwrap();
+                    let right = self.spot_lookup.get(&noderef_to_nid(right)).unwrap();
+                    format!(
+                        "{} < {} = {}",
+                        left.display_value(),
+                        right.display_value(),
+                        spot.display_value()
+                    )
+                }
+                Node::Ext { value, .. } => {
+                    let value = self.spot_lookup.get(&noderef_to_nid(value)).unwrap();
+                    format!(
+                        "{} extended to {}",
+                        value.display_value(),
+                        spot.display_value()
+                    )
+                }
+                Node::Ite {
+                    cond, left, right, ..
+                } => {
+                    let cond = self.spot_lookup.get(&noderef_to_nid(cond)).unwrap();
+                    let left = self.spot_lookup.get(&noderef_to_nid(left)).unwrap();
+                    let right = self.spot_lookup.get(&noderef_to_nid(right)).unwrap();
+                    format!(
+                        "if {} then {} else {} => {}",
+                        cond.display_value(),
+                        left.display_value(),
+                        right.display_value(),
+                        spot.display_value()
+                    )
+                }
+                Node::Eq { left, right, .. } => {
+                    let left = self.spot_lookup.get(&noderef_to_nid(left)).unwrap();
+                    let right = self.spot_lookup.get(&noderef_to_nid(right)).unwrap();
+                    format!(
+                        "{} == {} = {}",
+                        left.display_value(),
+                        right.display_value(),
+                        spot.display_value()
+                    )
+                }
+                Node::And { left, right, .. } => {
+                    let left = self.spot_lookup.get(&noderef_to_nid(left)).unwrap();
+                    let right = self.spot_lookup.get(&noderef_to_nid(right)).unwrap();
+                    format!(
+                        "{} & {} = {}",
+                        left.display_value(),
+                        right.display_value(),
+                        spot.display_value()
+                    )
+                }
+                Node::Not { value, .. } => {
+                    let value = self.spot_lookup.get(&noderef_to_nid(value)).unwrap();
+                    format!("!{} = {}", value.display_value(), spot.display_value())
+                }
+                Node::State { .. } => "".to_string(),
+                Node::Next { state, .. } => {
+                    let state = self.spot_lookup.get(&noderef_to_nid(state)).unwrap();
+                    format!(
+                        "{} will become {}",
+                        state.display_value(),
+                        spot.display_value()
+                    )
+                }
+                Node::Input { .. } => "".to_string(),
+                Node::Bad { .. } => "".to_string(),
+                Node::Comment(_) => unreachable!(),
+            };
+            if !operation.is_empty() {
+                ui.label(RichText::new("Operation:").underline());
+                ui.label(operation);
+            }
+        })
     }
 }
 

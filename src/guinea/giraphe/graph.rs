@@ -3,7 +3,7 @@ use std::iter::zip;
 
 use egui::{Ui, Vec2};
 use indexmap::IndexMap;
-use log::trace;
+use log::{debug, trace};
 
 use crate::guinea::giraphe::MachineWord::Concrete;
 use crate::guinea::giraphe::Value::{Array, Bitvector, Boolean};
@@ -232,6 +232,7 @@ impl Giraphe {
             layout: Default::default(),
             spot_to_children,
             spot_to_parents,
+            in_bad_state: false,
         };
 
         g.tick = -1;
@@ -297,6 +298,7 @@ impl Giraphe {
         if ui.rect_contains_pointer(ui.min_rect()) && ui.ctx().input().pointer.primary_down() {
             self.pan += ui.ctx().input().pointer.delta();
         }
+        self.pan += ui.ctx().input().scroll_delta;
     }
 
     pub fn tick_over(&mut self) -> isize {
@@ -323,7 +325,8 @@ impl Giraphe {
                 }
                 Node::Bad { name, .. } => {
                     if val_cur == Boolean(true) {
-                        println!("Bad is true: {}", name.as_ref().unwrap());
+                        debug!("Bad is true: {}", name.as_ref().unwrap());
+                        self.in_bad_state = true;
                     }
                 }
                 _ => unreachable!("Only Bad and Next nodes can be leaves"),

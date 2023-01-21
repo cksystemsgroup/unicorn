@@ -27,6 +27,7 @@ pub struct Giraphe {
     pub input_number: u8,
     pub input_queue: Vec<String>,
     pub layout: Layout,
+    pub in_bad_state: bool,
 }
 
 #[allow(unused)]

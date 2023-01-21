@@ -1,4 +1,4 @@
-use egui::{Response, Ui, Widget};
+use egui::Color32;
 use indexmap::IndexMap;
 
 use crate::guinea::giraphe::MachineWord::Concrete;
@@ -70,25 +70,75 @@ impl Spot {
             Node::Comment(_) => unreachable!(),
         }
     }
-}
 
-impl Widget for Spot {
-    fn ui(self, ui: &mut Ui) -> Response {
-        let name = match &*self.origin.borrow() {
-            Node::State { name, .. } => name.clone().unwrap(),
-            Node::Bad { name, .. } => name.clone().unwrap(),
-            _ => "no name".to_string(),
-        };
-        ui.vertical(|ui| {
-            ui.heading(self.title());
-            ui.separator();
-            ui.label(name);
-            let was = format!("Was: {}", self.val_old);
-            let now = format!("Is: {}", self.val_cur);
-            ui.label(format!("Tick: {}", self.tick));
-            ui.label(was);
-            ui.label(now);
-        })
-        .response
+    pub fn display_value_abbreviated(&self) -> String {
+        match self.val_cur {
+            Boolean(x) => if x { "T" } else { "F" }.to_string(),
+            Bitvector(x) => {
+                let Concrete(x) = x;
+
+                let value = format!("{}", x);
+                if value.len() > 3 {
+                    "...".to_string()
+                } else {
+                    value
+                }
+            }
+            Value::Array(_) => "VM".to_string(),
+            Value::Undefined => "?".to_string(),
+        }
+    }
+
+    pub fn display_value(&self) -> String {
+        match self.val_cur {
+            Boolean(x) => if x { "True" } else { "False" }.to_string(),
+            Bitvector(x) => {
+                let Concrete(x) = x;
+                format!("{}", x)
+            }
+            Value::Array(_) => "Virtual Machine".to_string(),
+            Value::Undefined => "Undefined".to_string(),
+        }
+    }
+
+    pub fn node_name(&self) -> Option<String> {
+        match &*self.origin.borrow() {
+            Node::State { name, .. } => name.clone(),
+            Node::Next { state, .. } => {
+                if let Node::State { name, .. } = &*state.borrow() {
+                    name.clone()
+                } else {
+                    unreachable!()
+                }
+            }
+            Node::Input { name, .. } => Some(name.clone()),
+            Node::Bad { name, .. } => name.clone(),
+            _ => None,
+        }
+    }
+
+    pub fn color(&self) -> Color32 {
+        match &*self.origin.borrow() {
+            Node::Const { .. } => Color32::from_rgb(188, 189, 59),
+            Node::Read { .. } => Color32::from_rgb(156, 117, 95),
+            Node::Write { .. } => Color32::from_rgb(237, 201, 72),
+            Node::Add { .. }
+            | Node::Sub { .. }
+            | Node::Mul { .. }
+            | Node::Div { .. }
+            | Node::Rem { .. }
+            | Node::Sll { .. }
+            | Node::Ext { .. }
+            | Node::Srl { .. } => Color32::from_rgb(255, 157, 167),
+            Node::Ite { .. } => Color32::from_rgb(176, 122, 161),
+            Node::Ult { .. } | Node::Eq { .. } | Node::And { .. } | Node::Not { .. } => {
+                Color32::from_rgb(242, 142, 43)
+            }
+            Node::State { .. } => Color32::from_rgb(118, 183, 178),
+            Node::Next { .. } => Color32::from_rgb(78, 121, 165),
+            Node::Input { .. } => Color32::from_rgb(89, 161, 79),
+            Node::Bad { .. } => Color32::from_rgb(225, 87, 89),
+            Node::Comment(_) => unreachable!(),
+        }
     }
 }

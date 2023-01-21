@@ -8,16 +8,20 @@ use riscu::decode;
 use std::iter::zip;
 
 pub fn step(ui: &mut Ui, graph: &mut Giraphe) {
-    ui.horizontal(|ui| {
-        if ui.button("Step Over").clicked() {
-            graph.tick_over();
-        }
-        if ui.button("Step until input").clicked() {
-            while !(graph.a7_is_read_or_exit() && graph.is_in_kernel_mode()) {
+    ui.add_enabled_ui(!graph.in_bad_state, |ui| {
+        ui.horizontal(|ui| {
+            if ui.button("Step Over").clicked() {
                 graph.tick_over();
             }
-        }
-        ui.label(format!("Tick {}", graph.tick))
+            if ui.button("Step until input").clicked() {
+                while !(graph.in_bad_state
+                    || graph.a7_is_read_or_exit() && graph.is_in_kernel_mode())
+                {
+                    graph.tick_over();
+                }
+            }
+            ui.label(format!("Tick {}", graph.tick))
+        })
     });
 }
 
