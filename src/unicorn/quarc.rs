@@ -109,6 +109,7 @@ impl PartialEq for HashableQubitRef {
 
 #[derive(Debug)]
 pub struct Dependency {
+    id: u64,
     name: String,
     operands: Vec<Vec<QubitRef>>,
 }
@@ -120,8 +121,9 @@ impl From<Dependency> for DependencyRef {
 }
 
 impl Dependency {
-    pub fn new(name: &str, operand1: &[QubitRef], operand2: &[QubitRef]) -> Self {
+    pub fn new(id: u64, name: &str, operand1: &[QubitRef], operand2: &[QubitRef]) -> Self {
         Self {
+            id, 
             name: name.to_string(),
             operands: vec![operand1.to_owned(), operand2.to_owned()],
         }
@@ -413,6 +415,16 @@ pub fn get_dependency_data(hdep: &HashableDependencyRef)  -> (String, Vec<Vec<Qu
     let name = dep.name.clone();
     (name, operands)
 
+}
+
+pub fn get_hdependency_id(hdep: &HashableDependencyRef)  -> u64{
+    let dep = hdep.value.as_ref().borrow();
+    dep.id
+}
+
+pub fn get_dependency_id(dep: &DependencyRef)  -> u64{
+    let dep = dep.as_ref().borrow();
+    dep.id
 }
 
 pub fn try_solve_dependency(
@@ -1503,9 +1515,9 @@ impl<'a> QuantumCircuit<'a> {
             let mut i = 0;
 
             let coeff_dep =
-                DependencyRef::from(Dependency::new("div", &left_operand, &right_operand));
+                DependencyRef::from(Dependency::new(self.dependencies.len() as u64 ,"div", &left_operand, &right_operand));
             let rem_dep =
-                DependencyRef::from(Dependency::new("rem", &left_operand, &right_operand));
+                DependencyRef::from(Dependency::new(self.dependencies.len() as u64, "rem", &left_operand, &right_operand));
             while c.len() < sort {
                 c.push(QubitRef::from(Qubit::QBit {
                     name: format!("{}_coeff{}_{}", nid, i, self.current_n),
