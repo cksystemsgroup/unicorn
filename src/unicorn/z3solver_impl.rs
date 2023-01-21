@@ -1,4 +1,3 @@
-
 #[cfg(feature = "z3")]
 use crate::unicorn::solver::{Solution, Solver};
 #[cfg(feature = "z3")]
