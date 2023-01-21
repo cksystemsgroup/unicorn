@@ -406,7 +406,7 @@ pub fn get_qubit_dependecy(qubit: &QubitRef)  -> Option<(String, Vec<Vec<QubitRe
     
 }
 
-pub fn get_dependecy_data(hdep: &HashableDependencyRef)  -> (String, Vec<Vec<QubitRef>>){
+pub fn get_dependency_data(hdep: &HashableDependencyRef)  -> (String, Vec<Vec<QubitRef>>){
 
     let dep = hdep.value.as_ref().borrow();
     let operands = dep.operands.clone();
