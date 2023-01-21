@@ -390,6 +390,19 @@ pub fn solve_dependency(
     }
 }
 
+pub fn get_qubit_dependecy(qubit: &QubitRef)  -> Option<DependencyRef>{
+    if let Qubit::QBit {
+        dependency: Some(dep),
+        ..
+    } = &*qubit.borrow()
+    {
+        Some(dep.clone())
+    } else {
+        None
+    }
+    
+}
+
 pub fn try_solve_dependency(
     assignments: &mut HashMap<HashableQubitRef, bool>,
     qubit: &QubitRef,
