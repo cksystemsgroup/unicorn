@@ -57,10 +57,10 @@ impl Solver for BoolectorSolver {
     }
 
     fn solve(&mut self, root: &NodeRef) -> Solution {
-            let bv = self.visit(root);
-            self.solve_impl(bv.slice(0, 0))
-        }
+        let bv = self.visit(root);
+        self.solve_impl(bv.slice(0, 0))
     }
+}
 
 #[cfg(feature = "boolector")]
 impl BoolectorSolver {

@@ -188,6 +188,21 @@ fn is_constant(qubit_type: &QubitRef) -> bool {
     matches!(&*qubit_type.borrow(), Qubit::ConstFalse | Qubit::ConstTrue)
 }
 
+fn get_value_in_bin(value_: i64, sort: usize) -> Vec<bool> {
+    let mut value = value_;
+    let mut answer: Vec<bool> = Vec::new();
+    for _ in 0..sort {
+        if value % 2 == 0 {
+            answer.push(false);
+        } else {
+            answer.push(true);
+        }
+        value /= 2;
+    }
+    assert!(sort == answer.len());
+    answer
+}
+
 fn get_replacement_from_constant(sort: &NodeType, mut value: u64) -> Vec<QubitRef> {
     let total_bits = sort.bitsize();
     let mut replacement: Vec<QubitRef> = Vec::new();
@@ -337,6 +352,185 @@ fn prepare_controls_for_mcx(
 // END some functions
 
 // Begin implementation
+
+pub fn solve_dependency(
+    dependency: DependencyRef,
+    assignments: &mut HashMap<HashableQubitRef, bool>,
+    dependencies_values: &mut HashSet<HashableDependencyRef>,
+    dependencies: &HashMap<HashableDependencyRef, Vec<QubitRef>>,
+) {
+    let dep_key = HashableDependencyRef::from(dependency.clone());
+    if !dependencies_values.contains(&dep_key) {
+        let dep = dependency.as_ref().borrow();
+        let operands = &dep.operands;
+        let name = &dep.name;
+        let operand1_value = get_word_value(&operands[0].clone(), assignments).unwrap();
+        let operand2_value = get_word_value(&operands[1], assignments).unwrap();
+        assert!(operands[0].len() == operands[1].len());
+        let mut result;
+        if operand2_value != 0 {
+            if name == "div" {
+                result = operand1_value / operand2_value;
+            } else {
+                assert!(name == "rem");
+
+                result = operand1_value % operand2_value;
+            }
+        } else {
+            result = operand1_value;
+        }
+
+        let target = dependencies.get(&dep_key).unwrap();
+        for qubit in target.iter() {
+            let key = HashableQubitRef::from(qubit.clone());
+            assignments.insert(key, (result % 2) == 1);
+            result /= 2;
+        }
+        dependencies_values.insert(dep_key);
+    }
+}
+
+pub fn try_solve_dependency(
+    assignments: &mut HashMap<HashableQubitRef, bool>,
+    qubit: &QubitRef,
+    dependecies_values: &mut HashSet<HashableDependencyRef>,
+    dependencies: &HashMap<HashableDependencyRef, Vec<QubitRef>>,
+) {
+    if let Qubit::QBit {
+        dependency: Some(dep),
+        ..
+    } = &*qubit.borrow()
+    {
+        solve_dependency(dep.clone(), assignments, dependecies_values, dependencies);
+    }
+}
+
+pub fn evaluate_circuit(
+    assignments: &mut HashMap<HashableQubitRef, bool>,
+    circuit_stack: &[UnitaryRef],
+    dependencies: &HashMap<HashableDependencyRef, Vec<QubitRef>>,
+) {
+    let mut dependencies_values: HashSet<HashableDependencyRef> = HashSet::new();
+    for gate in circuit_stack.iter() {
+        match &*gate.borrow() {
+            Unitary::Not { input } => {
+                try_solve_dependency(assignments, input, &mut dependencies_values, dependencies);
+                let key = HashableQubitRef::from(input.clone());
+
+                if assignments.contains_key(&key) {
+                    let value = *assignments.get(&key).unwrap();
+                    assignments.insert(key, !value);
+                } else {
+                    // qubits are initialized in 0. Therefore, NOT should set it to true.
+                    assignments.insert(key, true);
+                }
+            }
+            Unitary::Cnot { control, target } => {
+                assert!(!is_constant(control));
+                assert!(!is_constant(target));
+                try_solve_dependency(assignments, control, &mut dependencies_values, dependencies);
+                try_solve_dependency(assignments, target, &mut dependencies_values, dependencies);
+
+                let control_key = HashableQubitRef::from(control.clone());
+                let target_key = HashableQubitRef::from(target.clone());
+
+                if let Some(control_value) = assignments.get(&control_key) {
+                    if *control_value {
+                        if let Some(target_value) = assignments.get(&target_key) {
+                            if *target_value {
+                                assignments.insert(target_key, false);
+                            } else {
+                                assignments.insert(target_key, true);
+                            }
+                        } else {
+                            // target is initialized in 0, therefore we must flip it to 1
+                            assignments.insert(target_key, true);
+                        }
+                    } else if assignments.get(&target_key).is_none() {
+                        // if control is not true we just check if its in the assignments-dictionary, if not we add it
+                        assignments.insert(target_key, false);
+                    }
+                } else {
+                    panic!("Control qubit does not has any value! There is a bug.");
+                }
+            }
+            Unitary::Mcx { controls, target } => {
+                assert!(!controls.is_empty());
+                try_solve_dependency(assignments, target, &mut dependencies_values, dependencies);
+                let mut controls_and = true;
+                for control in controls {
+                    try_solve_dependency(
+                        assignments,
+                        control,
+                        &mut dependencies_values,
+                        dependencies,
+                    );
+                    let control_key = HashableQubitRef::from(control.clone());
+                    if let Some(control_val) = assignments.get(&control_key) {
+                        if !(*control_val) {
+                            controls_and = false;
+                            break;
+                        }
+                    } else {
+                        panic!(
+                            "There is a control in MCX that doesnt has a value. This is a bug {:?}",
+                            control
+                        );
+                    }
+                }
+                let target_key = HashableQubitRef::from(target.clone());
+
+                if controls_and {
+                    if let Some(target_value) = assignments.get(&target_key) {
+                        if *target_value {
+                            assignments.insert(target_key, false);
+                        } else {
+                            assignments.insert(target_key, true);
+                        }
+                    } else {
+                        assignments.insert(target_key, true);
+                    }
+                } else if assignments.get(&target_key).is_none() {
+                    // if control is not true we just check if its in the assignments-dictionary, if not we add it
+                    assignments.insert(target_key, false);
+                }
+            }
+            Unitary::Barrier => {}
+        }
+    }
+}
+
+pub fn evaluate_input(
+    values: &[i64],
+    output_oracle: &Option<QubitRef>,
+    input_qubits: &[(NodeRef, Vec<QubitRef>)],
+    circuit_stack: &[UnitaryRef],
+    dependencies: &HashMap<HashableDependencyRef, Vec<QubitRef>>,
+) -> (bool, HashMap<HashableQubitRef, bool>) {
+    assert!(output_oracle.is_some());
+    let mut assignments: HashMap<HashableQubitRef, bool> = HashMap::new();
+    // if let Some(value) = get_constant(&self.output_oracle.clone().unwrap()) {
+    //     return (value, assignments);
+    // }
+
+    for (input, value) in input_qubits.iter().zip(values.iter()) {
+        let qubits = input.1.clone();
+        let bin_value = get_value_in_bin(*value, qubits.len());
+
+        for (qubit, bit) in qubits.iter().zip(bin_value.iter()) {
+            let key = HashableQubitRef::from(qubit.clone());
+            assignments.insert(key, *bit);
+        }
+    }
+
+    evaluate_circuit(&mut assignments, circuit_stack, dependencies);
+    if let Some(value) = get_constant(&output_oracle.clone().unwrap()) {
+        (value, assignments)
+    } else {
+        let key = HashableQubitRef::from(output_oracle.as_ref().unwrap().clone());
+        return (*assignments.get(&key).unwrap(), assignments);
+    }
+}
 
 pub struct QuantumCircuit<'a> {
     pub bad_state_qubits: Vec<QubitRef>,
@@ -1148,8 +1342,6 @@ impl<'a> QuantumCircuit<'a> {
         &mut self,
         left_operand: &[QubitRef],
         right_operand: &[QubitRef],
-        _nid: &Nid,
-        _prefix: String,
         gates_to_uncompute: &mut Vec<UnitaryRef>,
         is_rom: bool,
         allow_push: bool,
@@ -1317,8 +1509,6 @@ impl<'a> QuantumCircuit<'a> {
             let res_eq = self.eq(
                 &res_sum,
                 &left_operand,
-                nid,
-                "div_eq".to_string(),
                 &mut gates_to_uncompute,
                 false,
                 false,
@@ -1355,8 +1545,6 @@ impl<'a> QuantumCircuit<'a> {
                     let eq_dummy_zero = self.eq(
                         &dummy_zero,
                         &right_operand,
-                        nid,
-                        "div_eq_dummy_zero".to_string(),
                         &mut gates_to_uncompute,
                         false,
                         false,
@@ -1739,9 +1927,7 @@ impl<'a> QuantumCircuit<'a> {
                 assert!(self.is_rom(&replacement));
                 self.record_mapping(node, self.current_n, replacement)
             }
-            Node::Eq {
-                left, right, nid, ..
-            } => {
+            Node::Eq { left, right, .. } => {
                 let left_operand = self.process(left);
                 let right_operand = self.process(right);
                 assert!(self.is_rom(&left_operand));
@@ -1750,8 +1936,6 @@ impl<'a> QuantumCircuit<'a> {
                 let mut replacement = self.eq(
                     &left_operand,
                     &right_operand,
-                    nid,
-                    "".to_string(),
                     &mut gates_to_uncompute,
                     true,
                     true,
@@ -2101,196 +2285,6 @@ impl<'a> QuantumCircuit<'a> {
         }
         Ok(())
     }
-
-    // pub fn _debug_with_assignments(&self, unroll_depth: usize, assignments: &HashMap<HashableQubitRef, bool>, model: Model) {
-
-    //     for timestep in 1..(unroll_depth+1) {
-    //         for (nid, node) in self.mapping_nids.iter() {
-
-    //             match *node.borrow() {
-
-    //             }
-    //         }
-    //     }
-
-    // }
-
-    fn get_value_in_bin(&self, value_: i64, sort: usize) -> Vec<bool> {
-        let mut value = value_;
-        let mut answer: Vec<bool> = Vec::new();
-        for _ in 0..sort {
-            if value % 2 == 0 {
-                answer.push(false);
-            } else {
-                answer.push(true);
-            }
-            value /= 2;
-        }
-        assert!(sort == answer.len());
-        answer
-    }
-
-    pub fn try_solve_dependency(
-        &self,
-        assignments: &mut HashMap<HashableQubitRef, bool>,
-        qubit: &QubitRef,
-        dependecies_values: &mut HashSet<HashableDependencyRef>,
-    ) {
-        if let Qubit::QBit {
-            dependency: Some(dep),
-            ..
-        } = &*qubit.borrow()
-        {
-            self.solve_dependency(dep.clone(), assignments, dependecies_values);
-        }
-    }
-    pub fn evaluate_circuit(&self, assignments: &mut HashMap<HashableQubitRef, bool>) {
-        let mut dependencies_values: HashSet<HashableDependencyRef> = HashSet::new();
-        for gate in self.circuit_stack.iter() {
-            match &*gate.borrow() {
-                Unitary::Not { input } => {
-                    self.try_solve_dependency(assignments, input, &mut dependencies_values);
-                    let key = HashableQubitRef::from(input.clone());
-
-                    if assignments.contains_key(&key) {
-                        let value = *assignments.get(&key).unwrap();
-                        assignments.insert(key, !value);
-                    } else {
-                        // qubits are initialized in 0. Therefore, NOT should set it to true.
-                        assignments.insert(key, true);
-                    }
-                }
-                Unitary::Cnot { control, target } => {
-                    assert!(!is_constant(control));
-                    assert!(!is_constant(target));
-                    self.try_solve_dependency(assignments, control, &mut dependencies_values);
-                    self.try_solve_dependency(assignments, target, &mut dependencies_values);
-
-                    let control_key = HashableQubitRef::from(control.clone());
-                    let target_key = HashableQubitRef::from(target.clone());
-
-                    if let Some(control_value) = assignments.get(&control_key) {
-                        if *control_value {
-                            if let Some(target_value) = assignments.get(&target_key) {
-                                if *target_value {
-                                    assignments.insert(target_key, false);
-                                } else {
-                                    assignments.insert(target_key, true);
-                                }
-                            } else {
-                                // target is initialized in 0, therefore we must flip it to 1
-                                assignments.insert(target_key, true);
-                            }
-                        } else if assignments.get(&target_key).is_none() {
-                            // if control is not true we just check if its in the assignments-dictionary, if not we add it
-                            assignments.insert(target_key, false);
-                        }
-                    } else {
-                        panic!("Control qubit does not has any value! There is a bug.");
-                    }
-                }
-                Unitary::Mcx { controls, target } => {
-                    assert!(!controls.is_empty());
-                    self.try_solve_dependency(assignments, target, &mut dependencies_values);
-                    let mut controls_and = true;
-                    for control in controls {
-                        self.try_solve_dependency(assignments, control, &mut dependencies_values);
-                        let control_key = HashableQubitRef::from(control.clone());
-                        if let Some(control_val) = assignments.get(&control_key) {
-                            if !(*control_val) {
-                                controls_and = false;
-                                break;
-                            }
-                        } else {
-                            panic!(
-                                "There is a control in MCX that doesnt has a value. This is a bug {:?}", control
-                            );
-                        }
-                    }
-                    let target_key = HashableQubitRef::from(target.clone());
-
-                    if controls_and {
-                        if let Some(target_value) = assignments.get(&target_key) {
-                            if *target_value {
-                                assignments.insert(target_key, false);
-                            } else {
-                                assignments.insert(target_key, true);
-                            }
-                        } else {
-                            assignments.insert(target_key, true);
-                        }
-                    } else if assignments.get(&target_key).is_none() {
-                        // if control is not true we just check if its in the assignments-dictionary, if not we add it
-                        assignments.insert(target_key, false);
-                    }
-                }
-                Unitary::Barrier => {}
-            }
-        }
-    }
-
-    pub fn solve_dependency(
-        &self,
-        dependency: DependencyRef,
-        assignments: &mut HashMap<HashableQubitRef, bool>,
-        dependencies_values: &mut HashSet<HashableDependencyRef>,
-    ) {
-        let dep_key = HashableDependencyRef::from(dependency.clone());
-        if !dependencies_values.contains(&dep_key) {
-            let dep = dependency.as_ref().borrow();
-            let operands = &dep.operands;
-            let name = &dep.name;
-            let operand1_value = get_word_value(&operands[0].clone(), assignments).unwrap();
-            let operand2_value = get_word_value(&operands[1], assignments).unwrap();
-            assert!(operands[0].len() == operands[1].len());
-            let mut result;
-            if operand2_value != 0 {
-                if name == "div" {
-                    result = operand1_value / operand2_value;
-                } else {
-                    assert!(name == "rem");
-
-                    result = operand1_value % operand2_value;
-                }
-            } else {
-                result = operand1_value;
-            }
-
-            let target = self.dependencies.get(&dep_key).unwrap();
-            for qubit in target.iter() {
-                let key = HashableQubitRef::from(qubit.clone());
-                assignments.insert(key, (result % 2) == 1);
-                result /= 2;
-            }
-            dependencies_values.insert(dep_key);
-        }
-    }
-
-    pub fn evaluate_input(&self, values: &[i64]) -> (bool, HashMap<HashableQubitRef, bool>) {
-        assert!(self.output_oracle.is_some());
-        let mut assignments: HashMap<HashableQubitRef, bool> = HashMap::new();
-        // if let Some(value) = get_constant(&self.output_oracle.clone().unwrap()) {
-        //     return (value, assignments);
-        // }
-
-        for (input, value) in self.input_qubits.iter().zip(values.iter()) {
-            let qubits = input.1.clone();
-            let bin_value = self.get_value_in_bin(*value, qubits.len());
-
-            for (qubit, bit) in qubits.iter().zip(bin_value.iter()) {
-                let key = HashableQubitRef::from(qubit.clone());
-                assignments.insert(key, *bit);
-            }
-        }
-
-        self.evaluate_circuit(&mut assignments);
-        if let Some(value) = get_constant(&self.output_oracle.clone().unwrap()) {
-            (value, assignments)
-        } else {
-            let key = HashableQubitRef::from(self.output_oracle.as_ref().unwrap().clone());
-            return (*assignments.get(&key).unwrap(), assignments);
-        }
-    }
 }
 
 #[cfg(test)]
@@ -2420,10 +2414,46 @@ mod tests {
         let _ = qc.process_model(1);
         assert!(qc.input_qubits.len() == 2);
 
-        assert!(qc.evaluate_input(&[0, 0]).0);
-        assert!(qc.evaluate_input(&[1, 1]).0);
-        assert!(!qc.evaluate_input(&[0, 1]).0);
-        assert!(!qc.evaluate_input(&[1, 0]).0);
+        assert!(
+            evaluate_input(
+                &[0, 0],
+                &qc.output_oracle,
+                &qc.input_qubits,
+                &qc.circuit_stack,
+                &qc.dependencies
+            )
+            .0
+        );
+        assert!(
+            evaluate_input(
+                &[1, 1],
+                &qc.output_oracle,
+                &qc.input_qubits,
+                &qc.circuit_stack,
+                &qc.dependencies
+            )
+            .0
+        );
+        assert!(
+            !evaluate_input(
+                &[0, 1],
+                &qc.output_oracle,
+                &qc.input_qubits,
+                &qc.circuit_stack,
+                &qc.dependencies
+            )
+            .0
+        );
+        assert!(
+            !evaluate_input(
+                &[1, 0],
+                &qc.output_oracle,
+                &qc.input_qubits,
+                &qc.circuit_stack,
+                &qc.dependencies
+            )
+            .0
+        );
     }
 
     #[test]
@@ -2438,9 +2468,27 @@ mod tests {
         for i in 0..256 {
             for j in 0..256 {
                 if i == j {
-                    assert!(qc.evaluate_input(&[i, j]).0);
+                    assert!(
+                        evaluate_input(
+                            &[i, j],
+                            &qc.output_oracle,
+                            &qc.input_qubits,
+                            &qc.circuit_stack,
+                            &qc.dependencies
+                        )
+                        .0
+                    );
                 } else {
-                    assert!(!qc.evaluate_input(&[i, j]).0);
+                    assert!(
+                        !evaluate_input(
+                            &[i, j],
+                            &qc.output_oracle,
+                            &qc.input_qubits,
+                            &qc.circuit_stack,
+                            &qc.dependencies
+                        )
+                        .0
+                    );
                 }
             }
         }
@@ -2457,9 +2505,27 @@ mod tests {
 
         for i in 0..256 {
             if i == 0 {
-                assert!(qc.evaluate_input(&[i]).0);
+                assert!(
+                    evaluate_input(
+                        &[i],
+                        &qc.output_oracle,
+                        &qc.input_qubits,
+                        &qc.circuit_stack,
+                        &qc.dependencies
+                    )
+                    .0
+                );
             } else {
-                assert!(!qc.evaluate_input(&[i]).0);
+                assert!(
+                    !evaluate_input(
+                        &[i],
+                        &qc.output_oracle,
+                        &qc.input_qubits,
+                        &qc.circuit_stack,
+                        &qc.dependencies
+                    )
+                    .0
+                );
             }
         }
     }
@@ -2475,9 +2541,27 @@ mod tests {
 
         for i in 0..256 {
             if i < 213 {
-                assert!(qc.evaluate_input(&[i]).0);
+                assert!(
+                    evaluate_input(
+                        &[i],
+                        &qc.output_oracle,
+                        &qc.input_qubits,
+                        &qc.circuit_stack,
+                        &qc.dependencies
+                    )
+                    .0
+                );
             } else {
-                assert!(!qc.evaluate_input(&[i]).0);
+                assert!(
+                    !evaluate_input(
+                        &[i],
+                        &qc.output_oracle,
+                        &qc.input_qubits,
+                        &qc.circuit_stack,
+                        &qc.dependencies
+                    )
+                    .0
+                );
             }
         }
     }
@@ -2495,7 +2579,13 @@ mod tests {
             for j in 0..256 {
                 let result = (i + j) & 255;
 
-                let (oracle_val, assignments) = qc.evaluate_input(&[i, j]);
+                let (oracle_val, assignments) = evaluate_input(
+                    &[i, j],
+                    &qc.output_oracle,
+                    &qc.input_qubits,
+                    &qc.circuit_stack,
+                    &qc.dependencies,
+                );
                 assert!(oracle_val);
 
                 let circuit_value = qc._get_value_from_nid(4, &assignments);
@@ -2517,7 +2607,13 @@ mod tests {
         for i in 0..256 {
             let result = (i + 10) & 255;
 
-            let (oracle_val, assignments) = qc.evaluate_input(&[i]);
+            let (oracle_val, assignments) = evaluate_input(
+                &[i],
+                &qc.output_oracle,
+                &qc.input_qubits,
+                &qc.circuit_stack,
+                &qc.dependencies,
+            );
             assert!(oracle_val);
 
             let circuit_value = qc._get_value_from_nid(4, &assignments);
@@ -2537,7 +2633,13 @@ mod tests {
         for i in 0..256 {
             let result = (255 - i) & 255;
 
-            let (_oracle_val, assignments) = qc.evaluate_input(&[i]);
+            let (_oracle_val, assignments) = evaluate_input(
+                &[i],
+                &qc.output_oracle,
+                &qc.input_qubits,
+                &qc.circuit_stack,
+                &qc.dependencies,
+            );
             // assert!(oracle_val);
 
             let circuit_value = qc._get_value_from_nid(4, &assignments);
@@ -2560,7 +2662,13 @@ mod tests {
             for j in 0..256 {
                 let result = i & j & 255;
 
-                let (oracle_val, assignments) = qc.evaluate_input(&[i, j]);
+                let (oracle_val, assignments) = evaluate_input(
+                    &[i, j],
+                    &qc.output_oracle,
+                    &qc.input_qubits,
+                    &qc.circuit_stack,
+                    &qc.dependencies,
+                );
                 assert!(oracle_val);
                 let circuit_value = qc._get_value_from_nid(4, &assignments);
                 assert!(circuit_value.is_some());
@@ -2581,7 +2689,13 @@ mod tests {
         for i in 0..256 {
             let result = i & 241 & 255;
 
-            let (oracle_val, assignments) = qc.evaluate_input(&[i]);
+            let (oracle_val, assignments) = evaluate_input(
+                &[i],
+                &qc.output_oracle,
+                &qc.input_qubits,
+                &qc.circuit_stack,
+                &qc.dependencies,
+            );
             assert!(oracle_val);
             let circuit_value = qc._get_value_from_nid(4, &assignments);
             assert!(circuit_value.is_some());
@@ -2609,7 +2723,7 @@ mod tests {
         const_qubitset.push(QubitRef::from(Qubit::ConstFalse));
 
         let (_gates, answer) = qc.twos_complement(&const_qubitset);
-        qc.evaluate_circuit(&mut assignments);
+        evaluate_circuit(&mut assignments, &qc.circuit_stack, &qc.dependencies);
 
         for item in answer.iter().take(9) {
             let key = HashableQubitRef::from(item.clone());
@@ -2699,7 +2813,13 @@ mod tests {
             for j in 0..256 {
                 let result = (i - j) & 255;
 
-                let (oracle_val, assignments) = qc.evaluate_input(&[i, j]);
+                let (oracle_val, assignments) = evaluate_input(
+                    &[i, j],
+                    &qc.output_oracle,
+                    &qc.input_qubits,
+                    &qc.circuit_stack,
+                    &qc.dependencies,
+                );
                 assert!(oracle_val);
 
                 let circuit_value = qc._get_value_from_nid(4, &assignments);
@@ -2753,7 +2873,13 @@ mod tests {
         assert!(qc.input_qubits.len() == 2);
         for i in 0..256 {
             for j in 0..256 {
-                let (oracle_val, _assignments) = qc.evaluate_input(&[i, j]);
+                let (oracle_val, _assignments) = evaluate_input(
+                    &[i, j],
+                    &qc.output_oracle,
+                    &qc.input_qubits,
+                    &qc.circuit_stack,
+                    &qc.dependencies,
+                );
                 println!("{} {} -> {}", i, j, oracle_val);
                 if i < j {
                     assert!(oracle_val);
@@ -2774,8 +2900,13 @@ mod tests {
         for cond in 0..2 {
             for true_part in 0..256 {
                 for false_part in 0..256 {
-                    let (_oracle_val, assignments) =
-                        qc.evaluate_input(&[cond, true_part, false_part]);
+                    let (_oracle_val, assignments) = evaluate_input(
+                        &[cond, true_part, false_part],
+                        &qc.output_oracle,
+                        &qc.input_qubits,
+                        &qc.circuit_stack,
+                        &qc.dependencies,
+                    );
                     let circuit_value = qc._get_value_from_nid(10, &assignments).unwrap();
                     if cond == 1 {
                         assert!(circuit_value == true_part);
@@ -2796,7 +2927,13 @@ mod tests {
         assert!(qc.input_qubits.len() == 2);
         for cond in 0..2 {
             for i in 0..256 {
-                let (_, assignments) = qc.evaluate_input(&[cond, i]);
+                let (_, assignments) = evaluate_input(
+                    &[cond, i],
+                    &qc.output_oracle,
+                    &qc.input_qubits,
+                    &qc.circuit_stack,
+                    &qc.dependencies,
+                );
                 let circuit_value = qc._get_value_from_nid(4, &assignments).unwrap();
                 if cond == 1 {
                     assert!(circuit_value == i);
@@ -2819,7 +2956,13 @@ mod tests {
         for i in 0..256 {
             let result = !i & 255;
 
-            let (oracle_val, assignments) = qc.evaluate_input(&[i]);
+            let (oracle_val, assignments) = evaluate_input(
+                &[i],
+                &qc.output_oracle,
+                &qc.input_qubits,
+                &qc.circuit_stack,
+                &qc.dependencies,
+            );
             println!("i: {}", i);
             let circuit_value = qc._get_value_from_nid(3, &assignments);
             assert!(circuit_value.is_some());
@@ -2841,7 +2984,13 @@ mod tests {
             for j in 0..256 {
                 let result = (i * j) & 255;
 
-                let (oracle_val, assignments) = qc.evaluate_input(&[i, j]);
+                let (oracle_val, assignments) = evaluate_input(
+                    &[i, j],
+                    &qc.output_oracle.clone(),
+                    &qc.input_qubits,
+                    &qc.circuit_stack,
+                    &qc.dependencies,
+                );
                 assert!(oracle_val);
 
                 let circuit_value = qc._get_value_from_nid(4, &assignments);
@@ -2863,7 +3012,13 @@ mod tests {
         for i in 0..256 {
             let result = (i * 3) & 255;
 
-            let (oracle_val, assignments) = qc.evaluate_input(&[i]);
+            let (oracle_val, assignments) = evaluate_input(
+                &[i],
+                &qc.output_oracle,
+                &qc.input_qubits,
+                &qc.circuit_stack,
+                &qc.dependencies,
+            );
             assert!(oracle_val);
 
             let circuit_value = qc._get_value_from_nid(4, &assignments);
@@ -2885,7 +3040,13 @@ mod tests {
 
         for i in 0..256 {
             for j in 0..256 {
-                let (oracle_val, assignments) = qc.evaluate_input(&[i, j]);
+                let (oracle_val, assignments) = evaluate_input(
+                    &[i, j],
+                    &qc.output_oracle,
+                    &qc.input_qubits,
+                    &qc.circuit_stack,
+                    &qc.dependencies,
+                );
                 let circuit_value = qc._get_value_from_nid(4, &assignments);
                 if j != 0 {
                     let result = (i / j) & 255;
@@ -2916,7 +3077,13 @@ mod tests {
         assert!(qc.input_qubits.len() == 1);
 
         for i in 0..256 {
-            let (oracle_val, assignments) = qc.evaluate_input(&[i]);
+            let (oracle_val, assignments) = evaluate_input(
+                &[i],
+                &qc.output_oracle,
+                &qc.input_qubits,
+                &qc.circuit_stack,
+                &qc.dependencies,
+            );
             let circuit_value = qc._get_value_from_nid(4, &assignments);
 
             if i != 0 {
@@ -2943,7 +3110,13 @@ mod tests {
         assert!(qc.input_qubits.len() == 2);
         for i in 0..256 {
             for j in 0..256 {
-                let (oracle_val, assignments) = qc.evaluate_input(&[i, j]);
+                let (oracle_val, assignments) = evaluate_input(
+                    &[i, j],
+                    &qc.output_oracle,
+                    &qc.input_qubits,
+                    &qc.circuit_stack,
+                    &qc.dependencies,
+                );
                 let circuit_value = qc._get_value_from_nid(5, &assignments);
                 if j != 0 {
                     let result = (i % j) & 255;
@@ -2975,10 +3148,10 @@ mod tests {
             }
         }
         let paths_to_timesteps = HashMap::from([
-            // ("division-by-zero-3-35.m", (86, HashSet::from([48]))),
-            // ("memory-access-fail-1-35.m", (72, all_inputs_bad)),
-            ("nested-if-else-1-35.m", (123, HashSet::from([49]))),
-            ("nested-if-else-reverse-1-35.m", (122, HashSet::from([49]))),
+            ("division-by-zero-3-35.m", (86, HashSet::from([48]))),
+            ("memory-access-fail-1-35.m", (72, all_inputs_bad)),
+            // ("nested-if-else-1-35.m", (123, HashSet::from([49]))),
+            // ("nested-if-else-reverse-1-35.m", (122, HashSet::from([49]))),
             // ("return-from-loop-1-35.m", (105, HashSet::from([48]))), //
             // (
             //     "simple-assignment-1-35.m",
@@ -2993,7 +3166,7 @@ mod tests {
             //     "simple-if-without-else-1-35.m",
             //     (116, HashSet::from([49])),
             // ),
-            // ("d.m", (84, all_inputs_bad_but_zero)),
+            ("d.m", (84, all_inputs_bad_but_zero)),
         ]);
 
         for (file_name, data) in paths_to_timesteps.iter() {
@@ -3012,7 +3185,13 @@ mod tests {
                 for _ in 0..qc.input_qubits.len() {
                     input_values.push(input_value as i64);
                 }
-                let (oracle_val, _) = qc.evaluate_input(&input_values);
+                let (oracle_val, _) = evaluate_input(
+                    &input_values,
+                    &qc.output_oracle,
+                    &qc.input_qubits,
+                    &qc.circuit_stack,
+                    &qc.dependencies,
+                );
                 if data.1.get(&input_value).is_some() {
                     // qc._dump_assignments(&assignments)?;
                     assert!(oracle_val);

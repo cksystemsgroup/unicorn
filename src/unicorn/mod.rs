@@ -12,6 +12,7 @@ use std::rc::Rc;
 pub mod bitblasting;
 pub mod bitblasting_dimacs;
 pub mod bitblasting_printer;
+pub mod boolector_impl;
 pub mod btor2file_parser;
 pub mod builder;
 pub mod codegen;
@@ -24,7 +25,6 @@ pub mod qubot;
 pub mod solver;
 pub mod unroller;
 pub mod z3solver_impl;
-pub mod boolector_impl;
 
 pub type Nid = u64;
 pub type NodeRef = Rc<RefCell<Node>>;
