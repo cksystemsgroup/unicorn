@@ -390,13 +390,16 @@ pub fn solve_dependency(
     }
 }
 
-pub fn get_qubit_dependecy(qubit: &QubitRef)  -> Option<DependencyRef>{
+pub fn get_qubit_dependecy(qubit: &QubitRef)  -> Option<(String, Vec<Vec<QubitRef>>)>{
     if let Qubit::QBit {
         dependency: Some(dep),
         ..
     } = &*qubit.borrow()
     {
-        Some(dep.clone())
+        let dep = dep.as_ref().borrow();
+        let operands = dep.operands.clone();
+        let name = dep.name.clone();
+        Some((name, operands))
     } else {
         None
     }
