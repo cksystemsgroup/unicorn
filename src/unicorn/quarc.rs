@@ -123,7 +123,7 @@ impl From<Dependency> for DependencyRef {
 impl Dependency {
     pub fn new(id: u64, name: &str, operand1: &[QubitRef], operand2: &[QubitRef]) -> Self {
         Self {
-            id, 
+            id,
             name: name.to_string(),
             operands: vec![operand1.to_owned(), operand2.to_owned()],
         }
@@ -392,7 +392,7 @@ pub fn solve_dependency(
     }
 }
 
-pub fn get_qubit_dependecy(qubit: &QubitRef)  -> Option<(String, Vec<Vec<QubitRef>>)>{
+pub fn get_qubit_dependecy(qubit: &QubitRef) -> Option<(u64, String, Vec<Vec<QubitRef>>)> {
     if let Qubit::QBit {
         dependency: Some(dep),
         ..
@@ -401,30 +401,17 @@ pub fn get_qubit_dependecy(qubit: &QubitRef)  -> Option<(String, Vec<Vec<QubitRe
         let dep = dep.as_ref().borrow();
         let operands = dep.operands.clone();
         let name = dep.name.clone();
-        Some((name, operands))
+        Some((dep.id, name, operands))
     } else {
         None
     }
-    
 }
 
-pub fn get_dependency_data(hdep: &HashableDependencyRef)  -> (String, Vec<Vec<QubitRef>>){
-
+pub fn get_dependency_data(hdep: &HashableDependencyRef) -> (u64, String, Vec<Vec<QubitRef>>) {
     let dep = hdep.value.as_ref().borrow();
     let operands = dep.operands.clone();
     let name = dep.name.clone();
-    (name, operands)
-
-}
-
-pub fn get_hdependency_id(hdep: &HashableDependencyRef)  -> u64{
-    let dep = hdep.value.as_ref().borrow();
-    dep.id
-}
-
-pub fn get_dependency_id(dep: &DependencyRef)  -> u64{
-    let dep = dep.as_ref().borrow();
-    dep.id
+    (dep.id, name, operands)
 }
 
 pub fn try_solve_dependency(
@@ -1514,10 +1501,18 @@ impl<'a> QuantumCircuit<'a> {
             let sort = left_operand.len();
             let mut i = 0;
 
-            let coeff_dep =
-                DependencyRef::from(Dependency::new(self.dependencies.len() as u64 ,"div", &left_operand, &right_operand));
-            let rem_dep =
-                DependencyRef::from(Dependency::new(self.dependencies.len() as u64, "rem", &left_operand, &right_operand));
+            let coeff_dep = DependencyRef::from(Dependency::new(
+                self.dependencies.len() as u64,
+                "div",
+                &left_operand,
+                &right_operand,
+            ));
+            let rem_dep = DependencyRef::from(Dependency::new(
+                self.dependencies.len() as u64,
+                "rem",
+                &left_operand,
+                &right_operand,
+            ));
             while c.len() < sort {
                 c.push(QubitRef::from(Qubit::QBit {
                     name: format!("{}_coeff{}_{}", nid, i, self.current_n),
