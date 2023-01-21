@@ -15,12 +15,12 @@ use unicorn::unicorn::optimize::{optimize_model, optimize_model_with_input};
 use unicorn::unicorn::qubot::{InputEvaluator, Qubot};
 use unicorn::unicorn::solver::*;
 
+#[cfg(feature = "boolector")]
+use unicorn::unicorn::boolector_impl;
 use unicorn::unicorn::unroller::{prune_model, renumber_model, unroll_model};
 use unicorn::unicorn::write_model;
 #[cfg(feature = "z3")]
 use unicorn::unicorn::z3solver_impl;
-#[cfg(feature = "boolector")]
-use unicorn::unicorn::boolector_impl;
 
 use ::unicorn::disassemble::disassemble;
 use ::unicorn::emulate::EmulatorState;
@@ -36,7 +36,7 @@ use std::{
     path::PathBuf,
     str::FromStr,
 };
-use unicorn::unicorn::quarc::QuantumCircuit;
+use unicorn::unicorn::quarc::{evaluate_input, QuantumCircuit};
 
 fn main() -> Result<()> {
     let matches = cli::args().get_matches();
@@ -217,7 +217,17 @@ fn main() -> Result<()> {
                             while values.len() < total_variables {
                                 values.push(0);
                             }
-                            println!("{}\n", qc.evaluate_input(&values).0);
+                            println!(
+                                "{}\n",
+                                evaluate_input(
+                                    &values,
+                                    &qc.output_oracle,
+                                    &qc.input_qubits,
+                                    &qc.circuit_stack,
+                                    &qc.dependencies
+                                )
+                                .0
+                            );
                         }
                     } else {
                         panic!("This part of the code should be unreachable.");
