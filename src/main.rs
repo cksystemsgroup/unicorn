@@ -19,6 +19,8 @@ use unicorn::unicorn::unroller::{prune_model, renumber_model, unroll_model};
 use unicorn::unicorn::write_model;
 #[cfg(feature = "z3")]
 use unicorn::unicorn::z3solver_impl;
+#[cfg(feature = "boolector")]
+use unicorn::unicorn::boolector_impl;
 
 use ::unicorn::disassemble::disassemble;
 use ::unicorn::emulate::EmulatorState;
