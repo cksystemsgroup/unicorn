@@ -58,43 +58,30 @@ fn optimize_model_impl<S: SMTSolver>(
     }
     if !one_query {
         model.bad_states_initial.retain(|s| {
-            constant_folder.should_retain_bad_state(s, true, terminate_on_bad, one_query)
+            constant_folder.should_retain_bad_state(s, true, terminate_on_bad)
         });
         model.bad_states_sequential.retain(|s| {
-            constant_folder.should_retain_bad_state(s, true, terminate_on_bad, one_query)
+            constant_folder.should_retain_bad_state(s, true, terminate_on_bad)
         });
     } else {
         model
             .bad_states_initial
-            .retain(|s| constant_folder.should_retain_bad_state(s, false, true, one_query));
-        model
-            .bad_states_sequential
-            .retain(|s| constant_folder.should_retain_bad_state(s, false, true, one_query));
+            .retain(|s| constant_folder.should_retain_bad_state(s, false, true));
 
-        let mut all_bad_states: Vec<&NodeRef> = Vec::new();
-
-        for bad_state in model.bad_states_initial.iter() {
-            all_bad_states.push(bad_state);
-        }
-
-        for bad_state in model.bad_states_sequential.iter() {
-            all_bad_states.push(bad_state);
-        }
-
-        if all_bad_states.is_empty() {
+        if model.bad_states_initial.is_empty() {
             panic!("No bad states happen");
-        } else if all_bad_states.len() == 1 {
-            constant_folder.should_retain_bad_state(all_bad_states[0], true, true, false);
+        } else if model.bad_states_initial.len() == 1 {
+            constant_folder.should_retain_bad_state(&model.bad_states_initial[0], true, true);
             panic!("No bad states happen");
         } else {
             let mut ored_bad_states = NodeRef::from(Node::Or {
                 nid: u64::MAX,
                 sort: NodeType::Bit,
-                left: all_bad_states[0].clone(),
-                right: all_bad_states[1].clone(),
+                left: model.bad_states_initial[0].clone(),
+                right: model.bad_states_initial[1].clone(),
             });
 
-            for bad_state in all_bad_states.iter().skip(2) {
+            for bad_state in model.bad_states_initial.iter().skip(2) {
                 ored_bad_states = NodeRef::from(Node::Or {
                     nid: u64::MAX,
                     sort: NodeType::Bit,
@@ -102,8 +89,11 @@ fn optimize_model_impl<S: SMTSolver>(
                     right: (*bad_state).clone(),
                 });
             }
-            println!("bad states len {}", all_bad_states.len());
-            constant_folder.should_retain_bad_state(&ored_bad_states, true, true, true);
+            if !constant_folder.smt_solver.is_always_false(&ored_bad_states) {
+                panic!("bad states are satisfiable!")
+            } else {
+                panic!("No bad state happen.")
+            }
         }
     }
 }
@@ -702,8 +692,7 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
         &mut self,
         bad_state: &NodeRef,
         use_smt: bool,
-        terminate_on_bad: bool,
-        one_query: bool,
+        terminate_on_bad: bool
     ) -> bool {
         self.visit(bad_state);
         if let Node::Bad { cond, name, .. } = &*bad_state.borrow() {
@@ -750,18 +739,7 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
             }
             true
         } else {
-            assert!(one_query);
-            assert!(use_smt);
-            match self.smt_solver.solve(bad_state) {
-                SMTSolution::Sat => {
-                    panic!("Bad states satisfiable");
-                }
-                SMTSolution::Unsat => {
-                    panic!("Bad states unsatisfiable");
-                }
-                SMTSolution::Timeout => (),
-            }
-            true
+            panic!("Expecting Bad node here!")
         }
     }
 
