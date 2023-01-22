@@ -14,7 +14,6 @@ def insert_new_id(mapping_ids: Dict[int, int], local_id: int, id: int) -> Tuple[
     ''''
     mapping_ids map a QUARC qubit's id to a indices in a QIR module. This function updates mapping_ids to contain local_id (QIR index).
     '''
-    print(id)
     if id in mapping_ids.keys():
         return False, local_id
     else:
