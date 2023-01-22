@@ -57,12 +57,12 @@ fn optimize_model_impl<S: SMTSolver>(
         constant_folder.visit(sequential);
     }
     if !one_query {
-        model.bad_states_initial.retain(|s| {
-            constant_folder.should_retain_bad_state(s, true, terminate_on_bad)
-        });
-        model.bad_states_sequential.retain(|s| {
-            constant_folder.should_retain_bad_state(s, true, terminate_on_bad)
-        });
+        model
+            .bad_states_initial
+            .retain(|s| constant_folder.should_retain_bad_state(s, true, terminate_on_bad));
+        model
+            .bad_states_sequential
+            .retain(|s| constant_folder.should_retain_bad_state(s, true, terminate_on_bad));
     } else {
         model
             .bad_states_initial
@@ -692,7 +692,7 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
         &mut self,
         bad_state: &NodeRef,
         use_smt: bool,
-        terminate_on_bad: bool
+        terminate_on_bad: bool,
     ) -> bool {
         self.visit(bad_state);
         if let Node::Bad { cond, name, .. } = &*bad_state.borrow() {
