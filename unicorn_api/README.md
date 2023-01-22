@@ -1,7 +1,7 @@
 # Unicorn API
 You will need to install [maturin](https://www.maturin.rs/installation.htm) and create a virtual environment in Python. Finally, just type `maturin develop` to install the unicorn API in your virtual environment. 
 
-To generate additional documentation type `cargo doc`.
+You can algo generate additional documentation using `cargo doc`. This will create a `docs` folder in `unicorn_api/target/`.
 
 ## QUARC
 
@@ -51,7 +51,6 @@ circuit_stack = quantum_circuit["circuit_stack"] # This is a vector of PyQuantum
 input_qubits = quantum_circuit["input_qubits"] # this is a vector of integers, that contain the ids of the qubits that represent the input of the program and the ones we want to search for.
 
 dependencies = quantum_circuit["dependencies"] # Division and remainder are stated as constraints and this is a dictionary that maps PyDependency -> Vec<PyQubit>. By solving, this specific PyDependency the value of Vec<PyQubit> can be determined.
-
 ```
 
 
