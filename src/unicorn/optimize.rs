@@ -64,6 +64,7 @@ fn optimize_model_impl<S: SMTSolver>(
             .bad_states_sequential
             .retain(|s| constant_folder.should_retain_bad_state(s, true, terminate_on_bad));
     } else {
+        assert!(!minimize); // only works with the --fast-minimize flag
         model
             .bad_states_initial
             .retain(|s| constant_folder.should_retain_bad_state(s, false, true));
