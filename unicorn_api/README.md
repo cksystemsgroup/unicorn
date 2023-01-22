@@ -25,9 +25,9 @@ struct PyQuantumGate {
 }
 
 struct PyDependency {
-    id: u64, /// each dependency has a unique id
-    name: String,///  is either "div" or "rem"
-    operands: Vec<Vec<QubitRef>>, /// there should be only two operands
+    id: u64, // each dependency has a unique id
+    name: String, //  is either "div" or "rem"
+    operands: Vec<Vec<QubitRef>>, // there should be only two operands
 }
 
 ```
