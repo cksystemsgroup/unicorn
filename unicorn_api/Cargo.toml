@@ -1,0 +1,22 @@
+[package]
+name = "unicorn_api"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "unicorn_api"
+crate-type = ["cdylib"]
+
+[dependencies]
+riscu = "~0.5"
+pyo3 = { version = "0.17.3", features = ["auto-initialize"] }
+bytesize = "~1.1"
+unicorn-rs = { git = 'https://github.com/cksystemsgroup/unicorn', branch = 'opt-quarc-paper', features = ["z3"] }
+z3-solver = { package = "z3", version = "~0.11", features = ["static-link-z3"]}
+z3-sys = { version = "~0", features = ["static-link-z3"] }
+
+[patch.crates-io]
+# TODO: Allows us to work on `riscu` and `unicorn` in parallel. Remove
+# once `riscu` stabilizes and we made another crates.io release of it.
+riscu = { git = 'https://github.com/cksystemsgroup/riscu' }
