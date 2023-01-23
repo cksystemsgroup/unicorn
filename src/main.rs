@@ -12,13 +12,17 @@ use crate::unicorn::codegen::compile_model_into_program;
 use crate::unicorn::dimacs_parser::load_dimacs_as_gatemodel;
 use crate::unicorn::emulate_loader::load_model_into_emulator;
 use crate::unicorn::memory::replace_memory;
-use crate::unicorn::optimize::{optimize_model_with_input, optimize_model_with_solver};
+use crate::unicorn::optimize::{optimize_model_with_input, optimize_model_with_solver, optimize_model_with_solver_n};
 use crate::unicorn::qubot::{InputEvaluator, Qubot};
 use crate::unicorn::sat_solver::solve_bad_states;
 use crate::unicorn::smt_solver::*;
 use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
 use crate::unicorn::write_model;
-use crate::unicorn::horizon::print_reasoning_horizon;
+use crate::unicorn::horizon::{
+    reason,
+    reason_backwards,
+    print_reasoning_horizon
+};
 
 use ::unicorn::disassemble::disassemble;
 use ::unicorn::emulate::EmulatorState;
@@ -34,8 +38,11 @@ use std::{
     path::PathBuf,
     str::FromStr,
     time::Duration,
+    time::Instant,
     cmp::min
 };
+
+use log::warn;
 
 fn main() -> Result<()> {
     let matches = cli::args().get_matches();
@@ -90,6 +97,7 @@ fn main() -> Result<()> {
             let compile_model = is_beator && args.get_flag("compile");
             let emulate_model = is_beator && args.get_flag("emulate");
             let stride = args.get_flag("stride");
+            let solver_time_budget = args.get_one::<u64>("time-budget");
             let arg0 = expect_arg::<String>(args, "input-file")?;
             let extras = collect_arg_values(args, "extras");
 
@@ -119,52 +127,56 @@ fn main() -> Result<()> {
                     };
 
                     let timeout = solver_timeout.map(|&ms| Duration::from_millis(ms));
+                    
+                    let mut time_budget = solver_time_budget.map(
+                        |&ms| Duration::from_millis(ms)
+                    );
 
-                    let mut n: usize = if stride { 0 } else { unroll_depth };
+                    // TODO: Refactor the subsequent loop (reasoning horizon)
+
+                    let mut n: usize = if stride { 1 } else { unroll_depth };
                     let mut prev_n: usize = 0;
                     loop {
-                        // TODO: Maybe we can get rid of this clone for each
-                        // iteration, which is basically required if pruning is
-                        // enabled. However, it is much faster this way than
-                        // without pruning and not cloning the model.
-                        let mut model_copy = model.clone();
+                        let mut elapsed = reason(
+                            &mut model,
+                            has_concrete_inputs,
+                            &mut input_values,
+                            prev_n,
+                            n,
+                            prune,
+                            &smt_solver,
+                            timeout,
+                            minimize
+                        );
 
-                        for m in prev_n..n {
-                            unroll_model(&mut model_copy, m);
+                        if time_budget.unwrap() < elapsed {
+                            let r = reason_backwards(
+                                &mut model,
+                                has_concrete_inputs,
+                                &mut input_values,
+                                prev_n,
+                                n,
+                                prune,
+                                &smt_solver,
+                                timeout,
+                                minimize,
+                                &mut time_budget.unwrap()
+                            );
 
-                            if has_concrete_inputs {
-                                optimize_model_with_input(&mut model_copy, &mut input_values)
-                            }
+                            warn!("We can reason until depth n = {}", r);
+                            break;
                         }
 
-                        if prune {
-                            prune_model(&mut model_copy);
-                        }
-
-                        match smt_solver {
-                            #[rustfmt::skip]
-                            SmtType::Generic => {
-                                optimize_model_with_solver::<none_impl::NoneSolver>(&mut model_copy, timeout, minimize, terminate_on_bad, one_query)
-                            },
-                            #[rustfmt::skip]
-                            #[cfg(feature = "boolector")]
-                            SmtType::Boolector => {
-                                optimize_model_with_solver::<boolector_impl::BoolectorSolver>(&mut model_copy, timeout, minimize, terminate_on_bad, one_query)
-                            },
-                            #[rustfmt::skip]
-                            #[cfg(feature = "z3")]
-                            SmtType::Z3 => {
-                                optimize_model_with_solver::<z3solver_impl::Z3SolverWrapper>(&mut model_copy, timeout, minimize, terminate_on_bad, one_query)
-                            },
-                        }
-
-                        if !stride || !model_copy.bad_states_initial.is_empty() {
-                            if !model_copy.bad_states_initial.is_empty() {
-                                print_reasoning_horizon(&mut model_copy);
+                        if !stride || !model.bad_states_initial.is_empty() {
+                            if !model.bad_states_initial.is_empty() {
+                                print_reasoning_horizon(&mut model);
                             }
 
                             break;
                         }
+
+                        time_budget = Some(time_budget.unwrap() - elapsed);
+                        warn!("Remaining time budget: {:#?} ...", time_budget.unwrap());
 
                         prev_n = n;
                         n = min(2*n, unroll_depth);

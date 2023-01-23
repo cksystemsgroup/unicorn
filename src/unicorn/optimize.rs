@@ -32,6 +32,18 @@ pub fn optimize_model_with_solver<S: SMTSolver>(
     )
 }
 
+pub fn optimize_model_with_solver_n<S: SMTSolver>(
+  model: &mut Model,
+  timeout: Option<Duration>,
+  minimize: bool
+) {
+  debug!("Optimizing model using '{}' SMT solver ...", S::name());
+  debug!("Setting SMT solver timeout to {:?} per query ...", timeout);
+  debug!("Using SMT solver to minimize graph: {} ...", minimize);
+  debug!("Optimizing {} steps at once ....", model.bad_states_initial.len());
+  optimize_model_impl_n::<S>(model, &mut vec![], timeout, minimize);
+}
+
 pub fn optimize_model_with_input(model: &mut Model, inputs: &mut Vec<u64>) {
     debug!("Optimizing model with {} concrete inputs ...", inputs.len());
     optimize_model_impl::<none_impl::NoneSolver>(model, inputs, None, false, false, false);
@@ -97,6 +109,30 @@ fn optimize_model_impl<S: SMTSolver>(
             }
         }
     }
+}
+
+fn optimize_model_impl_n<S: SMTSolver>(
+  model: &mut Model,
+  inputs: &mut Vec<u64>,
+  timeout: Option<Duration>,
+  minimize: bool
+) {
+  let mut constant_folder =
+      ConstantFolder::<S>::new(inputs, timeout, minimize);
+  model
+      .sequentials
+      .retain(|s| constant_folder.should_retain_sequential(s));
+  for sequential in &model.sequentials {
+      constant_folder.visit(sequential);
+  }
+  model
+      .bad_states_initial
+      .retain(|s| constant_folder.should_retain_bad_state(s, false));
+  
+  constant_folder.should_retain_bad_states(&mut model.bad_states_initial, true); // ?
+  model
+      .bad_states_sequential
+      .retain(|s| constant_folder.should_retain_bad_state(s, false));
 }
 
 struct ConstantFolder<'a, S> {
@@ -699,7 +735,7 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
         if let Node::Bad { cond, name, .. } = &*bad_state.borrow() {
             if is_const_false(cond) {
                 debug!(
-                    "Bad state '{}' became unreachable, removing",
+                    "Bad state '{}' became statically unreachable, removing",
                     name.as_deref().unwrap_or("?")
                 );
                 return false;
@@ -742,6 +778,43 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
         } else {
             panic!("Expecting Bad node here!")
         }
+    }
+
+    fn should_retain_bad_states(&mut self, bad_states: &Vec<NodeRef>, use_smt: bool) -> bool {
+      debug!("bad_states_initial.len() = {}", bad_states.len());
+      
+      let mut conds: Vec<NodeRef> = Vec::new();
+
+      for bad_state in bad_states.iter() {
+          self.visit(bad_state);
+
+          let v = &*bad_state.borrow();
+          if let Node::Bad { cond, .. } = v {
+            conds.push(cond.clone());
+          }
+      }
+
+      if use_smt {
+          match self.smt_solver.solve_n(&conds) {
+              SMTSolution::Sat => {
+                  // warn!(
+                  //     "A bad state '{}' is satisfiable within the last {} unrollings!",
+                  //     name.as_deref().unwrap_or("?"),
+                  //     conds.len()
+                  // );
+                  return true;
+              }
+              SMTSolution::Unsat => {
+                  // debug!(
+                  //     "Bad state '{}' is unsatisfiable , removing",
+                  //     name.as_deref().unwrap_or("?")
+                  // );
+                  return false;
+              }
+              SMTSolution::Timeout => (),
+          }
+      }
+      true
     }
 
     fn should_retain_sequential(&mut self, sequential: &NodeRef) -> bool {

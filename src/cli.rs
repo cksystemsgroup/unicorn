@@ -259,11 +259,23 @@ pub fn args() -> Command {
                         .num_args(1..)
                 )
                 .arg(
-                  Arg::new("stride")
-                      .help("Find unroll level where SMT solver times out")
-                      .short('l')
-                      .long("stride")
-                      .num_args(0)
+                    Arg::new("stride")
+                        .help("Find unroll level where SMT solver times out")
+                        .short('l')
+                        .long("stride")
+                        .num_args(0)
+                        // TODO: Set base via argument
+                        // .value_name("NUMBER")
+                        // .value_parser(value_parser!(u64)),
+                )
+                .arg(
+                    Arg::new("time-budget")
+                        .help("Set an overall time budget in milliseconds")
+                        .short('g')
+                        .long("time-budget")
+                        .num_args(1)
+                        .value_name("NUMBER")
+                        .value_parser(value_parser!(u64))
                 )
         )
         .subcommand(
