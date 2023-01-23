@@ -3,10 +3,6 @@ use crate::unicorn::{Node, NodeRef};
 use log::{debug, warn};
 
 //
-// Public Interface
-//
-
-//
 // Private Implementation
 //
 
@@ -30,7 +26,8 @@ fn process_single_bad_state<S: SATSolver>(
     gate_model: &GateModel,
     bad_state: &NodeRef,
     gate: &GateRef,
-) {
+    terminate_on_bad: bool,
+) -> Result<()> {
     if let Node::Bad { name, .. } = &*bad_state.borrow() {
         let solution = solver.decide(gate_model, gate);
         match solution {
@@ -40,6 +37,9 @@ fn process_single_bad_state<S: SATSolver>(
                     name.as_deref().unwrap_or("?"),
                     S::name()
                 );
+                if terminate_on_bad {
+                    return Err(anyhow!("Bad state satisfiable"));
+                }
             }
             SATSolution::Unsat => {
                 debug!(
@@ -50,13 +50,17 @@ fn process_single_bad_state<S: SATSolver>(
             }
             SATSolution::Timeout => unimplemented!(),
         }
+        Ok(())
     } else {
         panic!("expecting 'Bad' node here");
     }
 }
 
 #[allow(dead_code)]
-fn process_all_bad_states<S: SATSolver>(gate_model: &GateModel) {
+fn process_all_bad_states<S: SATSolver>(
+    gate_model: &GateModel,
+    terminate_on_bad: bool,
+) -> Result<()> {
     debug!("Using {:?} to decide bad states ...", S::name());
     let mut solver = S::new();
     let zip = gate_model
@@ -64,8 +68,9 @@ fn process_all_bad_states<S: SATSolver>(gate_model: &GateModel) {
         .iter()
         .zip(gate_model.bad_state_gates.iter());
     for (bad_state, gate) in zip {
-        process_single_bad_state(&mut solver, gate_model, bad_state, gate)
+        process_single_bad_state(&mut solver, gate_model, bad_state, gate, terminate_on_bad)?
     }
+    Ok(())
 }
 
 // TODO: Move this module into separate file.
@@ -333,7 +338,7 @@ pub mod cadical_impl {
                 .builder
                 .container_mut()
                 .solver
-                .solve_with((&[bad_state_lit]).iter().copied())
+                .solve_with([bad_state_lit].iter().copied())
             {
                 Some(true) => SATSolution::Sat,
                 Some(false) => SATSolution::Unsat,

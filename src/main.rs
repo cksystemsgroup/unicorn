@@ -61,7 +61,7 @@ fn main() -> Result<()> {
             let extras = collect_arg_values(args, "extras");
 
             let argv = [vec![arg0], extras].concat();
-            let program = load_object_file(&input)?;
+            let program = load_object_file(input)?;
             let mut emulator = EmulatorState::new(memory_size as usize);
             emulator.bootstrap(&program, &argv);
             emulator.run();
@@ -84,6 +84,7 @@ fn main() -> Result<()> {
             let prune = !is_beator || args.get_flag("prune-model");
             let minimize = is_beator && !args.get_flag("fast-minimize");
             let discretize = !is_beator || args.get_flag("discretize-memory");
+            let terminate_on_bad = is_beator && args.get_flag("terminate-on-bad");
             let renumber = !is_beator || output.is_some();
             let input_is_btor2 = args.get_flag("from-btor2");
             let input_is_dimacs = !is_beator && args.get_flag("from-dimacs");
@@ -130,17 +131,17 @@ fn main() -> Result<()> {
                     match smt_solver {
                         #[rustfmt::skip]
                         SmtType::Generic => {
-                            optimize_model_with_solver::<none_impl::NoneSolver>(&mut model, timeout, minimize)
+                            optimize_model_with_solver::<none_impl::NoneSolver>(&mut model, timeout, minimize, terminate_on_bad)
                         },
                         #[rustfmt::skip]
                         #[cfg(feature = "boolector")]
                         SmtType::Boolector => {
-                            optimize_model_with_solver::<boolector_impl::BoolectorSolver>(&mut model, timeout, minimize)
+                            optimize_model_with_solver::<boolector_impl::BoolectorSolver>(&mut model, timeout, minimize, terminate_on_bad)
                         },
                         #[rustfmt::skip]
                         #[cfg(feature = "z3")]
                         SmtType::Z3 => {
-                            optimize_model_with_solver::<z3solver_impl::Z3SolverWrapper>(&mut model, timeout, minimize)
+                            optimize_model_with_solver::<z3solver_impl::Z3SolverWrapper>(&mut model, timeout, minimize, terminate_on_bad)
                         },
                     }
                     if renumber {

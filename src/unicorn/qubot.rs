@@ -269,7 +269,7 @@ impl<'a> Qubot<'a> {
         info!(
             "quadratic coefficients: avg={:.2}, avg_abs={:.2}, min={}, max={}, #={}",
             coeffs.iter().sum::<f64>() / coeffs.len() as f64,
-            coeffs.iter().map(|x| f64::abs(*x)).sum::<f64>() as f64 / coeffs.len() as f64,
+            coeffs.iter().map(|x| f64::abs(*x)).sum::<f64>() / coeffs.len() as f64,
             coeffs.clone().into_iter().reduce(f64::min).unwrap_or(0.0),
             coeffs.clone().into_iter().reduce(f64::max).unwrap_or(0.0),
             coeffs.len()
