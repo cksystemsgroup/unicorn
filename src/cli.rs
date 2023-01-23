@@ -25,11 +25,23 @@ pub enum SmtType {
     Z3,
 }
 
+#[derive(Debug, PartialEq, Eq, EnumString, EnumVariantNames, IntoStaticStr)]
+#[strum(serialize_all = "kebab_case")]
+pub enum SatType {
+    None,
+    #[cfg(feature = "kissat")]
+    Kissat,
+    #[cfg(feature = "varisat")]
+    Varisat,
+    #[cfg(feature = "cadical")]
+    Cadical,
+}
+
 const DEFAULT_MEMORY_SIZE: &str = "1"; // 1 MiB
 const DEFAULT_MAX_HEAP: &str = "8"; // 8 words
 const DEFAULT_MAX_STACK: &str = "32"; // 32 words
 
-pub fn args() -> Command<'static> {
+pub fn args() -> Command {
     Command::new("Unicorn")
         .version(crate_version!())
         .author(crate_authors!(", "))
@@ -39,27 +51,27 @@ pub fn args() -> Command<'static> {
                 .short('v')
                 .long("verbose")
                 .help("configure logging level to use")
-                .takes_value(true)
+                .num_args(1)
                 .value_name("LEVEL")
                 .value_parser(value_parser_log_level())
-                .default_value(LogLevel::Info.into())
+                .default_value(Into::<&str>::into(LogLevel::Info))
                 .global(true),
         )
         .subcommand(
             Command::new("emulate")
-                .about("Emulate execution of a RISC-U ELF binary")
+                .about("Emulate execution of a RISC-V ELF binary")
                 .arg(
                     Arg::new("input-file")
                         .value_name("FILE")
                         .help("Binary file to be executed")
-                        .takes_value(true)
+                        .num_args(1)
                         .required(true),
                 )
                 .arg(
                     Arg::new("memory")
                         .help("Total size of memory in MiB [possible: 1 .. 1024]")
                         .long("memory")
-                        .takes_value(true)
+                        .num_args(1)
                         .value_name("NUMBER")
                         .default_value(DEFAULT_MEMORY_SIZE)
                         .value_parser(value_parser_memory_size()),
@@ -70,27 +82,27 @@ pub fn args() -> Command<'static> {
                         .value_name("ARGUMENTS")
                         .last(true)
                         .allow_hyphen_values(true)
-                        .multiple(true)
+                        .num_args(1..)
                 ),
         )
         .subcommand(
             Command::new("disassemble")
-                .about("Disassemble a RISC-V ELF binary")
+                .about("Disassemble and print a RISC-V ELF binary")
                 .arg(
                     Arg::new("input-file")
                         .value_name("FILE")
                         .help("Binary file to be disassembled")
-                        .takes_value(true)
+                        .num_args(1)
                         .required(true),
                 ),
         )
         .subcommand(
             Command::new("beator")
-                .about("Create a BTOR2 model for a RISC-U ELF binary")
+                .about("Create a BTOR2 model for a RISC-V ELF binary")
                 .arg(
                     Arg::new("input-file")
-                        .help("RISC-U ELF binary to be converted")
-                        .takes_value(true)
+                        .help("RISC-V ELF binary to be converted")
+                        .num_args(1)
                         .value_name("FILE")
                         .required(true),
                 )
@@ -99,30 +111,46 @@ pub fn args() -> Command<'static> {
                         .help("Perform bitblasting of the model")
                         .short('b')
                         .long("bitblast")
+                        .num_args(0)
                 )
                 .arg(
                     Arg::new("dimacs")
                         .help("Output DIMACS CNF instead of BTOR2")
                         .short('d')
                         .long("dimacs")
+                        .num_args(0)
                 )
                 .arg(
                     Arg::new("emulate")
                         .help("Start emulation from created model")
                         .short('e')
-                        .long("emulate"),
+                        .long("emulate")
+                        .num_args(0)
                 )
                 .arg(
                     Arg::new("compile")
                         .help("Compile program from created model")
                         .short('c')
-                        .long("compile"),
+                        .long("compile")
+                        .num_args(0)
+                )
+                .arg(
+                    Arg::new("discretize-memory")
+                        .help("Discretize memory (don't use array logic)")
+                        .long("discretize-memory")
+                        .num_args(0)
+                )
+                .arg(
+                    Arg::new("fast-minimize")
+                        .help("Skip solver during graph minimization")
+                        .long("fast-minimize")
+                        .num_args(0)
                 )
                 .arg(
                     Arg::new("max-heap")
                         .help("Number of machine-words usable as heap")
                         .long("max-heap")
-                        .takes_value(true)
+                        .num_args(1)
                         .value_name("NUMBER")
                         .default_value(DEFAULT_MAX_HEAP)
                         .value_parser(value_parser!(u32)),
@@ -131,7 +159,7 @@ pub fn args() -> Command<'static> {
                     Arg::new("max-stack")
                         .help("Number of machine-words usable as stack")
                         .long("max-stack")
-                        .takes_value(true)
+                        .num_args(1)
                         .value_name("NUMBER")
                         .default_value(DEFAULT_MAX_STACK)
                         .value_parser(value_parser!(u32)),
@@ -140,7 +168,7 @@ pub fn args() -> Command<'static> {
                     Arg::new("memory")
                         .help("Total size of memory in MiB [possible: 1 .. 1024]")
                         .long("memory")
-                        .takes_value(true)
+                        .num_args(1)
                         .value_name("NUMBER")
                         .default_value(DEFAULT_MEMORY_SIZE)
                         .value_parser(value_parser_memory_size()),
@@ -150,37 +178,62 @@ pub fn args() -> Command<'static> {
                         .help("Concrete inputs to specialize the model")
                         .short('i')
                         .long("inputs")
-                        .takes_value(true)
+                        .num_args(1)
                 )
                 .arg(
                     Arg::new("output-file")
                         .help("Output path for the generated BTOR2 file")
                         .short('o')
                         .long("out")
-                        .takes_value(true)
+                        .num_args(1)
                 )
                 .arg(
                     Arg::new("prune-model")
                         .help("Prunes sequential part from model")
                         .short('p')
                         .long("prune")
+                        .num_args(0)
                 )
                 .arg(
-                    Arg::new("solver")
+                    Arg::new("smt-solver")
                         .help("SMT solver used for optimization")
                         .short('s')
                         .long("solver")
-                        .takes_value(true)
+                        .num_args(1)
                         .value_name("SOLVER")
                         .value_parser(value_parser_smt_type())
-                        .default_value(SmtType::Generic.into()),
+                        .default_value(Into::<&str>::into(SmtType::Generic)),
+                )
+                .arg(
+                    Arg::new("sat-solver")
+                        .help("SAT solver used for bad-state reasoning")
+                        .long("sat-solver")
+                        .num_args(1)
+                        .value_name("SOLVER")
+                        .value_parser(value_parser_sat_type())
+                        .default_value(Into::<&str>::into(SatType::None)),
+                )
+                .arg(
+                    Arg::new("solver-timeout")
+                        .help("Timeout for each SMT solver query in milliseconds")
+                        .short('t')
+                        .long("timeout")
+                        .num_args(1)
+                        .value_name("NUMBER")
+                        .value_parser(value_parser!(u64)),
+                )
+                .arg(
+                    Arg::new("terminate-on-bad")
+                        .help("Terminate once bad state becomes satisfiable")
+                        .long("terminate-on-bad")
+                        .num_args(0)
                 )
                 .arg(
                     Arg::new("unroll-model")
                         .help("Number of instructions to unroll from model")
                         .short('u')
                         .long("unroll")
-                        .takes_value(true)
+                        .num_args(1)
                         .value_name("NUMBER")
                         .value_parser(value_parser!(usize)),
                 )
@@ -189,6 +242,7 @@ pub fn args() -> Command<'static> {
                         .help("Pass this flag if the input file is a BTOR2 file.")
                         .short('f')
                         .long("from-btor2")
+                        .num_args(0)
                 )
                 .arg(
                     Arg::new("extras")
@@ -196,103 +250,7 @@ pub fn args() -> Command<'static> {
                         .value_name("ARGUMENTS")
                         .last(true)
                         .allow_hyphen_values(true)
-                        .multiple(true)
-                )
-        )
-        .subcommand(
-            Command::new("qubot")
-                .about("Create a QUBO model for a RISC-U ELF binary")
-                .arg(
-                    Arg::new("input-file")
-                        .help("If --from-btor2 flag is not passed, then RISC-U ELF binary to be converted, else a BTOR2 file.")
-                        .takes_value(true)
-                        .value_name("FILE")
-                        .required(true),
-                )
-                .arg(
-                    Arg::new("from-btor2")
-                        .help("Pass this flag if the input file is a BTOR2 file.")
-                        .short('f')
-                        .long("from-btor2")
-                )
-                .arg(
-                    Arg::new("output-file")
-                        .help("Output path for the generated QUBO model")
-                        .short('o')
-                        .long("out")
-                        .takes_value(true)
-                )
-                .arg(
-                    Arg::new("max-heap")
-                        .help("Number of machine-words usable as heap")
-                        .long("max-heap")
-                        .takes_value(true)
-                        .value_name("NUMBER")
-                        .default_value(DEFAULT_MAX_HEAP)
-                        .value_parser(value_parser!(u32)),
-                )
-                .arg(
-                    Arg::new("max-stack")
-                        .help("Number of machine-words usable as stack")
-                        .long("max-stack")
-                        .takes_value(true)
-                        .value_name("NUMBER")
-                        .default_value(DEFAULT_MAX_STACK)
-                        .value_parser(value_parser!(u32)),
-                )
-                .arg(
-                    Arg::new("memory")
-                        .help("Total size of memory in MiB [possible: 1 .. 1024]")
-                        .long("memory")
-                        .takes_value(true)
-                        .value_name("NUMBER")
-                        .default_value(DEFAULT_MEMORY_SIZE)
-                        .value_parser(value_parser_memory_size()),
-                )
-                .arg(
-                    Arg::new("inputs")
-                        .help("Provide inputs to evaluate the model, separate by commas the values for a single instance, and with semicolon for various instances.")
-                        .short('i')
-                        .long("inputs")
-                        .takes_value(true)
-                )
-                .arg(
-                    Arg::new("solver")
-                        .help("SMT solver used for optimization")
-                        .short('s')
-                        .long("solver")
-                        .takes_value(true)
-                        .value_name("SOLVER")
-                        .value_parser(value_parser_smt_type())
-                        .default_value(SmtType::Generic.into()),
-                )
-                .arg(
-                    Arg::new("unroll-model")
-                        .help("Number of instructions to unroll from model")
-                        .short('u')
-                        .long("unroll")
-                        .takes_value(true)
-                        .value_name("NUMBER")
-                        .value_parser(value_parser!(usize)),
-                )
-                .arg(
-                    Arg::new("ising")
-                        .help("Makes qubot output an ising model")
-                        .short('I')
-                        .long("ising")
-                )
-                .arg(
-                    Arg::new("from-dimacs")
-                        .help("Consume DIMACS instead of RISC-U inputs")
-                        .long("from-dimacs")
-                )
-                .arg(
-                    Arg::new("extras")
-                        .help("Arguments passed to emulated program")
-                        .value_name("ARGUMENTS")
-                        .last(true)
-                        .allow_hyphen_values(true)
-                        .multiple(true)
+                        .num_args(1..)
                 )
         )
         .subcommand(
@@ -300,10 +258,19 @@ pub fn args() -> Command<'static> {
             .about("Generate quantum circuits from a RISC-U ELF binary file ")
             .arg(
                 Arg::new("input-file")
-                    .help("If --from-btor2 flag is not passed, then RISC-U ELF binary to be converted, else a BTOR2 file.")
-                    .takes_value(true)
+                    .help("If --from-btor2 flag is not passed, then RISC-V ELF binary to be converted, else a BTOR2 file.")
+                    .num_args(1)
                     .value_name("FILE")
                     .required(true),
+            )
+            .arg(
+                Arg::new("sat-solver")
+                    .help("SAT solver used for bad-state reasoning")
+                    .long("sat-solver")
+                    .num_args(1)
+                    .value_name("SOLVER")
+                    .value_parser(value_parser_sat_type())
+                    .default_value(Into::<&str>::into(SatType::None)),
             )
             .arg(
                 Arg::new("dynamic-memory")
@@ -322,13 +289,13 @@ pub fn args() -> Command<'static> {
                     .help("Output path for the generated QUBO model")
                     .short('o')
                     .long("out")
-                    .takes_value(true)
+                    .num_args(1)
             )
             .arg(
                 Arg::new("max-heap")
                     .help("Number of machine-words usable as heap")
                     .long("max-heap")
-                    .takes_value(true)
+                    .num_args(1)
                     .value_name("NUMBER")
                     .default_value(DEFAULT_MAX_HEAP)
                     .value_parser(value_parser!(u32)),
@@ -337,7 +304,7 @@ pub fn args() -> Command<'static> {
                 Arg::new("max-stack")
                     .help("Number of machine-words usable as stack")
                     .long("max-stack")
-                    .takes_value(true)
+                    .num_args(1)
                     .value_name("NUMBER")
                     .default_value(DEFAULT_MAX_STACK)
                     .value_parser(value_parser!(u32)),
@@ -346,7 +313,7 @@ pub fn args() -> Command<'static> {
                 Arg::new("memory")
                     .help("Total size of memory in MiB [possible: 1 .. 1024]")
                     .long("memory")
-                    .takes_value(true)
+                    .num_args(1)
                     .value_name("NUMBER")
                     .default_value(DEFAULT_MEMORY_SIZE)
                     .value_parser(value_parser_memory_size()),
@@ -356,24 +323,24 @@ pub fn args() -> Command<'static> {
                     .help("Provide inputs to evaluate the model, separate by commas the values for a single instance, and with semicolon for various instances.")
                     .short('i')
                     .long("inputs")
-                    .takes_value(true)
+                    .num_args(1)
             )
             .arg(
-                Arg::new("solver")
+                Arg::new("smt-solver")
                     .help("SMT solver used for optimization")
                     .short('s')
                     .long("solver")
-                    .takes_value(true)
+                    .num_args(1)
                     .value_name("SOLVER")
                     .value_parser(value_parser_smt_type())
-                    .default_value(SmtType::Generic.into()),
+                    .default_value(Into::<&str>::into(SmtType::Generic)),
             )
             .arg(
                 Arg::new("unroll-model")
                     .help("Number of instructions to unroll from model")
                     .short('u')
                     .long("unroll")
-                    .takes_value(true)
+                    .num_args(1)
                     .value_name("NUMBER")
                     .value_parser(value_parser!(usize)),
             )
@@ -388,8 +355,116 @@ pub fn args() -> Command<'static> {
                     .value_name("ARGUMENTS")
                     .last(true)
                     .allow_hyphen_values(true)
-                    .multiple(true)
-            )
+                    .num_args(1..)
+            ),
+        )
+        .subcommand(
+            Command::new("qubot")
+                .about("Create a QUBO model for a RISC-V ELF binary")
+                .arg(
+                    Arg::new("input-file")
+                        .help("If --from-btor2 flag is not passed, then RISC-V ELF binary to be converted, else a BTOR2 file.")
+                        .num_args(1)
+                        .value_name("FILE")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("from-btor2")
+                        .help("Pass this flag if the input file is a BTOR2 file.")
+                        .short('f')
+                        .long("from-btor2")
+                        .num_args(0)
+                )
+                .arg(
+                    Arg::new("output-file")
+                        .help("Output path for the generated QUBO model")
+                        .short('o')
+                        .long("out")
+                        .num_args(1)
+                )
+                .arg(
+                    Arg::new("max-heap")
+                        .help("Number of machine-words usable as heap")
+                        .long("max-heap")
+                        .num_args(1)
+                        .value_name("NUMBER")
+                        .default_value(DEFAULT_MAX_HEAP)
+                        .value_parser(value_parser!(u32)),
+                )
+                .arg(
+                    Arg::new("max-stack")
+                        .help("Number of machine-words usable as stack")
+                        .long("max-stack")
+                        .num_args(1)
+                        .value_name("NUMBER")
+                        .default_value(DEFAULT_MAX_STACK)
+                        .value_parser(value_parser!(u32)),
+                )
+                .arg(
+                    Arg::new("memory")
+                        .help("Total size of memory in MiB [possible: 1 .. 1024]")
+                        .long("memory")
+                        .num_args(1)
+                        .value_name("NUMBER")
+                        .default_value(DEFAULT_MEMORY_SIZE)
+                        .value_parser(value_parser_memory_size()),
+                )
+                .arg(
+                    Arg::new("inputs")
+                        .help("Provide inputs to evaluate the model, separate by commas the values for a single instance, and with semicolon for various instances.")
+                        .short('i')
+                        .long("inputs")
+                        .num_args(1)
+                )
+                .arg(
+                    Arg::new("smt-solver")
+                        .help("SMT solver used for optimization")
+                        .short('s')
+                        .long("solver")
+                        .num_args(1)
+                        .value_name("SOLVER")
+                        .value_parser(value_parser_smt_type())
+                        .default_value(Into::<&str>::into(SmtType::Generic)),
+                )
+                .arg(
+                    Arg::new("solver-timeout")
+                        .help("Timeout for each SMT solver query in milliseconds")
+                        .short('t')
+                        .long("timeout")
+                        .num_args(1)
+                        .value_name("NUMBER")
+                        .value_parser(value_parser!(u64)),
+                )
+                .arg(
+                    Arg::new("unroll-model")
+                        .help("Number of instructions to unroll from model")
+                        .short('u')
+                        .long("unroll")
+                        .num_args(1)
+                        .value_name("NUMBER")
+                        .value_parser(value_parser!(usize)),
+                )
+                .arg(
+                    Arg::new("ising")
+                        .help("Makes qubot output an ising model")
+                        .short('I')
+                        .long("ising")
+                        .num_args(0)
+                )
+                .arg(
+                    Arg::new("from-dimacs")
+                        .help("Consume DIMACS instead of RISC-V inputs")
+                        .long("from-dimacs")
+                        .num_args(0)
+                )
+                .arg(
+                    Arg::new("extras")
+                        .help("Arguments passed to emulated program")
+                        .value_name("ARGUMENTS")
+                        .last(true)
+                        .allow_hyphen_values(true)
+                        .num_args(1..)
+                )
         )
         .subcommand(
             Command::new("dwave")
@@ -397,16 +472,16 @@ pub fn args() -> Command<'static> {
                 .arg(
                     Arg::new("input-file")
                         .help("file generated by subcommand qubot")
-                        .takes_value(true)
+                        .num_args(1)
                         .value_name("FILE")
                         .required(true),
                 )
                 .arg(
                     Arg::new("num-runs")
                         .help("number of samples to perform on the quantum annealer")
-                        .long("num-runs")
                         .short('r')
-                        .takes_value(true)
+                        .long("num-runs")
+                        .num_args(1)
                         .value_name("NUMBER")
                         .default_value("1000")
                         .value_parser(value_parser!(u32)),
@@ -415,7 +490,7 @@ pub fn args() -> Command<'static> {
                     Arg::new("chain-strength")
                         .help("chain strength of physical variables to represent logic variables")
                         .long("chain-strength")
-                        .takes_value(true)
+                        .num_args(1)
                         .value_name("NUMBER")
                         .default_value("1.0")
                         .value_parser(value_parser!(f32)),
@@ -453,7 +528,7 @@ where
 }
 
 pub fn collect_arg_values(m: &ArgMatches, arg: &str) -> Vec<String> {
-    match m.values_of::<String>(arg.to_string()) {
+    match m.get_many::<String>(arg) {
         Some(iter) => iter.map(|it| it.into()).collect(),
         None => vec![],
     }
@@ -469,6 +544,10 @@ fn value_parser_log_level() -> clap::builder::PossibleValuesParser {
 
 fn value_parser_smt_type() -> clap::builder::PossibleValuesParser {
     clap::builder::PossibleValuesParser::new(SmtType::VARIANTS)
+}
+
+fn value_parser_sat_type() -> clap::builder::PossibleValuesParser {
+    clap::builder::PossibleValuesParser::new(SatType::VARIANTS)
 }
 
 #[cfg(test)]
@@ -488,7 +567,7 @@ mod tests {
     fn test_execute_defaults_are_set() {
         with_matches(vec!["unicorn", "beator", "file.o"], |m| {
             assert!(m.contains_id("memory"), "Default memory size is set");
-            assert!(m.contains_id("solver"), "Default solver is set");
+            assert!(m.contains_id("smt-solver"), "Default solver is set");
         });
     }
 

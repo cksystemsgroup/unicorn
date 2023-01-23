@@ -260,11 +260,14 @@ fn execute(state: &mut EmulatorState, instr: Instruction) {
         Instruction::Srai(itype) => exec_srai(state, itype),
         Instruction::Addiw(itype) => exec_addiw(state, itype),
         Instruction::Slliw(itype) => exec_slliw(state, itype),
+        Instruction::Srliw(itype) => exec_srliw(state, itype),
         Instruction::Sraiw(itype) => exec_sraiw(state, itype),
         Instruction::Add(rtype) => exec_add(state, rtype),
         Instruction::Sub(rtype) => exec_sub(state, rtype),
         Instruction::Sll(rtype) => exec_sll(state, rtype),
         Instruction::Sltu(rtype) => exec_sltu(state, rtype),
+        Instruction::Srl(rtype) => exec_srl(state, rtype),
+        Instruction::Sra(rtype) => exec_sra(state, rtype),
         Instruction::Or(rtype) => exec_or(state, rtype),
         Instruction::And(rtype) => exec_and(state, rtype),
         Instruction::Mul(rtype) => exec_mul(state, rtype),
@@ -559,7 +562,7 @@ fn exec_addiw(state: &mut EmulatorState, itype: IType) {
 fn exec_sltiu(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
     let condition = rs1_value < (itype.imm() as u64);
-    let rd_value = if condition { 1 } else { 0 };
+    let rd_value = EmulatorValue::from(condition);
     trace_itype(state, "sltiu", itype, rd_value);
     state.set_reg(itype.rd(), rd_value);
     state.pc_next();
@@ -621,6 +624,16 @@ fn exec_srli(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
     let rd_value = rs1_value.wrapping_shr(itype.imm() as u32);
     trace_itype(state, "srli", itype, rd_value);
+    state.set_reg(itype.rd(), rd_value);
+    state.pc_next();
+}
+
+// rd = s64(rs1{32} >>u z32(imm{5}))
+// pc = pc + 4
+fn exec_srliw(state: &mut EmulatorState, itype: IType) {
+    let rs1_value = state.get_reg(itype.rs1());
+    let rd_value = (rs1_value as u32).wrapping_shr(itype.imm() as u32) as i32 as u64;
+    trace_itype(state, "srliw", itype, rd_value);
     state.set_reg(itype.rd(), rd_value);
     state.pc_next();
 }
@@ -711,6 +724,28 @@ fn exec_sllw(state: &mut EmulatorState, rtype: RType) {
     state.pc_next();
 }
 
+// rd = rs1 >>u z32(rs2{6})
+// pc = pc + 4
+fn exec_srl(state: &mut EmulatorState, rtype: RType) {
+    let rs1_value = state.get_reg(rtype.rs1());
+    let rs2_value = state.get_reg(rtype.rs2());
+    let rd_value = rs1_value.wrapping_shr(rs2_value as u32);
+    trace_rtype(state, "srl", rtype, rd_value);
+    state.set_reg(rtype.rd(), rd_value);
+    state.pc_next();
+}
+
+// rd = rs1 >>s z32(rs2{6})
+// pc = pc + 4
+fn exec_sra(state: &mut EmulatorState, rtype: RType) {
+    let rs1_value = state.get_reg(rtype.rs1());
+    let rs2_value = state.get_reg(rtype.rs2());
+    let rd_value = (rs1_value as i64).wrapping_shr(rs2_value as u32) as u64;
+    trace_rtype(state, "sra", rtype, rd_value);
+    state.set_reg(rtype.rd(), rd_value);
+    state.pc_next();
+}
+
 // rd = 1                     ||| if (rs1 <u rs2)
 // rd = 0                     ||| otherwise
 // pc = pc + 4
@@ -718,7 +753,7 @@ fn exec_sltu(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
     let rs2_value = state.get_reg(rtype.rs2());
     let condition = rs1_value < rs2_value;
-    let rd_value = if condition { 1 } else { 0 };
+    let rd_value = EmulatorValue::from(condition);
     trace_rtype(state, "sltu", rtype, rd_value);
     state.set_reg(rtype.rd(), rd_value);
     state.pc_next();
@@ -775,7 +810,7 @@ fn exec_div(state: &mut EmulatorState, rtype: RType) {
     let rs2_value = state.get_reg(rtype.rs2());
     assert!(rs2_value != 0, "check for non-zero divisor");
     let rd_value = (rs1_value as i64).wrapping_div(rs2_value as i64) as u64;
-    trace_rtype(state, "divu", rtype, rd_value);
+    trace_rtype(state, "div", rtype, rd_value);
     state.set_reg(rtype.rd(), rd_value);
     state.pc_next();
 }

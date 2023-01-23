@@ -1,31 +1,44 @@
-use crate::unicorn::solver::{Solution, Solver};
+use crate::unicorn::smt_solver::{none_impl, SMTSolution, SMTSolver};
 use crate::unicorn::{HashableNodeRef, Model, Node, NodeRef, NodeType};
 use log::{debug, trace, warn};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::convert::TryInto;
 use std::rc::Rc;
+use std::time::Duration;
 
 //
 // Public Interface
 //
 
-pub fn optimize_model<S: Solver>(model: &mut Model) {
+pub fn optimize_model_with_solver<S: SMTSolver>(
+    model: &mut Model,
+    timeout: Option<Duration>,
+    minimize: bool,
+) {
     debug!("Optimizing model using '{}' SMT solver ...", S::name());
-    optimize_model_impl::<S>(model, &mut vec![]);
+    debug!("Setting SMT solver timeout to {:?} per query ...", timeout);
+    debug!("Using SMT solver to minimize graph: {} ...", minimize);
+    optimize_model_impl::<S>(model, &mut vec![], timeout, minimize);
 }
 
-pub fn optimize_model_with_input<S: Solver>(model: &mut Model, inputs: &mut Vec<u64>) {
+pub fn optimize_model_with_input(model: &mut Model, inputs: &mut Vec<u64>) {
     debug!("Optimizing model with {} concrete inputs ...", inputs.len());
-    optimize_model_impl::<S>(model, inputs);
+    optimize_model_impl::<none_impl::NoneSolver>(model, inputs, None, false);
 }
 
 //
 // Private Implementation
 //
 
-fn optimize_model_impl<S: Solver>(model: &mut Model, inputs: &mut Vec<u64>) {
-    let mut constant_folder = ConstantFolder::<S>::new(inputs);
+fn optimize_model_impl<S: SMTSolver>(
+    model: &mut Model,
+    inputs: &mut Vec<u64>,
+    timeout: Option<Duration>,
+    minimize: bool,
+) {
+    let mut constant_folder = ConstantFolder::<S>::new(inputs, timeout, minimize);
     model
         .sequentials
         .retain(|s| constant_folder.should_retain_sequential(s));
@@ -47,6 +60,11 @@ struct ConstantFolder<'a, S> {
     const_false: NodeRef,
     const_true: NodeRef,
     concrete_inputs: &'a mut Vec<u64>,
+    minimize_with_solver: bool,
+}
+
+fn ones(sort: &NodeType) -> u64 {
+    u64::MAX >> (64 - sort.bitsize())
 }
 
 fn get_constant(node: &NodeRef) -> Option<u64> {
@@ -65,6 +83,14 @@ fn is_const_false(node: &NodeRef) -> bool {
     get_constant(node) == Some(0)
 }
 
+fn is_const_zeroes(node: &NodeRef, _sort: &NodeType) -> bool {
+    get_constant(node) == Some(0)
+}
+
+fn is_const_ones(node: &NodeRef, sort: &NodeType) -> bool {
+    get_constant(node) == Some(ones(sort))
+}
+
 fn new_const_with_type(imm: u64, sort: NodeType) -> NodeRef {
     assert!(!matches!(sort, NodeType::Memory));
     Rc::new(RefCell::new(Node::Const { nid: 0, sort, imm }))
@@ -74,15 +100,20 @@ fn new_const(imm: u64) -> NodeRef {
     new_const_with_type(imm, NodeType::Word)
 }
 
-impl<'a, S: Solver> ConstantFolder<'a, S> {
-    fn new(concrete_inputs: &'a mut Vec<u64>) -> Self {
+impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
+    fn new(
+        concrete_inputs: &'a mut Vec<u64>,
+        timeout: Option<Duration>,
+        minimize_with_solver: bool,
+    ) -> Self {
         Self {
-            smt_solver: S::new(),
+            smt_solver: S::new(timeout),
             marks: HashSet::new(),
             mapping: HashMap::new(),
             const_false: new_const_with_type(0, NodeType::Bit),
             const_true: new_const_with_type(1, NodeType::Bit),
             concrete_inputs,
+            minimize_with_solver,
         }
     }
 
@@ -114,7 +145,7 @@ impl<'a, S: Solver> ConstantFolder<'a, S> {
         }
     }
 
-    fn fold_arithmetic_binary<F>(
+    fn fold_any_binary<F>(
         &self,
         left: &NodeRef,
         right: &NodeRef,
@@ -170,34 +201,58 @@ impl<'a, S: Solver> ConstantFolder<'a, S> {
         None
     }
 
+    // SMT-LIB does not specify the result of division by zero, for BTOR we
+    // take the largest unsigned integer that can be represented.
+    fn btor_u64_div(left: u64, right: u64) -> u64 {
+        u64::checked_div(left, right).unwrap_or(u64::MAX)
+    }
+
     // SMT-LIB does not specify the result of remainder by zero, for BTOR we
     // take the largest unsigned integer that can be represented.
     fn btor_u64_rem(left: u64, right: u64) -> u64 {
         u64::checked_rem(left, right).unwrap_or(u64::MAX)
     }
 
-    fn btor_u64_div(left: u64, right: u64) -> u64 {
-        u64::checked_div(left, right).unwrap_or(u64::MAX)
+    // SMT-LIB specifies shifts in terms of multiplication/division and is
+    // supposed to saturate on overflows, similarly BTOR2 (and btormc) also
+    // saturates. We mirror the same behavior here.
+    fn btor_u64_sll(left: u64, right: u64) -> u64 {
+        u64::checked_shl(left, right.try_into().unwrap_or(u32::MAX)).unwrap_or(0)
+    }
+
+    // SMT-LIB specifies shifts in terms of multiplication/division and is
+    // supposed to saturate on overflows, similarly BTOR2 (and btormc) also
+    // saturates. We mirror the same behavior here.
+    fn btor_u64_srl(left: u64, right: u64) -> u64 {
+        u64::checked_shr(left, right.try_into().unwrap_or(u32::MAX)).unwrap_or(0)
     }
 
     fn fold_add(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
-        self.fold_arithmetic_binary(left, right, u64::wrapping_add, "ADD")
+        self.fold_any_binary(left, right, u64::wrapping_add, "ADD")
     }
 
     fn fold_sub(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
-        self.fold_arithmetic_binary(left, right, u64::wrapping_sub, "SUB")
+        self.fold_any_binary(left, right, u64::wrapping_sub, "SUB")
     }
 
     fn fold_mul(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
-        self.fold_arithmetic_binary(left, right, u64::wrapping_mul, "MUL")
+        self.fold_any_binary(left, right, u64::wrapping_mul, "MUL")
     }
 
     fn fold_div(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
-        self.fold_arithmetic_binary(left, right, Self::btor_u64_div, "DIV")
+        self.fold_any_binary(left, right, Self::btor_u64_div, "DIV")
     }
 
     fn fold_rem(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
-        self.fold_arithmetic_binary(left, right, Self::btor_u64_rem, "REM")
+        self.fold_any_binary(left, right, Self::btor_u64_rem, "REM")
+    }
+
+    fn fold_sll(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
+        self.fold_any_binary(left, right, Self::btor_u64_sll, "SLL")
+    }
+
+    fn fold_srl(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
+        self.fold_any_binary(left, right, Self::btor_u64_srl, "SRL")
     }
 
     fn fold_ult(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
@@ -262,46 +317,53 @@ impl<'a, S: Solver> ConstantFolder<'a, S> {
         self.solve_boolean_binary(node, left, right, "EQ")
     }
 
-    fn fold_and(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
-        if is_const_false(left) {
-            trace!("Folding AND({:?}[F],_) -> F", RefCell::as_ptr(left));
-            return Some(self.const_false.clone());
-        }
-        if is_const_false(right) {
-            trace!("Folding AND(_,{:?}[F]) -> F", RefCell::as_ptr(right));
-            return Some(self.const_false.clone());
-        }
-        if is_const_true(left) && is_const_true(right) {
-            trace!(
-                "Folding AND({:?}[T],{:?}[T]) -> T",
-                RefCell::as_ptr(left),
-                RefCell::as_ptr(right)
-            );
-            return Some(self.const_true.clone());
-        }
-        if is_const_true(left) {
-            trace!("Strength-reducing AND(T,x) -> x");
-            return Some(right.clone());
-        }
-        if is_const_true(right) {
-            trace!("Strength-reducing AND(x,T) -> x");
+    fn fold_and(&self, left: &NodeRef, right: &NodeRef, sort: &NodeType) -> Option<NodeRef> {
+        if is_const_zeroes(left, sort) {
+            trace!("Folding AND(zeroes,_) -> zeroes");
             return Some(left.clone());
         }
-        None
+        if is_const_zeroes(right, sort) {
+            trace!("Folding AND(_,zeroes) -> zeroes");
+            return Some(right.clone());
+        }
+        if is_const_ones(left, sort) {
+            trace!("Strength-reducing AND(ones,x) -> x");
+            return Some(right.clone());
+        }
+        if is_const_ones(right, sort) {
+            trace!("Strength-reducing AND(x,ones) -> x");
+            return Some(left.clone());
+        }
+        self.fold_any_binary(left, right, |a, b| a & b, "AND")
     }
 
-    fn solve_and(&mut self, node: &NodeRef, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
+    fn solve_and_bit(
+        &mut self,
+        node: &NodeRef,
+        left: &NodeRef,
+        right: &NodeRef,
+    ) -> Option<NodeRef> {
         self.solve_boolean_binary(node, left, right, "AND")
     }
 
-    fn fold_not(&self, value: &NodeRef) -> Option<NodeRef> {
-        if is_const_true(value) {
-            trace!("Folding NOT({:?}[T]) -> F", RefCell::as_ptr(value));
-            return Some(self.const_false.clone());
-        }
-        if is_const_false(value) {
-            trace!("Folding NOT({:?}[F]) -> T", RefCell::as_ptr(value));
-            return Some(self.const_true.clone());
+    fn fold_not(&self, value: &NodeRef, sort: &NodeType) -> Option<NodeRef> {
+        if let Some(value_imm) = get_constant(value) {
+            // TODO: The following two special-case checks are just a
+            // work-around to canonicalize `true` and `false` constants.
+            if *sort == NodeType::Bit && value_imm == 0 {
+                return Some(self.const_true.clone());
+            }
+            if *sort == NodeType::Bit && value_imm == 1 {
+                return Some(self.const_false.clone());
+            }
+            let result_imm = !value_imm & ones(sort);
+            trace!(
+                "Folding NOT({:?}[{}]) -> {}",
+                RefCell::as_ptr(value),
+                value_imm,
+                result_imm
+            );
+            return Some(new_const_with_type(result_imm, sort.clone()));
         }
         None
     }
@@ -451,6 +513,16 @@ impl<'a, S: Solver> ConstantFolder<'a, S> {
                 if let Some(n) = self.visit(right) { *right = n }
                 self.fold_rem(left, right)
             }
+            Node::Sll { ref mut left, ref mut right, .. } => {
+                if let Some(n) = self.visit(left) { *left = n }
+                if let Some(n) = self.visit(right) { *right = n }
+                self.fold_sll(left, right)
+            }
+            Node::Srl { ref mut left, ref mut right, .. } => {
+                if let Some(n) = self.visit(left) { *left = n }
+                if let Some(n) = self.visit(right) { *right = n }
+                self.fold_srl(left, right)
+            }
             Node::Ult { ref mut left, ref mut right, .. } => {
                 if let Some(n) = self.visit(left) { *left = n }
                 if let Some(n) = self.visit(right) { *right = n }
@@ -482,14 +554,14 @@ impl<'a, S: Solver> ConstantFolder<'a, S> {
                 if let Some(n) = self.visit(right) { *right = n }
                 self.fold_eq(left, right)
             }
-            Node::And { ref mut left, ref mut right, .. } => {
+            Node::And { ref sort, ref mut left, ref mut right, .. } => {
                 if let Some(n) = self.visit(left) { *left = n }
                 if let Some(n) = self.visit(right) { *right = n }
-                self.fold_and(left, right)
+                self.fold_and(left, right, sort)
             }
-            Node::Not { ref mut value, .. } => {
+            Node::Not { ref sort, ref mut value, .. } => {
                 if let Some(n) = self.visit(value) { *value = n }
-                self.fold_not(value)
+                self.fold_not(value, sort)
             }
             Node::State { init: None, ref sort, ref name, .. } => {
                 self.specialize_to_concrete_input(sort.clone(), name)
@@ -521,8 +593,8 @@ impl<'a, S: Solver> ConstantFolder<'a, S> {
             Node::Eq { left, right, .. } => {
                 self.solve_eq(node, left, right)
             }
-            Node::And { left, right, .. } => {
-                self.solve_and(node, left, right)
+            Node::And { sort: NodeType::Bit, left, right, .. } => {
+                self.solve_and_bit(node, left, right)
             }
             Node::Ite { sort: NodeType::Bit, cond, left, right, .. } => {
                 self.solve_ite_bit(node, cond, left, right)
@@ -535,9 +607,15 @@ impl<'a, S: Solver> ConstantFolder<'a, S> {
     }
 
     fn process(&mut self, node: &NodeRef) -> Option<NodeRef> {
-        // First try to constant-fold nodes and only invoke the SMT solver on
-        // some specific boolean operations in case constant-folding fails.
-        self.process_fold(node).or_else(|| self.process_solve(node))
+        if self.minimize_with_solver {
+            // First try to constant-fold nodes and only invoke the SMT solver on
+            // some specific boolean operations in case constant-folding fails.
+            self.process_fold(node).or_else(|| self.process_solve(node))
+        } else {
+            // Only constant-fold nodes, the solver is reserved for queries that
+            // check bad states on the resulting graph.
+            self.process_fold(node)
+        }
     }
 
     fn should_retain_bad_state(&mut self, bad_state: &NodeRef, use_smt: bool) -> bool {
@@ -559,21 +637,21 @@ impl<'a, S: Solver> ConstantFolder<'a, S> {
             }
             if use_smt {
                 match self.smt_solver.solve(cond) {
-                    Solution::Sat => {
+                    SMTSolution::Sat => {
                         warn!(
                             "Bad state '{}' is satisfiable!",
                             name.as_deref().unwrap_or("?")
                         );
                         return true;
                     }
-                    Solution::Unsat => {
+                    SMTSolution::Unsat => {
                         debug!(
                             "Bad state '{}' is unsatisfiable, removing",
                             name.as_deref().unwrap_or("?")
                         );
                         return false;
                     }
-                    Solution::Timeout => (),
+                    SMTSolution::Timeout => (),
                 }
             }
             true

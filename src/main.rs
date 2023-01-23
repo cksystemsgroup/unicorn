@@ -11,9 +11,9 @@ use unicorn::unicorn::codegen::compile_model_into_program;
 use unicorn::unicorn::dimacs_parser::load_dimacs_as_gatemodel;
 use unicorn::unicorn::emulate_loader::load_model_into_emulator;
 use unicorn::unicorn::memory::replace_memory;
-use unicorn::unicorn::optimize::{optimize_model, optimize_model_with_input};
+use unicorn::unicorn::optimize::{optimize_model_with_input, optimize_model_with_solver};
 use unicorn::unicorn::qubot::{InputEvaluator, Qubot};
-use unicorn::unicorn::solver::*;
+use unicorn::unicorn::smt_solver::*;
 
 #[cfg(feature = "boolector")]
 use unicorn::unicorn::boolector_impl;
@@ -26,7 +26,7 @@ use ::unicorn::disassemble::disassemble;
 use ::unicorn::emulate::EmulatorState;
 use anyhow::{Context, Result};
 use bytesize::ByteSize;
-use cli::{collect_arg_values, expect_arg, expect_optional_arg, LogLevel, SmtType};
+use cli::{collect_arg_values, expect_arg, expect_optional_arg, LogLevel, SatType, SmtType};
 use env_logger::{Env, TimestampPrecision};
 use riscu::load_object_file;
 use std::{
@@ -35,6 +35,7 @@ use std::{
     io::{stdout, Write},
     path::PathBuf,
     str::FromStr,
+    time::Duration,
 };
 use unicorn::unicorn::quarc::{evaluate_input, QuantumCircuit};
 
@@ -73,17 +74,21 @@ fn main() -> Result<()> {
             let input = expect_arg::<PathBuf>(args, "input-file")?;
             let output = expect_optional_arg::<PathBuf>(args, "output-file")?;
             let unroll = args.get_one::<usize>("unroll-model").cloned();
-            let solver = expect_arg::<SmtType>(args, "solver")?;
+            let smt_solver = expect_arg::<SmtType>(args, "smt-solver")?;
+            let solver_timeout = args.get_one::<u64>("solver-timeout");
             let max_heap = *args.get_one::<u32>("max-heap").unwrap();
             let max_stack = *args.get_one::<u32>("max-stack").unwrap();
             let memory_size = ByteSize::mib(*args.get_one("memory").unwrap()).as_u64();
             let has_concrete_inputs = is_beator && args.contains_id("inputs");
             let inputs = expect_optional_arg::<String>(args, "inputs")?;
-            let input_is_btor2 = args.contains_id("from-btor2");
-            let prune = !is_beator || args.contains_id("prune-model");
-            let input_is_dimacs = !is_beator && args.contains_id("from-dimacs");
-            let compile_model = is_beator && args.contains_id("compile");
-            let emulate_model = is_beator && args.contains_id("emulate");
+            let prune = !is_beator || args.get_flag("prune-model");
+            let minimize = is_beator && !args.get_flag("fast-minimize");
+            let discretize = !is_beator || args.get_flag("discretize-memory");
+            let renumber = !is_beator || output.is_some();
+            let input_is_btor2 = args.get_flag("from-btor2");
+            let input_is_dimacs = !is_beator && args.get_flag("from-dimacs");
+            let compile_model = is_beator && args.get_flag("compile");
+            let emulate_model = is_beator && args.get_flag("emulate");
             let arg0 = expect_arg::<String>(args, "input-file")?;
             let extras = collect_arg_values(args, "extras");
             println!("arg0: {:?}", arg0);
@@ -99,9 +104,7 @@ fn main() -> Result<()> {
 
                 if let Some(unroll_depth) = unroll {
                     model.lines.clear();
-                    // TODO: Check if memory discretization is requested.
-                    // TODO: Make emulate-loader work with discretized memory.
-                    if !emulate_model && !compile_model {
+                    if discretize {
                         replace_memory(&mut model);
                     }
                     let mut input_values: Vec<u64> = if has_concrete_inputs {
@@ -117,25 +120,32 @@ fn main() -> Result<()> {
                     for n in 0..unroll_depth {
                         unroll_model(&mut model, n);
                         if has_concrete_inputs {
-                            optimize_model_with_input::<none_impl::NoneSolver>(
-                                &mut model,
-                                &mut input_values,
-                            )
+                            optimize_model_with_input(&mut model, &mut input_values)
                         }
                     }
                     if prune {
                         prune_model(&mut model);
                     }
-                    match solver {
-                        SmtType::Generic => optimize_model::<none_impl::NoneSolver>(&mut model),
+                    let timeout = solver_timeout.map(|&ms| Duration::from_millis(ms));
+                    match smt_solver {
+                        #[rustfmt::skip]
+                        SmtType::Generic => {
+                            optimize_model_with_solver::<none_impl::NoneSolver>(&mut model, timeout, minimize)
+                        },
+                        #[rustfmt::skip]
                         #[cfg(feature = "boolector")]
                         SmtType::Boolector => {
-                            optimize_model::<boolector_impl::BoolectorSolver>(&mut model)
-                        }
+                            optimize_model_with_solver::<boolector_impl::BoolectorSolver>(&mut model, timeout, minimize)
+                        },
+                        #[rustfmt::skip]
                         #[cfg(feature = "z3")]
-                        SmtType::Z3 => optimize_model::<z3solver_impl::Z3SolverWrapper>(&mut model),
+                        SmtType::Z3 => {
+                            optimize_model_with_solver::<z3solver_impl::Z3SolverWrapper>(&mut model, timeout, minimize)
+                        },
                     }
-                    renumber_model(&mut model);
+                    if renumber {
+                        renumber_model(&mut model);
+                    }
                 }
 
                 Some(model)
@@ -146,6 +156,7 @@ fn main() -> Result<()> {
             if compile_model {
                 assert!(!input_is_btor2, "cannot compile arbitrary BTOR2");
                 assert!(!input_is_dimacs, "cannot compile arbitrary DIMACS");
+                assert!(!discretize, "cannot compile with discretized memory");
 
                 // TODO: Just a workaround to get `argv` again.
                 let arg0 = expect_arg::<String>(args, "input-file")?;
@@ -164,6 +175,7 @@ fn main() -> Result<()> {
             if emulate_model {
                 assert!(!input_is_btor2, "cannot emulate arbitrary BTOR2");
                 assert!(!input_is_dimacs, "cannot emulate arbitrary DIMACS");
+                assert!(!discretize, "cannot emulate with discretized memory");
 
                 let program = load_object_file(&input)?;
                 let mut emulator = EmulatorState::new(memory_size as usize);
@@ -174,28 +186,54 @@ fn main() -> Result<()> {
             }
 
             if is_beator {
-                let bitblast = args.contains_id("bitblast");
-                let dimacs = args.contains_id("dimacs");
+                let sat_solver = expect_arg::<SatType>(args, "sat-solver")?;
+                let bitblast = args.get_flag("bitblast") || (sat_solver != SatType::None);
+                let dimacs = args.get_flag("dimacs");
+                let output_to_stdout =
+                    output == Some(PathBuf::from("")) || output == Some(PathBuf::from("-"));
+                assert!(bitblast || !dimacs, "printing DIMACS requires bitblasting");
 
                 if bitblast {
+                    assert!(discretize, "bit-blasting requires discretized memory");
                     let gate_model = bitblast_model(&model.unwrap(), true, 64);
-                    if let Some(ref output_path) = output {
+
+                    if sat_solver != SatType::None {
+                        match sat_solver {
+                            SatType::None => unreachable!(),
+                            #[cfg(feature = "kissat")]
+                            SatType::Kissat => {
+                                process_all_bad_states::<kissat_impl::KissatSolver>(gate_model)
+                            }
+                            #[cfg(feature = "varisat")]
+                            SatType::Varisat => {
+                                process_all_bad_states::<varisat_impl::VarisatSolver>(gate_model)
+                            }
+                            #[cfg(feature = "cadical")]
+                            SatType::Cadical => {
+                                process_all_bad_states::<cadical_impl::CadicalSolver>(gate_model)
+                            }
+                        }
+                    }
+
+                    if output_to_stdout {
+                        if dimacs {
+                            write_dimacs_model(&gate_model, stdout())?;
+                        } else {
+                            write_btor2_model(&gate_model, stdout())?;
+                        }
+                    } else if let Some(ref output_path) = output {
                         let file = File::create(output_path)?;
                         if dimacs {
                             write_dimacs_model(&gate_model, file)?;
                         } else {
                             write_btor2_model(&gate_model, file)?;
                         }
-                    } else if dimacs {
-                        write_dimacs_model(&gate_model, stdout())?;
-                    } else {
-                        write_btor2_model(&gate_model, stdout())?;
                     }
+                } else if output_to_stdout {
+                    write_model(&model.unwrap(), stdout())?;
                 } else if let Some(ref output_path) = output {
                     let file = File::create(output_path)?;
                     write_model(&model.unwrap(), file)?;
-                } else {
-                    write_model(&model.unwrap(), stdout())?;
                 }
             } else if is_quarc {
                 let m = model.unwrap();
@@ -234,7 +272,7 @@ fn main() -> Result<()> {
                     }
                 }
             } else {
-                let is_ising = args.contains_id("ising");
+                let is_ising = args.get_flag("ising");
 
                 let gate_model = if !input_is_dimacs {
                     bitblast_model(&model.unwrap(), true, 64)
