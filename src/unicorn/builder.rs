@@ -1463,17 +1463,6 @@ impl ModelBuilder {
         let check_syscall = self.new_and_bit(self.ecall_flow.clone(), check_syscall_and4);
         self.new_bad(check_syscall, "invalid-syscall-id");
 
-        self.new_comment("checking exit code".to_string());
-        let check_exit_code = self.new_neq(self.reg_node(Register::A0), self.zero_word.clone());
-        let check_exit = self.new_and_bit(active_exit, check_exit_code);
-        self.new_bad(check_exit, "non-zero-exit-code");
-
-        self.new_comment("checking division and remainder by zero".to_string());
-        let check_div = self.new_eq(self.division_flow.clone(), self.zero_word.clone());
-        self.new_bad(check_div, "division-by-zero");
-        let check_rem = self.new_eq(self.remainder_flow.clone(), self.zero_word.clone());
-        self.new_bad(check_rem, "remainder-by-zero");
-
         self.new_comment("checking segmentation faults".to_string());
         let data_start = self.new_const(self.data_range.start);
         let data_end = self.new_const(self.data_range.end);
@@ -1501,6 +1490,17 @@ impl ModelBuilder {
         self.new_bad(check_between4, "memory-access-between-dyn-and-max-stack");
         let above_stack = self.new_ugt(self.access_flow.clone(), stack_end_inclusive);
         self.new_bad(above_stack, "memory-access-above-stack");
+
+        self.new_comment("checking division and remainder by zero".to_string());
+        let check_div = self.new_eq(self.division_flow.clone(), self.zero_word.clone());
+        self.new_bad(check_div, "division-by-zero");
+        let check_rem = self.new_eq(self.remainder_flow.clone(), self.zero_word.clone());
+        self.new_bad(check_rem, "remainder-by-zero");
+
+        self.new_comment("checking exit code".to_string());
+        let check_exit_code = self.new_neq(self.reg_node(Register::A0), self.zero_word.clone());
+        let check_exit = self.new_and_bit(active_exit, check_exit_code);
+        self.new_bad(check_exit, "non-zero-exit-code");
 
         Ok(())
     }
