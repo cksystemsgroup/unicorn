@@ -9,9 +9,12 @@ use std::collections::HashMap;
 use unicorn::unicorn::quarc::HashableDependencyRef;
 
 struct PyDependency {
-    id: u64, /// each dependency has a unique id
-    name: String,///  is either "div" or "rem"
-    operands: Vec<Vec<QubitRef>>, /// there should be only two operands
+    // each dependency has a unique id
+    id: u64, 
+    //  is either "div" or "rem"
+    name: String,
+    // there should be only two operands
+    operands: Vec<Vec<QubitRef>>, 
 }
 
 #[doc(hidden)]
@@ -27,7 +30,7 @@ impl PyDependency {
 
 #[doc(hidden)]
 impl ToPyObject for PyDependency {
-    /// return a valid Python object
+    // return a valid Python object
     fn to_object(&self, py: Python<'_>) -> PyObject {
 
         let dict = PyDict::new(py);
@@ -45,8 +48,8 @@ impl ToPyObject for PyDependency {
 
 
 struct PyQubit {
-    /// In Python interface you can access each of this elements as if a dictionary: qubit["id"] or qubit["dependency"].
-    /// each qubit has a unique id. Also, division and remainder create dependecies. Qubits that have a dependency should be initialized to |+>.
+    // In Python interface you can access each of this elements as if a dictionary: qubit["id"] or qubit["dependency"].
+    // each qubit has a unique id. Also, division and remainder create dependecies. Qubits that have a dependency should be initialized to |+>.
     id: u64, 
     dependency: Option<PyDependency>
 }
@@ -81,7 +84,7 @@ impl PyQubit {
 
 #[doc(hidden)]
 impl ToPyObject for PyQubit {
-    /// return a valid Python object
+    // return a valid Python object
     fn to_object(&self, py: Python<'_>) -> PyObject {
         let dict = PyDict::new(py);
         let _ =dict.set_item("id", self.id.to_object(py));
@@ -92,7 +95,7 @@ impl ToPyObject for PyQubit {
 
 
 struct PyQuantumGate {
-    /// Quantum gates are represented in terms of controls and target, for X gates only the target is set.
+    // Quantum gates are represented in terms of controls and target, for X gates only the target is set.
     controls: Vec<PyQubit>,
     target: PyQubit 
 }
@@ -109,7 +112,7 @@ impl ToPyObject for PyQuantumGate {
 
 #[doc(hidden)]
 fn get_pyqubit_vec(qubits: &[QubitRef]) -> Vec<PyQubit> {
-    /// given a vector of qubits in rust, we return a vector of qubits for Python
+    // given a vector of qubits in rust, we return a vector of qubits for Python
     let mut answer = vec![];
     for qubit in qubits.iter() {
         answer.push(PyQubit::new(qubit));
@@ -139,13 +142,13 @@ struct PyQuantumCircuit {
 impl PyQuantumCircuit {
     pub fn new(circuit_stack: Vec<PyQuantumGate>, input_qubits: &[QubitRef], oracle_output: &QubitRef, dependencies: HashMap<HashableDependencyRef, Vec<QubitRef>>) -> Self {
         Self{
-            /// a vector of PyQuantumGates (only NOTs and CNOTs)
+            // a vector of PyQuantumGates (only NOTs and CNOTs)
             circuit_stack, 
-            /// ids of the qubits that are the inputs of the quantum circuit
+            // ids of the qubits that are the inputs of the quantum circuit
             input_qubits: get_pyqubit_vec(input_qubits), 
-             /// the id of the qubit that represents the outputs of oracle
+             // the id of the qubit that represents the outputs of oracle
             oracle_output: PyQubit::new(oracle_output),
-            /// maps a Dependency -> what set of qubits it solves in LSB
+            // maps a Dependency -> what set of qubits it solves in LSB
             dependencies 
         }
     }
@@ -243,7 +246,7 @@ fn get_qc_from_binary(path: String, unroll: usize, max_heap: u32, max_stack: u32
     })
 }
 
-/// A Python module implemented in Rust.
+// A Python module implemented in Rust.
 #[pymodule]
 fn unicorn_api(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(get_qc_from_binary, m)?)?;
