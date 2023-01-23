@@ -23,7 +23,7 @@ pub fn unroll_model(model: &mut Model, n: usize) {
     }
     for bad_state in &model.bad_states_sequential {
         let bad_copy = model_unroller.unroll(bad_state);
-        model.bad_states_initial.push(bad_copy);
+        model.bad_states_initial.insert(0, bad_copy);
     }
     for (state, new_init) in replacements {
         if let Node::State { ref mut init, .. } = *state.borrow_mut() {
@@ -168,6 +168,11 @@ impl ModelRenumberer {
                 self.next_nid(nid);
             }
             Node::And { ref mut nid, ref left, ref right, .. } => {
+                self.visit(left);
+                self.visit(right);
+                self.next_nid(nid);
+            }
+            Node::Or { ref mut nid, ref left, ref right, .. } => {
                 self.visit(left);
                 self.visit(right);
                 self.next_nid(nid);
@@ -324,6 +329,14 @@ impl ModelUnroller {
             }
             Node::And { sort, left, right, .. } => {
                 Rc::new(RefCell::new(Node::And {
+                    nid: 0,
+                    sort: sort.clone(),
+                    left: self.unroll(left),
+                    right: self.unroll(right),
+                }))
+            }
+            Node::Or { sort, left, right, .. } => {
+                Rc::new(RefCell::new(Node::Or {
                     nid: 0,
                     sort: sort.clone(),
                     left: self.unroll(left),
