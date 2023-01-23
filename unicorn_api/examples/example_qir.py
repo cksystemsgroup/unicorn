@@ -1,7 +1,7 @@
 from typing import Dict, List
 from unicorn_api import get_qc_from_binary
 from pyqir import BasicQisBuilder, SimpleModule
-from utils import *
+from utils_qir import *
 from math import ceil
 
 def get_pyqir_grover(path: str, unroll: int, max_heap: int = 8, max_stack: int = 32, memory_size: int = 1) :
