@@ -1,9 +1,9 @@
 #[cfg(feature = "z3")]
+use std::collections::HashMap;
+#[cfg(feature = "z3")]
 use unicorn::unicorn::smt_solver::{SMTSolution, SMTSolver};
 #[cfg(feature = "z3")]
 use unicorn::unicorn::{HashableNodeRef, Node, NodeRef, NodeType};
-#[cfg(feature = "z3")]
-use std::collections::HashMap;
 
 #[cfg(feature = "z3")]
 use z3_solver::{
