@@ -1,7 +1,7 @@
 #[cfg(feature = "z3")]
-use crate::unicorn::solver::{Solution, Solver};
+use unicorn::unicorn::smt_solver::{SMTSolution, SMTSolver};
 #[cfg(feature = "z3")]
-use crate::unicorn::{HashableNodeRef, Node, NodeRef, NodeType};
+use unicorn::unicorn::{HashableNodeRef, Node, NodeRef, NodeType};
 #[cfg(feature = "z3")]
 use std::collections::HashMap;
 
