@@ -12,23 +12,29 @@ use crate::unicorn::codegen::compile_model_into_program;
 use crate::unicorn::dimacs_parser::load_dimacs_as_gatemodel;
 use crate::unicorn::emulate_loader::load_model_into_emulator;
 use crate::unicorn::memory::replace_memory;
-use crate::unicorn::optimize::{optimize_model_with_input, optimize_model_with_solver, optimize_model_with_solver_n};
+// use crate::unicorn::optimize::{
+//     optimize_model_with_input,
+//     optimize_model_with_solver
+// };
 use crate::unicorn::qubot::{InputEvaluator, Qubot};
 use crate::unicorn::sat_solver::solve_bad_states;
-use crate::unicorn::smt_solver::*;
-use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
+// use crate::unicorn::smt_solver::*;
+use crate::unicorn::unroller::renumber_model;
 use crate::unicorn::write_model;
-use crate::unicorn::horizon::{
-    reason,
-    reason_backwards,
-    print_reasoning_horizon
-};
+use crate::unicorn::horizon::compute_reasoning_horizon;
 
 use ::unicorn::disassemble::disassemble;
 use ::unicorn::emulate::EmulatorState;
 use anyhow::{Context, Result};
 use bytesize::ByteSize;
-use cli::{collect_arg_values, expect_arg, expect_optional_arg, LogLevel, SatType, SmtType};
+use cli::{
+    collect_arg_values,
+    expect_arg,
+    expect_optional_arg,
+    LogLevel,
+    SatType,
+    SmtType
+};
 use env_logger::{Env, TimestampPrecision};
 use riscu::load_object_file;
 use std::{
@@ -37,12 +43,8 @@ use std::{
     io::{stdout, Write},
     path::PathBuf,
     str::FromStr,
-    time::Duration,
-    time::Instant,
-    cmp::min
+    time::Duration
 };
-
-use log::warn;
 
 fn main() -> Result<()> {
     let matches = cli::args().get_matches();
@@ -133,54 +135,20 @@ fn main() -> Result<()> {
                     );
 
                     // TODO: Refactor the subsequent loop (reasoning horizon)
-
-                    let mut n: usize = if stride { 1 } else { unroll_depth };
-                    let mut prev_n: usize = 0;
-                    loop {
-                        let mut elapsed = reason(
-                            &mut model,
-                            has_concrete_inputs,
-                            &mut input_values,
-                            prev_n,
-                            n,
-                            prune,
-                            &smt_solver,
-                            timeout,
-                            minimize
-                        );
-
-                        if time_budget.unwrap() < elapsed {
-                            let r = reason_backwards(
-                                &mut model,
-                                has_concrete_inputs,
-                                &mut input_values,
-                                prev_n,
-                                n,
-                                prune,
-                                &smt_solver,
-                                timeout,
-                                minimize,
-                                &mut time_budget.unwrap()
-                            );
-
-                            warn!("We can reason until depth n = {}", r);
-                            break;
-                        }
-
-                        if !stride || !model.bad_states_initial.is_empty() {
-                            if !model.bad_states_initial.is_empty() {
-                                print_reasoning_horizon(&mut model);
-                            }
-
-                            break;
-                        }
-
-                        time_budget = Some(time_budget.unwrap() - elapsed);
-                        warn!("Remaining time budget: {:#?} ...", time_budget.unwrap());
-
-                        prev_n = n;
-                        n = min(2*n, unroll_depth);
-                    }
+                    compute_reasoning_horizon(
+                        &mut model,
+                        has_concrete_inputs,
+                        &mut input_values,
+                        unroll_depth,
+                        prune,
+                        stride,
+                        &smt_solver,
+                        timeout,
+                        minimize,
+                        terminate_on_bad,
+                        one_query,
+                        &mut time_budget
+                    );
 
                     if renumber {
                         renumber_model(&mut model);

@@ -32,18 +32,6 @@ pub fn optimize_model_with_solver<S: SMTSolver>(
     )
 }
 
-pub fn optimize_model_with_solver_n<S: SMTSolver>(
-  model: &mut Model,
-  timeout: Option<Duration>,
-  minimize: bool
-) {
-  debug!("Optimizing model using '{}' SMT solver ...", S::name());
-  debug!("Setting SMT solver timeout to {:?} per query ...", timeout);
-  debug!("Using SMT solver to minimize graph: {} ...", minimize);
-  debug!("Optimizing {} steps at once ....", model.bad_states_initial.len());
-  optimize_model_impl_n::<S>(model, &mut vec![], timeout, minimize);
-}
-
 pub fn optimize_model_with_input(model: &mut Model, inputs: &mut Vec<u64>) {
     debug!("Optimizing model with {} concrete inputs ...", inputs.len());
     optimize_model_impl::<none_impl::NoneSolver>(model, inputs, None, false, false, false);
@@ -109,30 +97,6 @@ fn optimize_model_impl<S: SMTSolver>(
             }
         }
     }
-}
-
-fn optimize_model_impl_n<S: SMTSolver>(
-  model: &mut Model,
-  inputs: &mut Vec<u64>,
-  timeout: Option<Duration>,
-  minimize: bool
-) {
-  let mut constant_folder =
-      ConstantFolder::<S>::new(inputs, timeout, minimize);
-  model
-      .sequentials
-      .retain(|s| constant_folder.should_retain_sequential(s));
-  for sequential in &model.sequentials {
-      constant_folder.visit(sequential);
-  }
-  model
-      .bad_states_initial
-      .retain(|s| constant_folder.should_retain_bad_state(s, false));
-  
-  constant_folder.should_retain_bad_states(&mut model.bad_states_initial, true); // ?
-  model
-      .bad_states_sequential
-      .retain(|s| constant_folder.should_retain_bad_state(s, false));
 }
 
 struct ConstantFolder<'a, S> {
@@ -429,11 +393,11 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
             return Some(left.clone());
         }
         if is_const_ones(left, sort) {
-            trace!("Strength-reducing AND(ones,_) -> ones");
+            trace!("Strength-reducing OR(ones,_) -> ones");
             return Some(left.clone());
         }
         if is_const_ones(right, sort) {
-            trace!("Strength-reducing AND(x,ones) -> ones");
+            trace!("Strength-reducing OR(x,ones) -> ones");
             return Some(right.clone());
         }
         self.fold_any_binary(left, right, |a, b| a | b, "OR")

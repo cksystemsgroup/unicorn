@@ -524,6 +524,7 @@ pub mod z3solver_impl {
                 }
                 Node::Next { .. } => panic!("should be unreachable"),
                 Node::Bad { cond, .. } => {
+                    // TODO: It would be better if we would directly referece the condition instead of referencing the Bad node in the OR'ed graph. That way Bad conceptually remains as not producing any output and the graph that smt_solver.rs sees is still purely combinatorial. 
                     self.visit(cond).clone()
                 },
                 Node::Comment(_) => panic!("cannot translate"),
