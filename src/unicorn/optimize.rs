@@ -393,11 +393,11 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
             return Some(left.clone());
         }
         if is_const_ones(left, sort) {
-            trace!("Strength-reducing AND(ones,_) -> ones");
+            trace!("Strength-reducing OR(ones,_) -> ones");
             return Some(left.clone());
         }
         if is_const_ones(right, sort) {
-            trace!("Strength-reducing AND(x,ones) -> ones");
+            trace!("Strength-reducing OR(x,ones) -> ones");
             return Some(right.clone());
         }
         self.fold_any_binary(left, right, |a, b| a | b, "OR")
