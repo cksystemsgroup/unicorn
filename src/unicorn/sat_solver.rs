@@ -3,79 +3,23 @@ use crate::unicorn::{Node, NodeRef};
 use anyhow::{anyhow, Result};
 use log::{debug, warn};
 
-//
-// Private Implementation
-//
-
 #[allow(dead_code)]
 #[derive(Debug, Eq, PartialEq)]
-enum SATSolution {
+pub enum SATSolution {
     Sat,
     Unsat,
     Timeout,
 }
 
-trait SATSolver {
+pub trait SATSolver {
     fn new() -> Self;
     fn name() -> &'static str;
     fn prepare(&mut self, gate_model: &GateModel);
     fn decide(&mut self, gate_model: &GateModel, gate: &GateRef) -> SATSolution;
 }
 
-fn process_single_bad_state<S: SATSolver>(
-    solver: &mut S,
-    gate_model: &GateModel,
-    bad_state_: Option<&NodeRef>,
-    gate: &GateRef,
-    terminate_on_bad: bool,
-    one_query: bool,
-) -> Result<()> {
-    if !one_query {
-        let bad_state = bad_state_.unwrap();
-        if let Node::Bad { name, .. } = &*bad_state.borrow() {
-            let solution = solver.decide(gate_model, gate);
-            match solution {
-                SATSolution::Sat => {
-                    warn!(
-                        "Bad state '{}' is satisfiable ({})!",
-                        name.as_deref().unwrap_or("?"),
-                        S::name()
-                    );
-                    if terminate_on_bad {
-                        return Err(anyhow!("Bad state satisfiable"));
-                    }
-                }
-                SATSolution::Unsat => {
-                    debug!(
-                        "Bad state '{}' is unsatisfiable ({}).",
-                        name.as_deref().unwrap_or("?"),
-                        S::name()
-                    );
-                }
-                SATSolution::Timeout => unimplemented!(),
-            }
-            Ok(())
-        } else {
-            panic!("expecting 'Bad' node here");
-        }
-    } else {
-        assert!(bad_state_.is_none());
-        let solution = solver.decide(gate_model, gate);
-        match solution {
-            SATSolution::Sat => {
-                warn!("At least one bad state evaluates to true ({})", S::name());
-            }
-            SATSolution::Unsat => {
-                debug!("No bad states occur ({}).", S::name());
-            }
-            SATSolution::Timeout => unimplemented!(),
-        }
-        Ok(())
-    }
-}
-
 #[allow(dead_code)]
-fn process_all_bad_states<S: SATSolver>(
+pub fn process_all_bad_states<S: SATSolver>(
     gate_model: &GateModel,
     terminate_on_bad: bool,
     one_query: bool,
@@ -141,6 +85,62 @@ fn process_all_bad_states<S: SATSolver>(
     }
 
     Ok(())
+}
+
+//
+// Private Implementation
+//
+
+fn process_single_bad_state<S: SATSolver>(
+    solver: &mut S,
+    gate_model: &GateModel,
+    bad_state_: Option<&NodeRef>,
+    gate: &GateRef,
+    terminate_on_bad: bool,
+    one_query: bool,
+) -> Result<()> {
+    if !one_query {
+        let bad_state = bad_state_.unwrap();
+        if let Node::Bad { name, .. } = &*bad_state.borrow() {
+            let solution = solver.decide(gate_model, gate);
+            match solution {
+                SATSolution::Sat => {
+                    warn!(
+                        "Bad state '{}' is satisfiable ({})!",
+                        name.as_deref().unwrap_or("?"),
+                        S::name()
+                    );
+                    if terminate_on_bad {
+                        return Err(anyhow!("Bad state satisfiable"));
+                    }
+                }
+                SATSolution::Unsat => {
+                    debug!(
+                        "Bad state '{}' is unsatisfiable ({}).",
+                        name.as_deref().unwrap_or("?"),
+                        S::name()
+                    );
+                }
+                SATSolution::Timeout => unimplemented!(),
+            }
+            Ok(())
+        } else {
+            panic!("expecting 'Bad' node here");
+        }
+    } else {
+        assert!(bad_state_.is_none());
+        let solution = solver.decide(gate_model, gate);
+        match solution {
+            SATSolution::Sat => {
+                warn!("At least one bad state evaluates to true ({})", S::name());
+            }
+            SATSolution::Unsat => {
+                debug!("No bad states occur ({}).", S::name());
+            }
+            SATSolution::Timeout => unimplemented!(),
+        }
+        Ok(())
+    }
 }
 
 // TODO: Move this module into separate file.

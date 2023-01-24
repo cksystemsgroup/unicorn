@@ -13,6 +13,7 @@ use unicorn::unicorn::emulate_loader::load_model_into_emulator;
 use unicorn::unicorn::memory::replace_memory;
 use unicorn::unicorn::optimize::{optimize_model_with_input, optimize_model_with_solver};
 use unicorn::unicorn::qubot::{InputEvaluator, Qubot};
+use unicorn::unicorn::sat_solver::*;
 use unicorn::unicorn::smt_solver::*;
 
 #[cfg(feature = "boolector")]
@@ -204,15 +205,27 @@ fn main() -> Result<()> {
                             SatType::None => unreachable!(),
                             #[cfg(feature = "kissat")]
                             SatType::Kissat => {
-                                process_all_bad_states::<kissat_impl::KissatSolver>(gate_model)
+                                return process_all_bad_states::<kissat_impl::KissatSolver>(
+                                    &gate_model,
+                                    terminate_on_bad,
+                                    one_query,
+                                )
                             }
                             #[cfg(feature = "varisat")]
                             SatType::Varisat => {
-                                process_all_bad_states::<varisat_impl::VarisatSolver>(gate_model)
+                                process_all_bad_states::<varisat_impl::VarisatSolver>(
+                                    &gate_model,
+                                    terminate_on_bad,
+                                    one_query,
+                                )
                             }
                             #[cfg(feature = "cadical")]
                             SatType::Cadical => {
-                                process_all_bad_states::<cadical_impl::CadicalSolver>(gate_model)
+                                process_all_bad_states::<cadical_impl::CadicalSolver>(
+                                    &gate_model,
+                                    terminate_on_bad,
+                                    one_query,
+                                )
                             }
                         }
                     }
