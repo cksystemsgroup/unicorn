@@ -229,6 +229,12 @@ pub fn args() -> Command {
                         .num_args(0)
                 )
                 .arg(
+                    Arg::new("one-query")
+                        .help("Perform only one query for all bad states OR-ed")
+                        .long("one-query")
+                        .num_args(0)
+                )
+                .arg(
                     Arg::new("unroll-model")
                         .help("Number of instructions to unroll from model")
                         .short('u')
