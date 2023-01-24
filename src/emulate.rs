@@ -862,7 +862,7 @@ fn exec_rem(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
     let rs2_value = state.get_reg(rtype.rs2());
     assert!(rs2_value != 0, "check for non-zero divisor");
-    let rd_value = (rs1_value  as i64).wrapping_rem(rs2_value  as i64)  as u64;
+    let rd_value = (rs1_value as i64).wrapping_rem(rs2_value as i64) as u64;
     trace_rtype(state, "rem", rtype, rd_value);
     state.set_reg(rtype.rd(), rd_value);
     state.pc_next();
@@ -874,7 +874,7 @@ fn exec_remw(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
     let rs2_value = state.get_reg(rtype.rs2());
     assert!((rs2_value as i32) != 0, "check for non-zero divisor");
-    let rd_value = (rs1_value  as i32).wrapping_rem(rs2_value  as i32)  as u64;
+    let rd_value = (rs1_value as i32).wrapping_rem(rs2_value as i32) as u64;
     trace_rtype(state, "remw", rtype, rd_value);
     state.set_reg(rtype.rd(), rd_value);
     state.pc_next();
@@ -911,9 +911,11 @@ fn exec_ecall(state: &mut EmulatorState) {
     } else if a7_value == SyscallId::Brk as u64 {
         syscall_brk(state);
     } else if a7_value == SyscallId::Close as u64 {
-        // TODO close system call
+        // TODO: Implement close system call
+        warn!("unimplemented 'close' system call reached");
     } else if a7_value == SyscallId::Newfstat as u64 {
         // TODO newfstat system call
+        warn!("unimplemented 'fstat' system call reached");
     } else {
         warn!("unknown system call: {}", a7_value);
         state.set_reg(Register::A0, u64::MAX);
