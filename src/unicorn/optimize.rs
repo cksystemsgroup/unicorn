@@ -744,43 +744,6 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
         }
     }
 
-    fn should_retain_bad_states(&mut self, bad_states: &Vec<NodeRef>, use_smt: bool) -> bool {
-      debug!("bad_states_initial.len() = {}", bad_states.len());
-      
-      let mut conds: Vec<NodeRef> = Vec::new();
-
-      for bad_state in bad_states.iter() {
-          self.visit(bad_state);
-
-          let v = &*bad_state.borrow();
-          if let Node::Bad { cond, .. } = v {
-            conds.push(cond.clone());
-          }
-      }
-
-      if use_smt {
-          match self.smt_solver.solve_n(&conds) {
-              SMTSolution::Sat => {
-                  // warn!(
-                  //     "A bad state '{}' is satisfiable within the last {} unrollings!",
-                  //     name.as_deref().unwrap_or("?"),
-                  //     conds.len()
-                  // );
-                  return true;
-              }
-              SMTSolution::Unsat => {
-                  // debug!(
-                  //     "Bad state '{}' is unsatisfiable , removing",
-                  //     name.as_deref().unwrap_or("?")
-                  // );
-                  return false;
-              }
-              SMTSolution::Timeout => (),
-          }
-      }
-      true
-    }
-
     fn should_retain_sequential(&mut self, sequential: &NodeRef) -> bool {
         if let Node::Next { state, next, .. } = &*sequential.borrow() {
             if let Node::State { init, name, .. } = &*state.borrow() {
