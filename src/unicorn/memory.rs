@@ -300,6 +300,11 @@ impl MemoryReplacer {
                 if let Some(n) = self.visit(right) { *right = n }
                 None
             }
+            Node::Or { ref mut left, ref mut right, .. } => {
+                if let Some(n) = self.visit(left) { *left = n }
+                if let Some(n) = self.visit(right) { *right = n }
+                None
+            }
             Node::Not { ref mut value, .. } => {
                 if let Some(n) = self.visit(value) { *value = n }
                 None

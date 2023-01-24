@@ -81,6 +81,7 @@ fn main() -> Result<()> {
             let minimize = is_beator && !args.get_flag("fast-minimize");
             let discretize = !is_beator || args.get_flag("discretize-memory");
             let terminate_on_bad = is_beator && args.get_flag("terminate-on-bad");
+            let one_query = is_beator && args.get_flag("one-query");
             let renumber = !is_beator || output.is_some();
             let input_is_btor2 = args.get_flag("from-btor2");
             let input_is_dimacs = !is_beator && args.get_flag("from-dimacs");
@@ -126,17 +127,17 @@ fn main() -> Result<()> {
                     match smt_solver {
                         #[rustfmt::skip]
                         SmtType::Generic => {
-                            optimize_model_with_solver::<none_impl::NoneSolver>(&mut model, timeout, minimize, terminate_on_bad)
+                            optimize_model_with_solver::<none_impl::NoneSolver>(&mut model, timeout, minimize, terminate_on_bad, one_query)
                         },
                         #[rustfmt::skip]
                         #[cfg(feature = "boolector")]
                         SmtType::Boolector => {
-                            optimize_model_with_solver::<boolector_impl::BoolectorSolver>(&mut model, timeout, minimize, terminate_on_bad)
+                            optimize_model_with_solver::<boolector_impl::BoolectorSolver>(&mut model, timeout, minimize, terminate_on_bad, one_query)
                         },
                         #[rustfmt::skip]
                         #[cfg(feature = "z3")]
                         SmtType::Z3 => {
-                            optimize_model_with_solver::<z3solver_impl::Z3SolverWrapper>(&mut model, timeout, minimize, terminate_on_bad)
+                            optimize_model_with_solver::<z3solver_impl::Z3SolverWrapper>(&mut model, timeout, minimize, terminate_on_bad, one_query)
                         },
                     }
                     if renumber {
@@ -194,7 +195,7 @@ fn main() -> Result<()> {
                     let gate_model = bitblast_model(&model.unwrap(), true, 64);
 
                     if sat_solver != SatType::None {
-                        solve_bad_states(&gate_model, sat_solver, terminate_on_bad)?
+                        solve_bad_states(&gate_model, sat_solver, terminate_on_bad, one_query)?
                     }
 
                     if output_to_stdout {

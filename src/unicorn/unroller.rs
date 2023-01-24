@@ -172,6 +172,11 @@ impl ModelRenumberer {
                 self.visit(right);
                 self.next_nid(nid);
             }
+            Node::Or { ref mut nid, ref left, ref right, .. } => {
+                self.visit(left);
+                self.visit(right);
+                self.next_nid(nid);
+            }
             Node::Not { ref mut nid, ref value, .. } => {
                 self.visit(value);
                 self.next_nid(nid);
@@ -324,6 +329,14 @@ impl ModelUnroller {
             }
             Node::And { sort, left, right, .. } => {
                 Rc::new(RefCell::new(Node::And {
+                    nid: 0,
+                    sort: sort.clone(),
+                    left: self.unroll(left),
+                    right: self.unroll(right),
+                }))
+            }
+            Node::Or { sort, left, right, .. } => {
+                Rc::new(RefCell::new(Node::Or {
                     nid: 0,
                     sort: sort.clone(),
                     left: self.unroll(left),
