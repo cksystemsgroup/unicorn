@@ -819,11 +819,27 @@ impl<'a> BitBlasting<'a> {
                 remainder.push(GateRef::from(Gate::ConstFalse));
             }
 
-            let quotient_complement = self.get_2s_complement(&quotient);
-            quotient = self.ite(&are_signs_equal, &quotient, &quotient_complement);
+            quotient = if let Some(const_signs_equal) = get_constant(&are_signs_equal) {
+                if const_signs_equal {
+                    self.get_2s_complement(&quotient)
+                } else {
+                    quotient
+                }
+            } else {
+                let quotient_complement = self.get_2s_complement(&quotient);
+                self.ite(&are_signs_equal, &quotient, &quotient_complement)
+            };
 
-            let remainder_complement = self.get_2s_complement(&remainder);
-            remainder = self.ite(&sign_dividend, &remainder_complement, &remainder);
+            remainder = if let Some(const_sign_dividend) = get_constant(&sign_dividend) {
+                if const_sign_dividend {
+                    self.get_2s_complement(&remainder)
+                } else {
+                    remainder
+                }
+            } else {
+                let remainder_complement = self.get_2s_complement(&remainder);
+                self.ite(&sign_dividend, &remainder_complement, &remainder)
+            };
 
             (quotient, remainder)
         }
