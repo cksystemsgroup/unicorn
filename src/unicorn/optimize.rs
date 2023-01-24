@@ -207,6 +207,17 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
         u64::checked_div(left, right).unwrap_or(u64::MAX)
     }
 
+    // SMT-LIB does not specify the result of division by zero, for BTOR we
+    // take the largest unsigned integer that can be represented.
+    fn btor_u64_divw(left: u64, right: u64) -> u64 {
+        // get first 32 bits
+        if let Some(result) = i32::checked_div(left as i32, right as i32) {
+            result as u64
+        } else {
+            u64::MAX
+        }
+    }
+
     // SMT-LIB does not specify the result of remainder by zero, for BTOR we
     // take the largest unsigned integer that can be represented.
     fn btor_u64_rem(left: u64, right: u64) -> u64 {
@@ -241,6 +252,10 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
 
     fn fold_div(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
         self.fold_any_binary(left, right, Self::btor_u64_div, "DIV")
+    }
+
+    fn fold_divw(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
+        self.fold_any_binary(left, right, Self::btor_u64_divw, "DIVW")
     }
 
     fn fold_rem(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
@@ -507,6 +522,11 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
                 if let Some(n) = self.visit(left) { *left = n }
                 if let Some(n) = self.visit(right) { *right = n }
                 self.fold_div(left, right)
+            }
+            Node::Divw { ref mut left, ref mut right, .. } => {
+                if let Some(n) = self.visit(left) { *left = n }
+                if let Some(n) = self.visit(right) { *right = n }
+                self.fold_divw(left, right)
             }
             Node::Rem { ref mut left, ref mut right, .. } => {
                 if let Some(n) = self.visit(left) { *left = n }

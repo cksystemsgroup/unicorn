@@ -244,6 +244,14 @@ impl ModelBuilder {
         })
     }
 
+    fn new_divw(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
+        self.add_node(Node::Divw {
+            nid: self.current_nid,
+            left,
+            right,
+        })
+    }
+
     fn new_rem(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
         self.add_node(Node::Rem {
             nid: self.current_nid,
@@ -800,6 +808,17 @@ impl ModelBuilder {
         self.reg_flow_ite(rtype.rd(), div_node);
     }
 
+    fn model_divw(&mut self, rtype: RType) {
+        self.division_flow = self.new_ite(
+            self.pc_flag(),
+            self.reg_node(rtype.rs2()),
+            self.division_flow.clone(),
+            NodeType::Word,
+        );
+        let divw_node = self.new_divw(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
+        self.reg_flow_ite(rtype.rd(), divw_node);
+    }
+
     fn model_remu(&mut self, rtype: RType) {
         self.remainder_flow = self.new_ite(
             self.pc_flag(),
@@ -931,7 +950,7 @@ impl ModelBuilder {
             Instruction::Subw(_rtype) => self.model_unimplemented(inst),
             Instruction::Sllw(_rtype) => self.model_unimplemented(inst),
             Instruction::Mulw(_rtype) => self.model_unimplemented(inst),
-            Instruction::Divw(_rtype) => self.model_unimplemented(inst),
+            Instruction::Divw(rtype) => self.model_divw(rtype),
             Instruction::Beq(btype) => self.model_beq(btype, &mut branch_true, &mut branch_false),
             Instruction::Bne(btype) => self.model_bne(btype, &mut branch_true, &mut branch_false),
             Instruction::Blt(btype) => self.model_blt(btype, &mut branch_true, &mut branch_false),
