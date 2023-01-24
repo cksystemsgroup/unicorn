@@ -513,7 +513,6 @@ impl<'a> BitBlasting<'a> {
             let result_complement = self.get_2s_complement(&result);
             self.ite(&result[31].clone(), &result_complement, &result)
         }
-        
     }
 
     fn bitwise_add(
