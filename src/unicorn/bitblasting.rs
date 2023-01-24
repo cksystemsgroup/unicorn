@@ -492,6 +492,20 @@ impl<'a> BitBlasting<'a> {
         subtracted.pop().expect("MSB must exist")
     }
 
+    fn bitwise_addw(&mut self, left: &[GateRef], right: &[GateRef]) -> Vec<GateRef> {
+        let left32 = &left[..32];
+        let right32 = &right[..32];
+
+        let mut result = self.bitwise_add(left32, right32, false);
+
+        while result.len() < 64 {
+            result.push(GateRef::from(Gate::ConstFalse));
+        }
+
+        let result_complement = self.get_2s_complement(&result);
+        self.ite(&result[31].clone(), &result_complement, &result)
+    }
+
     fn bitwise_add(
         &mut self,
         left: &[GateRef],
@@ -726,6 +740,82 @@ impl<'a> BitBlasting<'a> {
         }
     }
 
+    fn ite(
+        &self,
+        cond_operand: &GateRef,
+        left_operand: &[GateRef],
+        right_operand: &[GateRef],
+    ) -> Vec<GateRef> {
+        let mut replacement: Vec<GateRef> = Vec::new();
+        if let Some(const_const) = get_constant(cond_operand) {
+            if const_const {
+                return left_operand.to_vec();
+            } else {
+                return right_operand.to_vec();
+            }
+        }
+        for i in 0..left_operand.len() {
+            let left_bit = get_constant(&left_operand[i]);
+            let right_bit = get_constant(&right_operand[i]);
+
+            if are_both_constants(left_bit, right_bit) {
+                let const_true_bit = get_constant(&left_operand[i]).unwrap();
+                let const_false_bit = get_constant(&right_operand[i]).unwrap();
+
+                if const_true_bit == const_false_bit {
+                    replacement.push(left_operand[i].clone());
+                } else if const_true_bit {
+                    replacement.push(cond_operand.clone());
+                } else {
+                    replacement.push(GateRef::from(Gate::Not {
+                        value: cond_operand.clone(),
+                    }));
+                }
+            } else {
+                let true_bit: GateRef;
+                let false_bit: GateRef;
+
+                if let Some(const_true) = get_constant(&left_operand[i]) {
+                    if const_true {
+                        true_bit = cond_operand.clone();
+                    } else {
+                        true_bit = GateRef::from(Gate::ConstFalse);
+                    }
+                } else {
+                    true_bit = GateRef::from(Gate::And {
+                        left: left_operand[i].clone(),
+                        right: cond_operand.clone(),
+                    });
+                }
+
+                if let Some(const_false) = get_constant(&right_operand[i]) {
+                    if const_false {
+                        false_bit = GateRef::from(Gate::Not {
+                            value: cond_operand.clone(),
+                        });
+                    } else {
+                        false_bit = GateRef::from(Gate::ConstFalse);
+                    }
+                } else {
+                    false_bit = GateRef::from(Gate::Matriarch1 {
+                        cond: cond_operand.clone(),
+                        right: right_operand[i].clone(),
+                    });
+                }
+
+                let true_bit_const = get_constant(&true_bit);
+                let false_bit_const = get_constant(&false_bit);
+                replacement.push(or_gate(
+                    true_bit_const,
+                    false_bit_const,
+                    &true_bit,
+                    &false_bit,
+                ));
+            }
+        }
+        replacement
+    }
+
     fn get_address_index(&mut self, address: &u64) -> u64 {
         let size_data = (self.model.data_range.end - self.model.data_range.start) / self.word_size;
         let size_heap = (self.model.heap_range.end - self.model.heap_range.start) / self.word_size;
@@ -885,6 +975,13 @@ impl<'a> BitBlasting<'a> {
                 let left_operand = self.visit(left);
                 let right_operand = self.visit(right);
                 let replacement = self.bitwise_add(&left_operand, &right_operand, false);
+                assert!(left_operand.len() == replacement.len());
+                self.record_mapping(node, replacement)
+            }
+            Node::Addw { left, right, .. } => {
+                let left_operand = self.visit(left);
+                let right_operand = self.visit(right);
+                let replacement = self.bitwise_addw(&left_operand, &right_operand);
                 assert!(left_operand.len() == replacement.len());
                 self.record_mapping(node, replacement)
             }

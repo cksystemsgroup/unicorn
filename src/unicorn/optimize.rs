@@ -273,12 +273,18 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
         u64::checked_shr(left, right.try_into().unwrap_or(u32::MAX)).unwrap_or(0)
     }
 
+    fn btor_u64_addw(left: u64, right: u64) -> u64 {
+        let left32 = left as i32;
+        let right32 = right as i32;
+        (left32 + right32) as u64
+    }
+
     fn fold_add(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
         self.fold_any_binary(left, right, u64::wrapping_add, "ADD")
     }
 
     fn fold_addw(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
-        self.fold_any_binary(left, right, i32::wrapping_add, "ADD")
+        self.fold_any_binary(left, right, Self::btor_u64_addw, "ADDW")
     }
 
     fn fold_sub(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
