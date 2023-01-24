@@ -1,4 +1,5 @@
 SELFIE = selfie
+RVGCC = riscv64-unknown-elf-gcc
 UNICORN = ../target/release/unicorn
 MYTIME = ../tools/mytime.sh
 MINISAT = minisat
@@ -7,6 +8,7 @@ KLEE = klee
 
 SRCS := $(wildcard *.c)
 OBJS := $(patsubst %.c,%.m,$(SRCS))
+GCCS := $(patsubst %.c,%.n,$(SRCS))
 BCS := $(patsubst %.c,%.bc,$(SRCS))
 BTORS := $(patsubst %.c,%.btor2,$(SRCS))
 CNFS := $(patsubst %.c,%.cnf,$(SRCS))
@@ -20,6 +22,7 @@ all: data.csv
 clean:
 	rm -f data.csv
 	rm -f $(OBJS)
+	rm -f $(GCCS)
 	rm -f $(BCS)
 	rm -f $(BTORS)
 	rm -f $(CNFS)
@@ -28,6 +31,7 @@ clean:
 	rm -rf klee-out-*
 
 obj: $(OBJS)
+gcc: $(GCCS)
 bytecode: $(BCS)
 btor2: $(BTORS)
 cnf: $(CNFS)
@@ -57,6 +61,9 @@ data.csv: $(DATAS)
 
 %.m: %.c
 	$(SELFIE) -c ../tools/cstar-lib.c $< -o $@ > /dev/null
+
+%.n: %.c
+	$(RVGCC) -Wno-div-by-zero -include ../tools/cstar-gcc.h $< -o $@
 
 %.bc: %.c
 	clang -Werror -Wno-main-return-type -Wno-return-type -O0 \
