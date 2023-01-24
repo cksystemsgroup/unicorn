@@ -51,6 +51,11 @@ pub enum Node {
         left: NodeRef,
         right: NodeRef,
     },
+    Addw {
+        nid: Nid,
+        left: NodeRef,
+        right: NodeRef,
+    },
     Sub {
         nid: Nid,
         left: NodeRef,

@@ -220,6 +220,14 @@ impl ModelBuilder {
         })
     }
 
+    fn new_addw(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
+        self.add_node(Node::Addw {
+            nid: self.current_nid,
+            left,
+            right,
+        })
+    }
+
     fn new_sub(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
         self.add_node(Node::Sub {
             nid: self.current_nid,
@@ -745,6 +753,11 @@ impl ModelBuilder {
         self.reg_flow_ite(rtype.rd(), add_node);
     }
 
+    fn model_addw(&mut self, rtype: RType) {
+        let add_node = self.new_addw(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
+        self.reg_flow_ite(rtype.rd(), add_node);
+    }
+
     fn model_sub(&mut self, rtype: RType) {
         let sub_node = self.new_sub(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
         self.reg_flow_ite(rtype.rd(), sub_node);
@@ -927,7 +940,7 @@ impl ModelBuilder {
             Instruction::Div(_rtype) => self.model_unimplemented(inst),
             Instruction::Divu(rtype) => self.model_divu(rtype),
             Instruction::Remu(rtype) => self.model_remu(rtype),
-            Instruction::Addw(_rtype) => self.model_unimplemented(inst),
+            Instruction::Addw(rtype) => self.model_addw(rtype),
             Instruction::Subw(_rtype) => self.model_unimplemented(inst),
             Instruction::Sllw(_rtype) => self.model_unimplemented(inst),
             Instruction::Mulw(_rtype) => self.model_unimplemented(inst),

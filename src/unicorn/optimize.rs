@@ -277,6 +277,10 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
         self.fold_any_binary(left, right, u64::wrapping_add, "ADD")
     }
 
+    fn fold_addw(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
+        self.fold_any_binary(left, right, i32::wrapping_add, "ADD")
+    }
+
     fn fold_sub(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
         self.fold_any_binary(left, right, u64::wrapping_sub, "SUB")
     }
@@ -558,6 +562,11 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
                 if let Some(n) = self.visit(left) { *left = n }
                 if let Some(n) = self.visit(right) { *right = n }
                 self.fold_add(left, right)
+            }
+            Node::Addw { ref mut left, ref mut right, .. } => {
+                if let Some(n) = self.visit(left) { *left = n }
+                if let Some(n) = self.visit(right) { *right = n }
+                self.fold_addw(left, right)
             }
             Node::Sub { ref mut left, ref mut right, .. } => {
                 if let Some(n) = self.visit(left) { *left = n }
