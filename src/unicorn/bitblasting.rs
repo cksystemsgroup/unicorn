@@ -501,9 +501,19 @@ impl<'a> BitBlasting<'a> {
         while result.len() < 64 {
             result.push(GateRef::from(Gate::ConstFalse));
         }
+        let sign = result[31].clone();
 
-        let result_complement = self.get_2s_complement(&result);
-        self.ite(&result[31].clone(), &result_complement, &result)
+        if let Some(const_sign) = get_constant(&sign) {
+            if const_sign {
+                self.get_2s_complement(&result)
+            } else {
+                result
+            }
+        } else {
+            let result_complement = self.get_2s_complement(&result);
+            self.ite(&result[31].clone(), &result_complement, &result)
+        }
+        
     }
 
     fn bitwise_add(
