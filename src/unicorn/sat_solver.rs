@@ -1,5 +1,6 @@
 use crate::unicorn::bitblasting::{GateModel, GateRef};
 use crate::unicorn::{Node, NodeRef};
+use anyhow::{anyhow, Result};
 use log::{debug, warn};
 
 //
