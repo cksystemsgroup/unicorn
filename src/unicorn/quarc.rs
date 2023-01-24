@@ -3026,7 +3026,7 @@ mod tests {
                 assert!(oracle_val);
 
                 let circuit_value = qc._get_value_from_nid(4, &assignments);
-                assert!(!circuit_value.is_none());
+                assert!(circuit_value.is_some());
                 assert!(result == circuit_value.unwrap());
             }
         }

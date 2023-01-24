@@ -184,6 +184,11 @@ impl BoolectorSolver {
                 let bv_right = self.visit(right).into_bv();
                 bv_left.and(&bv_right).into()
             }
+            Node::Or { left, right, .. } => {
+                let bv_left = self.visit(left).into_bv();
+                let bv_right = self.visit(right).into_bv();
+                bv_left.or(&bv_right).into()
+            }
             Node::Not { value, .. } => {
                 let bv_value = self.visit(value).into_bv();
                 bv_value.not().into()
@@ -200,7 +205,9 @@ impl BoolectorSolver {
                 BV::new(self.solver.clone(), width, Some(name)).into()
             }
             Node::Next { .. } => panic!("should be unreachable"),
-            Node::Bad { .. } => panic!("should be unreachable"),
+            Node::Bad { cond, .. } => {
+                self.visit(cond)
+            },
             Node::Comment(_) => panic!("cannot translate"),
         }
     }
