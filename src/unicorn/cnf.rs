@@ -50,6 +50,12 @@ impl<C: CNFContainer> CNFBuilder<C> {
     }
 }
 
+impl<C: CNFContainer> Default for CNFBuilder<C> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 //
 // Private Implementation
 //
