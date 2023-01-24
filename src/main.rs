@@ -13,6 +13,7 @@ use unicorn::unicorn::emulate_loader::load_model_into_emulator;
 use unicorn::unicorn::memory::replace_memory;
 use unicorn::unicorn::optimize::{optimize_model_with_input, optimize_model_with_solver};
 use unicorn::unicorn::qubot::{InputEvaluator, Qubot};
+#[cfg(any(feature = "kissat", feature = "cadical", feature = "varisat"))]
 use unicorn::unicorn::sat_solver::*;
 use unicorn::unicorn::smt_solver::*;
 
@@ -205,27 +206,27 @@ fn main() -> Result<()> {
                             SatType::None => unreachable!(),
                             #[cfg(feature = "kissat")]
                             SatType::Kissat => {
-                                return process_all_bad_states::<kissat_impl::KissatSolver>(
+                                let _ = process_all_bad_states::<kissat_impl::KissatSolver>(
                                     &gate_model,
                                     terminate_on_bad,
                                     one_query,
-                                )
+                                );
                             }
                             #[cfg(feature = "varisat")]
                             SatType::Varisat => {
-                                process_all_bad_states::<varisat_impl::VarisatSolver>(
+                                let _ = process_all_bad_states::<varisat_impl::VarisatSolver>(
                                     &gate_model,
                                     terminate_on_bad,
                                     one_query,
-                                )
+                                );
                             }
                             #[cfg(feature = "cadical")]
                             SatType::Cadical => {
-                                process_all_bad_states::<cadical_impl::CadicalSolver>(
+                                let _ = process_all_bad_states::<cadical_impl::CadicalSolver>(
                                     &gate_model,
                                     terminate_on_bad,
                                     one_query,
-                                )
+                                );
                             }
                         }
                     }
