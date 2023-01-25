@@ -791,7 +791,6 @@ impl<'a> BitBlasting<'a> {
                     (const_dividend.abs() % const_divisor.abs()) as u64,
                     &dividend.len(),
                 );
-                result[64] = GateRef::from(Gate::ConstTrue);
                 self.get_2s_complement(&result)
             } else {
                 get_gates_from_numeric(
