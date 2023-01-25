@@ -531,6 +531,19 @@ impl ModelBuilder {
         self.reg_flow_ite(itype.rd(), sra_node);
     }
 
+    // We represent `sllw(a, n)` as `(a << (n + 32)) >>s 32` instead.
+    fn model_sllw(&mut self, rtype: RType) {
+        let thirtytwo = self.new_const(32); // for val >>s 32
+
+        // shift value should only be a value less or equal than 2^32
+        let mut shifted_r2 = self.new_sll(self.reg_node(rtype.rs2()), thirtytwo.clone());
+        shifted_r2 = self.new_srl(shifted_r2, thirtytwo.clone());
+
+        let sll_node = self.new_sll(self.reg_node(rtype.rs1()), shifted_r2);
+        let sra_node = self.new_sra(sll_node, thirtytwo);
+        self.reg_flow_ite(rtype.rd(), sra_node);
+    }
+
     fn model_srli(&mut self, itype: IType) {
         assert!(itype.imm() < 64, "immediate within bounds");
         let imm_node = self.new_const(itype.imm() as u64);
@@ -945,7 +958,7 @@ impl ModelBuilder {
             Instruction::Remu(rtype) => self.model_remu(rtype),
             Instruction::Addw(rtype) => self.model_addw(rtype),
             Instruction::Subw(rtype) => self.model_subw(rtype),
-            Instruction::Sllw(_rtype) => self.model_unimplemented(inst),
+            Instruction::Sllw(rtype) => self.model_sllw(rtype),
             Instruction::Mulw(_rtype) => self.model_unimplemented(inst),
             Instruction::Divw(_rtype) => self.model_unimplemented(inst),
             Instruction::Beq(btype) => self.model_beq(btype, &mut branch_true, &mut branch_false),
