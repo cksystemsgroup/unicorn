@@ -817,8 +817,8 @@ impl ModelBuilder {
         let mul_node = self.new_mul(left_sext, right_sext);
 
         let mut sext_mul_node = self.new_sll(mul_node, thirtytwo.clone());
-        sext_mul_node = self.new_sra(sext_mul_node, thirtytwo.clone());
-        
+        sext_mul_node = self.new_sra(sext_mul_node, thirtytwo);
+
         self.reg_flow_ite(rtype.rd(), sext_mul_node);
     }
 
