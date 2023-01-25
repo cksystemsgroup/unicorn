@@ -523,11 +523,11 @@ impl ModelBuilder {
     // We represent `slliw(a, n)` as `(a << (n + 32)) >>s 32` instead.
     fn model_slliw(&mut self, itype: IType) {
         assert!(itype.imm() < 32, "immediate within bounds");
-        let imm_node = self.new_const(itype.imm() as u64 + 32);
-        let thirtytwo = self.new_const(32); // for val >>s 32
+        let imm_node = self.new_const(itype.imm() as u64);
         let sll_node = self.new_sll(self.reg_node(itype.rs1()), imm_node);
-        let sra_node = self.new_sra(sll_node, thirtytwo);
-        self.reg_flow_ite(itype.rd(), sra_node);
+        let thirtytwo = self.new_const((-1 as u32) as u64);
+        let and_node = self.new_and_bit(sll_node, thirtytwo);
+        self.reg_flow_ite(itype.rd(), and_node);
     }
 
     fn model_srli(&mut self, itype: IType) {
