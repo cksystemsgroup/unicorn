@@ -45,7 +45,7 @@ fn has_depth_in_name(bad_state: &NodeRef) -> bool {
     {
         name.contains("[n=")
     } else {
-        panic!("expecting 'Bad' node here");
+        false
     }
 }
 
