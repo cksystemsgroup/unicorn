@@ -812,10 +812,14 @@ impl ModelBuilder {
         left_sext = self.new_sra(left_sext, thirtytwo.clone());
 
         let mut right_sext = self.new_sll(self.reg_node(rtype.rs2()), thirtytwo.clone());
-        right_sext = self.new_sra(right_sext, thirtytwo);
+        right_sext = self.new_sra(right_sext, thirtytwo.clone());
 
         let mul_node = self.new_mul(left_sext, right_sext);
-        self.reg_flow_ite(rtype.rd(), mul_node);
+
+        let mut sext_mul_node = self.new_sll(mul_node, thirtytwo.clone());
+        sext_mul_node = self.new_sra(sext_mul_node, thirtytwo.clone());
+        
+        self.reg_flow_ite(rtype.rd(), sext_mul_node);
     }
 
     fn model_divu(&mut self, rtype: RType) {
