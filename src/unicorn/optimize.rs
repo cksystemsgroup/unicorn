@@ -212,7 +212,7 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
     fn btor_u64_divw(left: u64, right: u64) -> u64 {
         // get first 32 bits
         if let Some(result) = i32::checked_div(left as i32, right as i32) {
-            result as u64
+            (result as i64) as u64
         } else {
             u64::MAX
         }

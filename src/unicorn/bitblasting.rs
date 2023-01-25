@@ -760,6 +760,19 @@ impl<'a> BitBlasting<'a> {
         fold_word_gate(&temp_word, and_gate, "WORD-AND")
     }
 
+    fn sign_extend(&mut self, word: Vec<GateRef>, bits_to_add: usize) -> Vec<GateRef>{
+        let sign_bit = word[word.len()-1].clone();
+        let mut answer = vec![];
+
+        for gate in word {
+            answer.push(gate.clone());
+        }
+        for _ in 0..bits_to_add {
+            answer.push(sign_bit.clone());
+        }
+        answer
+    }
+
     fn dividew(
         &mut self,
         dividend: &[GateRef],
@@ -778,25 +791,30 @@ impl<'a> BitBlasting<'a> {
 
             let mut quotient = get_gates_from_numeric(
                 (const_dividend.abs() / const_divisor.abs()) as u64,
-                &dividend.len(),
+                &dividend32.len(),
             );
+            
+            quotient = if   (const_dividend < 0 && const_divisor > 0) || (const_dividend > 0 && const_divisor < 0){
+                let c = self.get_2s_complement(&quotient);
+                self.sign_extend(c, 64-dividend32.len())
+            } else {
+                self.sign_extend(quotient, 64-dividend32.len())
+            };
+            
 
-            if (const_dividend < 0 && const_divisor > 0)
-                || (const_dividend > 0 && const_divisor < 0)
-            {
-                quotient = self.get_2s_complement(&quotient);
-            }
             let remainder = if const_dividend < 0 {
                 let mut result = get_gates_from_numeric(
                     (const_dividend.abs() % const_divisor.abs()) as u64,
-                    &dividend.len(),
+                    &dividend32.len(),
                 );
-                self.get_2s_complement(&result)
+                result = self.get_2s_complement(&result);
+                self.sign_extend(result, 64-dividend32.len())
             } else {
-                get_gates_from_numeric(
+                let result = get_gates_from_numeric(
                     (const_dividend.abs() % const_divisor.abs()) as u64,
-                    &dividend.len(),
-                )
+                    &dividend32.len(),
+                );
+                self.sign_extend(result, 64-dividend32.len())
             };
 
             (quotient, remainder)
@@ -807,26 +825,27 @@ impl<'a> BitBlasting<'a> {
             let dividend_complement = self.get_2s_complement(dividend32);
             let divisor_complement = self.get_2s_complement(divisor32);
 
+            // if the sign-bit equals 1 we operate with the dividends 2's complement
             let f_dividend = self.ite(&sign_dividend, &dividend_complement, dividend32);
 
+            // if the sign-bit equals 1 we operate with the divisor 2's complement
             let f_divisor = self.ite(&sign_divisor, &divisor_complement, divisor32);
 
             let (mut quotient, mut remainder) = self.divide(&f_dividend, &f_divisor);
 
-            while quotient.len() < 64 {
-                quotient.push(GateRef::from(Gate::ConstFalse));
-                remainder.push(GateRef::from(Gate::ConstFalse));
-            }
-
             quotient = if let Some(const_signs_equal) = get_constant(&are_signs_equal) {
-                if const_signs_equal {
-                    self.get_2s_complement(&quotient)
+                if !const_signs_equal {
+                    let result = self.get_2s_complement(&quotient);
+                    self.sign_extend(result, 64-dividend32.len())
                 } else {
-                    quotient
+                    
+                    self.sign_extend(quotient, 64-dividend32.len())
                 }
             } else {
                 let quotient_complement = self.get_2s_complement(&quotient);
-                self.ite(&are_signs_equal, &quotient, &quotient_complement)
+                let result = self.ite(&are_signs_equal, &quotient, &quotient_complement);
+                
+                self.sign_extend(result, 64-dividend32.len())
             };
 
             remainder = if let Some(const_sign_dividend) = get_constant(&sign_dividend) {
@@ -839,6 +858,8 @@ impl<'a> BitBlasting<'a> {
                 let remainder_complement = self.get_2s_complement(&remainder);
                 self.ite(&sign_dividend, &remainder_complement, &remainder)
             };
+
+            remainder = self.sign_extend(remainder, 64 - dividend32.len());
 
             (quotient, remainder)
         }
