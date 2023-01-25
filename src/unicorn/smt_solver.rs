@@ -20,6 +20,7 @@ pub trait SMTSolver {
     fn new(timeout: Option<Duration>) -> Self;
     fn name() -> &'static str;
     fn solve(&mut self, root: &NodeRef) -> SMTSolution;
+    fn solve_n(&mut self, nodes: &Vec<NodeRef>) -> SMTSolution;
     fn is_always_true(&mut self, node: &NodeRef) -> bool;
     fn is_always_false(&mut self, node: &NodeRef) -> bool;
     fn is_always_equal(&mut self, left: &NodeRef, right: &NodeRef) -> bool;
@@ -60,6 +61,10 @@ pub mod none_impl {
 
         fn solve(&mut self, _root: &NodeRef) -> SMTSolution {
             SMTSolution::Timeout
+        }
+
+        fn solve_n(&mut self, _nodes: &Vec<NodeRef>) -> SMTSolution {
+          SMTSolution::Timeout
         }
     }
 }
@@ -130,6 +135,14 @@ pub mod boolector_impl {
         fn solve(&mut self, root: &NodeRef) -> SMTSolution {
             let bv = self.visit(root).into_bv();
             self.solve_impl(bv.slice(0, 0))
+        }
+
+        fn solve_n(&mut self, nodes: &Vec<NodeRef>) -> SMTSolution {
+          let bv = BV::zero(self.solver.clone(), 1);
+          for node in nodes.iter() {
+            bv.or(&self.visit(node).into_bv());
+          }
+          self.solve_impl(bv)
         }
     }
 
@@ -361,6 +374,10 @@ pub mod z3solver_impl {
         fn solve(&mut self, root: &NodeRef) -> SMTSolution {
             let z3_bool = self.visit(root).as_bool().expect("bool");
             self.solve_impl(&z3_bool)
+        }
+
+        fn solve_n(&mut self, _nodes: &Vec<NodeRef>) -> SMTSolution {
+          SMTSolution::Timeout
         }
     }
 

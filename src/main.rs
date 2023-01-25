@@ -12,18 +12,29 @@ use crate::unicorn::codegen::compile_model_into_program;
 use crate::unicorn::dimacs_parser::load_dimacs_as_gatemodel;
 use crate::unicorn::emulate_loader::load_model_into_emulator;
 use crate::unicorn::memory::replace_memory;
-use crate::unicorn::optimize::{optimize_model_with_input, optimize_model_with_solver};
+// use crate::unicorn::optimize::{
+//     optimize_model_with_input,
+//     optimize_model_with_solver
+// };
 use crate::unicorn::qubot::{InputEvaluator, Qubot};
 use crate::unicorn::sat_solver::solve_bad_states;
-use crate::unicorn::smt_solver::*;
-use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
+// use crate::unicorn::smt_solver::*;
+use crate::unicorn::unroller::renumber_model;
 use crate::unicorn::write_model;
+use crate::unicorn::horizon::compute_reasoning_horizon;
 
 use ::unicorn::disassemble::disassemble;
 use ::unicorn::emulate::EmulatorState;
 use anyhow::{Context, Result};
 use bytesize::ByteSize;
-use cli::{collect_arg_values, expect_arg, expect_optional_arg, LogLevel, SatType, SmtType};
+use cli::{
+    collect_arg_values,
+    expect_arg,
+    expect_optional_arg,
+    LogLevel,
+    SatType,
+    SmtType
+};
 use env_logger::{Env, TimestampPrecision};
 use riscu::load_object_file;
 use std::{
@@ -32,7 +43,7 @@ use std::{
     io::{stdout, Write},
     path::PathBuf,
     str::FromStr,
-    time::Duration,
+    time::Duration
 };
 
 fn main() -> Result<()> {
@@ -87,6 +98,8 @@ fn main() -> Result<()> {
             let input_is_dimacs = !is_beator && args.get_flag("from-dimacs");
             let compile_model = is_beator && args.get_flag("compile");
             let emulate_model = is_beator && args.get_flag("emulate");
+            let stride = args.get_flag("stride");
+            let solver_time_budget = args.get_one::<u64>("time-budget");
             let arg0 = expect_arg::<String>(args, "input-file")?;
             let extras = collect_arg_values(args, "extras");
 
@@ -114,32 +127,29 @@ fn main() -> Result<()> {
                     } else {
                         vec![]
                     };
-                    for n in 0..unroll_depth {
-                        unroll_model(&mut model, n);
-                        if has_concrete_inputs {
-                            optimize_model_with_input(&mut model, &mut input_values)
-                        }
-                    }
-                    if prune {
-                        prune_model(&mut model);
-                    }
+
                     let timeout = solver_timeout.map(|&ms| Duration::from_millis(ms));
-                    match smt_solver {
-                        #[rustfmt::skip]
-                        SmtType::Generic => {
-                            optimize_model_with_solver::<none_impl::NoneSolver>(&mut model, timeout, minimize, terminate_on_bad, one_query)
-                        },
-                        #[rustfmt::skip]
-                        #[cfg(feature = "boolector")]
-                        SmtType::Boolector => {
-                            optimize_model_with_solver::<boolector_impl::BoolectorSolver>(&mut model, timeout, minimize, terminate_on_bad, one_query)
-                        },
-                        #[rustfmt::skip]
-                        #[cfg(feature = "z3")]
-                        SmtType::Z3 => {
-                            optimize_model_with_solver::<z3solver_impl::Z3SolverWrapper>(&mut model, timeout, minimize, terminate_on_bad, one_query)
-                        },
-                    }
+                    
+                    let mut time_budget = solver_time_budget.map(
+                        |&ms| Duration::from_millis(ms)
+                    );
+
+                    // TODO: Refactor the subsequent loop (reasoning horizon)
+                    compute_reasoning_horizon(
+                        &mut model,
+                        has_concrete_inputs,
+                        &mut input_values,
+                        unroll_depth,
+                        prune,
+                        stride,
+                        &smt_solver,
+                        timeout,
+                        minimize,
+                        terminate_on_bad,
+                        one_query,
+                        &mut time_budget
+                    );
+
                     if renumber {
                         renumber_model(&mut model);
                     }

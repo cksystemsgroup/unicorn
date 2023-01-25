@@ -18,6 +18,7 @@ pub fn optimize_model_with_solver<S: SMTSolver>(
     minimize: bool,
     terminate_on_bad: bool,
     one_query: bool,
+    stride: bool
 ) {
     debug!("Optimizing model using '{}' SMT solver ...", S::name());
     debug!("Setting SMT solver timeout to {:?} per query ...", timeout);
@@ -29,12 +30,13 @@ pub fn optimize_model_with_solver<S: SMTSolver>(
         minimize,
         terminate_on_bad,
         one_query,
+        stride
     )
 }
 
 pub fn optimize_model_with_input(model: &mut Model, inputs: &mut Vec<u64>) {
     debug!("Optimizing model with {} concrete inputs ...", inputs.len());
-    optimize_model_impl::<none_impl::NoneSolver>(model, inputs, None, false, false, false);
+    optimize_model_impl::<none_impl::NoneSolver>(model, inputs, None, false, false, false, false);
 }
 
 //
@@ -48,6 +50,7 @@ fn optimize_model_impl<S: SMTSolver>(
     minimize: bool,
     terminate_on_bad: bool,
     one_query: bool,
+    stride: bool
 ) {
     let mut constant_folder = ConstantFolder::<S>::new(inputs, timeout, minimize);
     model
@@ -70,10 +73,15 @@ fn optimize_model_impl<S: SMTSolver>(
             .retain(|s| constant_folder.should_retain_bad_state(s, false, true));
 
         if model.bad_states_initial.is_empty() {
-            panic!("No bad states happen");
+            if !stride {
+                panic!("No bad states happen");
+            }
         } else if model.bad_states_initial.len() == 1 {
             constant_folder.should_retain_bad_state(&model.bad_states_initial[0], true, true);
-            panic!("No bad states happen");
+
+            if !stride {
+                panic!("No bad states happen");
+            }
         } else {
             let mut ored_bad_states = NodeRef::from(Node::Or {
                 nid: u64::MAX,
@@ -91,9 +99,13 @@ fn optimize_model_impl<S: SMTSolver>(
                 });
             }
             if !constant_folder.smt_solver.is_always_false(&ored_bad_states) {
-                panic!("bad states are satisfiable!")
+                if !stride {
+                    panic!("bad states are satisfiable!")
+                }
             } else {
-                panic!("No bad state happen.")
+                if !stride {
+                    panic!("No bad state happen.")
+                }
             }
         }
     }
@@ -699,7 +711,7 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
         if let Node::Bad { cond, name, .. } = &*bad_state.borrow() {
             if is_const_false(cond) {
                 debug!(
-                    "Bad state '{}' became unreachable, removing",
+                    "Bad state '{}' became statically unreachable, removing",
                     name.as_deref().unwrap_or("?")
                 );
                 return false;
