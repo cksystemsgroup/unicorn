@@ -197,7 +197,7 @@ pub mod boolector_impl {
                     let bv_right = self.visit(right).into_bv();
                     bv_left.udiv(&bv_right).into()
                 },
-                Node::Divu { left, right, .. } => {
+                Node::Div { left, right, .. } => {
                     let bv_left = self.visit(left).into_bv();
                     let bv_right = self.visit(right).into_bv();
                     bv_left.sdiv(&bv_right).into()
