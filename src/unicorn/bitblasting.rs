@@ -726,6 +726,198 @@ impl<'a> BitBlasting<'a> {
         }
     }
 
+    fn get_signed_numeric_from_gates(&mut self, gates_: &[GateRef]) -> i64 {
+        let size = gates_.len();
+        let sign = get_constant(&gates_[size - 1]).unwrap();
+        let gates = if sign {
+            self.get_2s_complement(gates_)
+        } else {
+            gates_.to_vec()
+        };
+
+        let mut result: i64 = 0;
+
+        for (exponent, gate) in gates.iter().enumerate() {
+            if let Some(value) = get_numeric_from_gate(gate) {
+                if value == 1 {
+                    result += (2_i64).pow(exponent as u32);
+                }
+            } else {
+                panic!("Trying to get numeric value from non-const gate");
+            }
+        }
+
+        if sign {
+            -result
+        } else {
+            result
+        }
+    }
+
+    fn eq(&self, left_operand: &[GateRef], right_operand: &[GateRef]) -> Vec<GateRef> {
+        let temp_word = fold_bitwise_gate(left_operand, right_operand, xnor_gate, "XNOR");
+
+        fold_word_gate(&temp_word, and_gate, "WORD-AND")
+    }
+
+    fn ite(
+        &self,
+        cond_operand: &GateRef,
+        left_operand: &[GateRef],
+        right_operand: &[GateRef],
+    ) -> Vec<GateRef> {
+        assert!(left_operand.len() == right_operand.len());
+        let mut replacement: Vec<GateRef> = Vec::new();
+        if let Some(const_const) = get_constant(cond_operand) {
+            if const_const {
+                return left_operand.to_vec();
+            } else {
+                return right_operand.to_vec();
+            }
+        }
+        for i in 0..left_operand.len() {
+            let left_bit = get_constant(&left_operand[i]);
+            let right_bit = get_constant(&right_operand[i]);
+
+            if are_both_constants(left_bit, right_bit) {
+                let const_true_bit = get_constant(&left_operand[i]).unwrap();
+                let const_false_bit = get_constant(&right_operand[i]).unwrap();
+
+                if const_true_bit == const_false_bit {
+                    replacement.push(left_operand[i].clone());
+                } else if const_true_bit {
+                    replacement.push(cond_operand.clone());
+                } else {
+                    replacement.push(GateRef::from(Gate::Not {
+                        value: cond_operand.clone(),
+                    }));
+                }
+            } else {
+                let true_bit: GateRef;
+                let false_bit: GateRef;
+
+                if let Some(const_true) = get_constant(&left_operand[i]) {
+                    if const_true {
+                        true_bit = cond_operand.clone();
+                    } else {
+                        true_bit = GateRef::from(Gate::ConstFalse);
+                    }
+                } else {
+                    true_bit = GateRef::from(Gate::And {
+                        left: left_operand[i].clone(),
+                        right: cond_operand.clone(),
+                    });
+                }
+
+                if let Some(const_false) = get_constant(&right_operand[i]) {
+                    if const_false {
+                        false_bit = GateRef::from(Gate::Not {
+                            value: cond_operand.clone(),
+                        });
+                    } else {
+                        false_bit = GateRef::from(Gate::ConstFalse);
+                    }
+                } else {
+                    false_bit = GateRef::from(Gate::Matriarch1 {
+                        cond: cond_operand.clone(),
+                        right: right_operand[i].clone(),
+                    });
+                }
+
+                let true_bit_const = get_constant(&true_bit);
+                let false_bit_const = get_constant(&false_bit);
+                replacement.push(or_gate(
+                    true_bit_const,
+                    false_bit_const,
+                    &true_bit,
+                    &false_bit,
+                ));
+            }
+        }
+        assert!(replacement.len() == left_operand.len());
+        replacement
+    }
+
+    fn dividew(
+        &mut self,
+        dividend: &[GateRef],
+        divisor: &[GateRef],
+    ) -> (Vec<GateRef>, Vec<GateRef>) {
+        let sign_dividend = dividend[63].clone();
+        let sign_divisor = divisor[63].clone();
+
+        if get_non_constant_gate(dividend).is_none() && get_non_constant_gate(divisor).is_none() {
+            let const_dividend = self.get_signed_numeric_from_gates(dividend);
+            let const_divisor = self.get_signed_numeric_from_gates(divisor);
+
+            let mut quotient = get_gates_from_numeric(
+                (const_dividend.abs() / const_divisor.abs()) as u64,
+                &dividend.len(),
+            );
+
+            quotient = if (const_dividend < 0 && const_divisor > 0)
+                || (const_dividend > 0 && const_divisor < 0)
+            {
+                self.get_2s_complement(&quotient)
+            } else {
+                quotient
+            };
+
+            let remainder = if const_dividend < 0 {
+                let result = get_gates_from_numeric(
+                    (const_dividend.abs() % const_divisor.abs()) as u64,
+                    &dividend.len(),
+                );
+                self.get_2s_complement(&result)
+            } else {
+                get_gates_from_numeric(
+                    (const_dividend.abs() % const_divisor.abs()) as u64,
+                    &dividend.len(),
+                )
+            };
+
+            (quotient, remainder)
+        } else {
+            let are_signs_equal =
+                self.eq(&[sign_dividend.clone()], &[sign_divisor.clone()])[0].clone();
+
+            let dividend_complement = self.get_2s_complement(dividend);
+            let divisor_complement = self.get_2s_complement(divisor);
+
+            // if the sign-bit equals 1 we operate with the dividends 2's complement
+            let f_dividend = self.ite(&sign_dividend, &dividend_complement, dividend);
+
+            // if the sign-bit equals 1 we operate with the divisor 2's complement
+            let f_divisor = self.ite(&sign_divisor, &divisor_complement, divisor);
+
+            let (mut quotient, mut remainder) = self.divide(&f_dividend, &f_divisor);
+
+            quotient = if let Some(const_signs_equal) = get_constant(&are_signs_equal) {
+                if !const_signs_equal {
+                    self.get_2s_complement(&quotient)
+                } else {
+                    quotient
+                }
+            } else {
+                let quotient_complement = self.get_2s_complement(&quotient);
+                self.ite(&are_signs_equal, &quotient, &quotient_complement)
+            };
+
+            remainder = if let Some(const_sign_dividend) = get_constant(&sign_dividend) {
+                if const_sign_dividend {
+                    self.get_2s_complement(&remainder)
+                } else {
+                    remainder
+                }
+            } else {
+                let remainder_complement = self.get_2s_complement(&remainder);
+                self.ite(&sign_dividend, &remainder_complement, &remainder)
+            };
+
+            (quotient, remainder)
+        }
+    }
+
     fn get_address_index(&mut self, address: &u64) -> u64 {
         let size_data = (self.model.data_range.end - self.model.data_range.start) / self.word_size;
         let size_heap = (self.model.heap_range.end - self.model.heap_range.start) / self.word_size;
@@ -992,6 +1184,15 @@ impl<'a> BitBlasting<'a> {
                 let left_operand = self.visit(left);
                 let right_operand = self.visit(right);
                 let result = self.divide(&left_operand, &right_operand);
+                self.record_constraint_dependency(&result.0.clone(), (left.clone(), right.clone()));
+                self.record_constraint_dependency(&result.1, (left.clone(), right.clone()));
+                let replacement = result.0;
+                self.record_mapping(node, replacement)
+            }
+            Node::Div { left, right, .. } => {
+                let left_operand = self.visit(left);
+                let right_operand = self.visit(right);
+                let result = self.dividew(&left_operand, &right_operand);
                 self.record_constraint_dependency(&result.0.clone(), (left.clone(), right.clone()));
                 self.record_constraint_dependency(&result.1, (left.clone(), right.clone()));
                 let replacement = result.0;
