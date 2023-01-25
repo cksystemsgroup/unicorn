@@ -1,0 +1,11 @@
+[project]
+name = "unicorn_py"
+version = "0.0.1"
+description = "A python binder for the Unicorn command line toolchain"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.urls]
+"Homepage" = "https://github.com/cksystemsgroup/unicorn"
