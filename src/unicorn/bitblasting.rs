@@ -513,30 +513,6 @@ impl<'a> BitBlasting<'a> {
         self.bitwise_add(left, &right_2s_complement, false)
     }
 
-    fn bitwise_subtractionw(&mut self, left: &[GateRef], right: &[GateRef]) -> Vec<GateRef> {
-        let left32 = &left[..32];
-        let right32 = &right[..32];
-
-        let mut result = self.bitwise_subtraction(left32, right32);
-
-        while result.len() < 64 {
-            result.push(GateRef::from(Gate::ConstFalse));
-        }
-
-        let sign = result[31].clone();
-
-        if let Some(const_sign) = get_constant(&sign) {
-            if const_sign {
-                self.get_2s_complement(&result)
-            } else {
-                result
-            }
-        } else {
-            let result_complement = self.get_2s_complement(&result);
-            self.ite(&sign, &result_complement, &result)
-        }
-    }
-
     fn bitwise_less_than(&mut self, mut left: Vec<GateRef>, mut right: Vec<GateRef>) -> GateRef {
         left.push(GateRef::from(Gate::ConstFalse));
         right.push(GateRef::from(Gate::ConstFalse));
@@ -1128,12 +1104,6 @@ impl<'a> BitBlasting<'a> {
                 let left_operand = self.visit(left);
                 let right_operand = self.visit(right);
                 let replacement = self.bitwise_subtraction(&left_operand, &right_operand);
-                self.record_mapping(node, replacement)
-            }
-            Node::Subw { left, right, .. } => {
-                let left_operand = self.visit(left);
-                let right_operand = self.visit(right);
-                let replacement = self.bitwise_subtractionw(&left_operand, &right_operand);
                 self.record_mapping(node, replacement)
             }
             Node::Ult { left, right, .. } => {
