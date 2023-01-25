@@ -237,7 +237,7 @@ impl ModelBuilder {
     }
 
     fn new_div(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
-        self.add_node(Node::Div {
+        self.add_node(Node::Divu {
             nid: self.current_nid,
             left,
             right,

@@ -569,7 +569,7 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
                 if let Some(n) = self.visit(right) { *right = n }
                 self.fold_mul(left, right)
             }
-            Node::Div { ref mut left, ref mut right, .. } => {
+            Node::Divu { ref mut left, ref mut right, .. } => {
                 if let Some(n) = self.visit(left) { *left = n }
                 if let Some(n) = self.visit(right) { *right = n }
                 self.fold_div(left, right)
