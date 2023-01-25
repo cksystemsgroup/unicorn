@@ -745,6 +745,14 @@ impl ModelBuilder {
         self.reg_flow_ite(rtype.rd(), add_node);
     }
 
+    fn model_addw(&mut self, rtype: RType) {
+        let add_node = self.new_add(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
+        let thirtytwo = self.new_const(32);
+        let sll_node = self.new_sll(add_node, thirtytwo.clone());
+        let sra_node = self.new_sra(sll_node, thirtytwo);
+        self.reg_flow_ite(rtype.rd(), sra_node);
+    }
+
     fn model_sub(&mut self, rtype: RType) {
         let sub_node = self.new_sub(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
         self.reg_flow_ite(rtype.rd(), sub_node);
@@ -927,7 +935,7 @@ impl ModelBuilder {
             Instruction::Div(_rtype) => self.model_unimplemented(inst),
             Instruction::Divu(rtype) => self.model_divu(rtype),
             Instruction::Remu(rtype) => self.model_remu(rtype),
-            Instruction::Addw(_rtype) => self.model_unimplemented(inst),
+            Instruction::Addw(rtype) => self.model_addw(rtype),
             Instruction::Subw(_rtype) => self.model_unimplemented(inst),
             Instruction::Sllw(_rtype) => self.model_unimplemented(inst),
             Instruction::Mulw(_rtype) => self.model_unimplemented(inst),
