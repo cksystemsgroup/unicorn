@@ -244,8 +244,16 @@ impl ModelBuilder {
         })
     }
 
-    fn new_div(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
+    fn new_divu(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
         self.add_node(Node::Divu {
+            nid: self.current_nid,
+            left,
+            right,
+        })
+    }
+
+    fn new_div(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
+        self.add_node(Node::Div {
             nid: self.current_nid,
             left,
             right,
@@ -817,6 +825,17 @@ impl ModelBuilder {
             self.division_flow.clone(),
             NodeType::Word,
         );
+        let div_node = self.new_divu(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
+        self.reg_flow_ite(rtype.rd(), div_node);
+    }
+
+    fn model_div(&mut self, rtype: RType) {
+        self.division_flow = self.new_ite(
+            self.pc_flag(),
+            self.reg_node(rtype.rs2()),
+            self.division_flow.clone(),
+            NodeType::Word,
+        );
         let div_node = self.new_div(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
         self.reg_flow_ite(rtype.rd(), div_node);
     }
@@ -956,7 +975,7 @@ impl ModelBuilder {
             Instruction::Or(rtype) => self.model_or(rtype),
             Instruction::And(rtype) => self.model_and(rtype),
             Instruction::Mul(rtype) => self.model_mul(rtype),
-            Instruction::Div(_rtype) => self.model_unimplemented(inst),
+            Instruction::Div(rtype) => self.model_div(rtype),
             Instruction::Divu(rtype) => self.model_divu(rtype),
             Instruction::Remu(rtype) => self.model_remu(rtype),
             Instruction::Addw(_rtype) => self.model_unimplemented(inst),
