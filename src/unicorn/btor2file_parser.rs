@@ -236,7 +236,7 @@ impl BTOR2Parser {
                             "add" => Node::Add { nid, left, right },
                             "sub" => Node::Sub { nid, left, right },
                             "mul" => Node::Mul { nid, left, right },
-                            "udiv" => Node::Div { nid, left, right },
+                            "udiv" => Node::Divu { nid, left, right },
                             "urem" => Node::Rem { nid, left, right },
                             "ult" => Node::Ult { nid, left, right },
                             "eq" => Node::Eq { nid, left, right },

@@ -187,12 +187,19 @@ pub mod boolector_impl {
                     let bv_right = self.visit(right).into_bv();
                     bv_left.sub(&bv_right).into()
                 }
+                Node::Subw { left, right, .. } => {
+                    let bv_left = self.visit(left).into_bv();
+                    let bv_right = self.visit(right).into_bv();
+                    let bv_left32 = bv_left.slice(31, 0);
+                    let bv_right32 = bv_right.slice(31, 0);
+                    bv_left32.sub(&bv_right32).sext(32).into()
+                }
                 Node::Mul { left, right, .. } => {
                     let bv_left = self.visit(left).into_bv();
                     let bv_right = self.visit(right).into_bv();
                     bv_left.mul(&bv_right).into()
                 }
-                Node::Div { left, right, .. } => {
+                Node::Divu { left, right, .. } => {
                     let bv_left = self.visit(left).into_bv();
                     let bv_right = self.visit(right).into_bv();
                     bv_left.udiv(&bv_right).into()
@@ -203,6 +210,11 @@ pub mod boolector_impl {
                     let bv_left32 = bv_left.slice(31, 0);
                     let bv_right32 = bv_right.slice(31, 0);
                     bv_left32.sdiv(&bv_right32).sext(32).into()
+                }
+                Node::Div { left, right, .. } => {
+                    let bv_left = self.visit(left).into_bv();
+                    let bv_right = self.visit(right).into_bv();
+                    bv_left.sdiv(&bv_right).into()
                 }
                 Node::Rem { left, right, .. } => {
                     let bv_left = self.visit(left).into_bv();
@@ -421,15 +433,27 @@ pub mod z3solver_impl {
                     let z3_right = self.visit(right).as_bv().expect("bv");
                     z3_left.bvsub(&z3_right).into()
                 }
+                Node::Subw { left, right, .. } => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    let z3_left32 = z3_left.extract(31, 0);
+                    let z3_right32 = z3_right.extract(31, 0);
+                    z3_left32.bvsub(&z3_right32).sign_ext(32).into()
+                }
                 Node::Mul { left, right, .. } => {
                     let z3_left = self.visit(left).as_bv().expect("bv");
                     let z3_right = self.visit(right).as_bv().expect("bv");
                     z3_left.bvmul(&z3_right).into()
                 }
-                Node::Div { left, right, .. } => {
+                Node::Divu { left, right, .. } => {
                     let z3_left = self.visit(left).as_bv().expect("bv");
                     let z3_right = self.visit(right).as_bv().expect("bv");
                     z3_left.bvudiv(&z3_right).into()
+                }
+                Node::Div { left, right, .. } => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvsdiv(&z3_right).into()
                 }
                 Node::Divw { left, right, .. } => {
                     let z3_left = self.visit(left).as_bv().expect("bv");

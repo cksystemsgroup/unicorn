@@ -513,6 +513,30 @@ impl<'a> BitBlasting<'a> {
         self.bitwise_add(left, &right_2s_complement, false)
     }
 
+    fn bitwise_subtractionw(&mut self, left: &[GateRef], right: &[GateRef]) -> Vec<GateRef> {
+        let left32 = &left[..32];
+        let right32 = &right[..32];
+
+        let mut result = self.bitwise_subtraction(left32, right32);
+
+        while result.len() < 64 {
+            result.push(GateRef::from(Gate::ConstFalse));
+        }
+
+        let sign = result[31].clone();
+
+        if let Some(const_sign) = get_constant(&sign) {
+            if const_sign {
+                self.get_2s_complement(&result)
+            } else {
+                result
+            }
+        } else {
+            let result_complement = self.get_2s_complement(&result);
+            self.ite(&sign, &result_complement, &result)
+        }
+    }
+
     fn bitwise_less_than(&mut self, mut left: Vec<GateRef>, mut right: Vec<GateRef>) -> GateRef {
         left.push(GateRef::from(Gate::ConstFalse));
         right.push(GateRef::from(Gate::ConstFalse));
@@ -777,12 +801,13 @@ impl<'a> BitBlasting<'a> {
         &mut self,
         dividend: &[GateRef],
         divisor: &[GateRef],
+        top: usize,
     ) -> (Vec<GateRef>, Vec<GateRef>) {
-        let dividend32 = &dividend[..32];
-        let divisor32 = &divisor[..32];
+        let dividend32 = &dividend[..top];
+        let divisor32 = &divisor[..top];
 
-        let sign_dividend = dividend[31].clone();
-        let sign_divisor = divisor[31].clone();
+        let sign_dividend = dividend[top - 1].clone();
+        let sign_divisor = divisor[top - 1].clone();
 
         if get_non_constant_gate(dividend32).is_none() && get_non_constant_gate(divisor32).is_none()
         {
@@ -803,7 +828,7 @@ impl<'a> BitBlasting<'a> {
             
 
             let remainder = if const_dividend < 0 {
-                let mut result = get_gates_from_numeric(
+                let result = get_gates_from_numeric(
                     (const_dividend.abs() % const_divisor.abs()) as u64,
                     &dividend32.len(),
                 );
@@ -1131,6 +1156,12 @@ impl<'a> BitBlasting<'a> {
                 let replacement = self.bitwise_subtraction(&left_operand, &right_operand);
                 self.record_mapping(node, replacement)
             }
+            Node::Subw { left, right, .. } => {
+                let left_operand = self.visit(left);
+                let right_operand = self.visit(right);
+                let replacement = self.bitwise_subtractionw(&left_operand, &right_operand);
+                self.record_mapping(node, replacement)
+            }
             Node::Ult { left, right, .. } => {
                 let left_operand = self.visit(left);
                 let right_operand = self.visit(right);
@@ -1147,6 +1178,15 @@ impl<'a> BitBlasting<'a> {
             Node::Div { left, right, .. } => {
                 let left_operand = self.visit(left);
                 let right_operand = self.visit(right);
+                let result = self.dividew(&left_operand, &right_operand, 64);
+                self.record_constraint_dependency(&result.0.clone(), (left.clone(), right.clone()));
+                self.record_constraint_dependency(&result.1, (left.clone(), right.clone()));
+                let replacement = result.0;
+                self.record_mapping(node, replacement)
+            }
+            Node::Divu { left, right, .. } => {
+                let left_operand = self.visit(left);
+                let right_operand = self.visit(right);
                 let result = self.divide(&left_operand, &right_operand);
                 self.record_constraint_dependency(&result.0.clone(), (left.clone(), right.clone()));
                 self.record_constraint_dependency(&result.1, (left.clone(), right.clone()));
@@ -1156,7 +1196,7 @@ impl<'a> BitBlasting<'a> {
             Node::Divw { left, right, .. } => {
                 let left_operand = self.visit(left);
                 let right_operand = self.visit(right);
-                let result = self.dividew(&left_operand, &right_operand);
+                let result = self.dividew(&left_operand, &right_operand, 32);
                 self.record_constraint_dependency(&result.0.clone(), (left.clone(), right.clone()));
                 self.record_constraint_dependency(&result.1, (left.clone(), right.clone()));
                 let replacement = result.0;
