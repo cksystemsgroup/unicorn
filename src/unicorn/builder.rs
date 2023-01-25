@@ -534,11 +534,16 @@ impl ModelBuilder {
     fn model_sllw(&mut self, rtype: RType) {
         let thirtytwo = self.new_const(32);
 
-        // shift value should only be a value less or equal than 2^32
-        let mut shifted_r2 = self.new_sll(self.reg_node(rtype.rs2()), thirtytwo.clone());
-        shifted_r2 = self.new_srl(shifted_r2, thirtytwo.clone());
+        // Only the low 4 bits of rs2 are considered for the shift amount.
+        let mask_node = self.new_const(0xf); // TODO: Make this a global constant.
+        let amount_node = self.new_and_word(self.reg_node(rtype.rs2()), mask_node);
 
-        let sll_node = self.new_sll(self.reg_node(rtype.rs1()), shifted_r2);
+        let amount_node_sum = self.new_add(amount_node, thirtytwo.clone());
+
+        // shift left by n[0:4] + 32
+        let sll_node = self.new_sll(self.reg_node(rtype.rs1()), amount_node_sum);
+
+        // shift right by 32
         let sra_node = self.new_sra(sll_node, thirtytwo);
         self.reg_flow_ite(rtype.rd(), sra_node);
     }
