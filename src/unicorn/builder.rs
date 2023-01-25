@@ -805,6 +805,19 @@ impl ModelBuilder {
         self.reg_flow_ite(rtype.rd(), mul_node);
     }
 
+    fn model_mulw(&mut self, rtype: RType) {
+        let thirtytwo = self.new_const(32);
+        // sign extend each operand
+        let mut left_sext = self.new_sll(self.reg_node(rtype.rs1()), thirtytwo.clone());
+        left_sext = self.new_sra(left_sext, thirtytwo.clone());
+
+        let mut right_sext = self.new_sll(self.reg_node(rtype.rs2()), thirtytwo.clone());
+        right_sext = self.new_sra(right_sext, thirtytwo);
+
+        let mul_node = self.new_mul(left_sext, right_sext);
+        self.reg_flow_ite(rtype.rd(), mul_node);
+    }
+
     fn model_divu(&mut self, rtype: RType) {
         self.division_flow = self.new_ite(
             self.pc_flag(),
@@ -946,7 +959,7 @@ impl ModelBuilder {
             Instruction::Addw(rtype) => self.model_addw(rtype),
             Instruction::Subw(rtype) => self.model_subw(rtype),
             Instruction::Sllw(_rtype) => self.model_unimplemented(inst),
-            Instruction::Mulw(_rtype) => self.model_unimplemented(inst),
+            Instruction::Mulw(rtype) => self.model_mulw(rtype),
             Instruction::Divw(_rtype) => self.model_unimplemented(inst),
             Instruction::Beq(btype) => self.model_beq(btype, &mut branch_true, &mut branch_false),
             Instruction::Bne(btype) => self.model_bne(btype, &mut branch_true, &mut branch_false),
