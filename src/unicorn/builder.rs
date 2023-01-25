@@ -531,9 +531,8 @@ impl ModelBuilder {
         self.reg_flow_ite(itype.rd(), sra_node);
     }
 
-    // We represent `sllw(a, n)` as `(a << (n + 32)) >>s 32` instead.
     fn model_sllw(&mut self, rtype: RType) {
-        let thirtytwo = self.new_const(32); // for val >>s 32
+        let thirtytwo = self.new_const(32);
 
         // shift value should only be a value less or equal than 2^32
         let mut shifted_r2 = self.new_sll(self.reg_node(rtype.rs2()), thirtytwo.clone());
