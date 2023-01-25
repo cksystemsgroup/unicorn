@@ -837,6 +837,19 @@ impl ModelBuilder {
         self.reg_flow_ite(rtype.rd(), ext_node);
     }
 
+    fn model_sltiu(&mut self, itype: IType) {
+        let imm = itype.imm() as u64;
+        let imm_node = self.new_const(imm);
+
+        let ult_node = self.new_ult(self.reg_node(itype.rs1()), imm_node);
+        let ext_node = self.add_node(Node::Ext {
+            nid: self.current_nid,
+            from: NodeType::Bit,
+            value: ult_node,
+        });
+        self.reg_flow_ite(itype.rd(), ext_node);
+    }
+
     fn model_branch<F>(
         &mut self,
         btype: BType,
@@ -920,7 +933,7 @@ impl ModelBuilder {
             Instruction::Sw(stype) => self.model_sw(stype),
             Instruction::Sd(stype) => self.model_sd(stype),
             Instruction::Addi(itype) => self.model_addi(itype),
-            Instruction::Sltiu(_itype) => self.model_unimplemented(inst),
+            Instruction::Sltiu(itype) => self.model_sltiu(itype),
             Instruction::Xori(itype) => self.model_xori(itype),
             Instruction::Ori(itype) => self.model_ori(itype),
             Instruction::Andi(itype) => self.model_andi(itype),
