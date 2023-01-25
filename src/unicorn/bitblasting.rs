@@ -143,11 +143,11 @@ fn get_gate_from_constant_bit(bit: u64) -> GateRef {
     }
 }
 
-fn is_constant(gate_type: &GateRef) -> bool {
+pub fn is_constant(gate_type: &GateRef) -> bool {
     matches!(&*gate_type.borrow(), Gate::ConstFalse | Gate::ConstTrue)
 }
 
-fn get_constant(gate_type: &GateRef) -> Option<bool> {
+pub fn get_constant(gate_type: &GateRef) -> Option<bool> {
     match &*gate_type.borrow() {
         Gate::ConstFalse => Some(false),
         Gate::ConstTrue => Some(true),
@@ -313,7 +313,7 @@ fn matriarch1_gate(
     }
 }
 
-fn or_gate(a: Option<bool>, b: Option<bool>, a_gate: &GateRef, b_gate: &GateRef) -> GateRef {
+pub fn or_gate(a: Option<bool>, b: Option<bool>, a_gate: &GateRef, b_gate: &GateRef) -> GateRef {
     if are_both_constants(a, b) {
         get_gate_from_boolean(a.unwrap() || b.unwrap())
     } else if are_there_true_constants(a, b) {

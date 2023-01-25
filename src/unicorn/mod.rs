@@ -124,6 +124,12 @@ pub enum Node {
         left: NodeRef,
         right: NodeRef,
     },
+    Or {
+        nid: Nid,
+        sort: NodeType,
+        left: NodeRef,
+        right: NodeRef,
+    },
     Not {
         nid: Nid,
         sort: NodeType,
@@ -269,6 +275,8 @@ where
                 writeln!(out, "{} eq 1 {} {}", nid, get_nid(left), get_nid(right))?,
             Node::And { nid, sort, left, right } =>
                 writeln!(out, "{} and {} {} {}", nid, get_sort(sort), get_nid(left), get_nid(right))?,
+            Node::Or { nid, sort, left, right } =>
+                writeln!(out, "{} or {} {} {}", nid, get_sort(sort), get_nid(left), get_nid(right))?,
             Node::Not { nid, sort, value } =>
                 writeln!(out, "{} not {} {}", nid, get_sort(sort), get_nid(value))?,
             Node::State { nid, sort, init, name } => {
@@ -320,6 +328,7 @@ pub fn get_nid(node: &NodeRef) -> Nid {
         Node::Next { nid, .. } => nid,
         Node::Input { nid, .. } => nid,
         Node::Bad { nid, .. } => nid,
+        Node::Or { nid, .. } => nid,
         Node::Comment(_) => panic!("has no nid"),
     }
 }

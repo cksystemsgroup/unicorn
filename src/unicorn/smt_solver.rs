@@ -259,6 +259,11 @@ pub mod boolector_impl {
                     let bv_right = self.visit(right).into_bv();
                     bv_left.and(&bv_right).into()
                 }
+                Node::Or { left, right, .. } => {
+                    let bv_left = self.visit(left).into_bv();
+                    let bv_right = self.visit(right).into_bv();
+                    bv_left.or(&bv_right).into()
+                }
                 Node::Not { value, .. } => {
                     let bv_value = self.visit(value).into_bv();
                     bv_value.not().into()
@@ -275,7 +280,9 @@ pub mod boolector_impl {
                     BV::new(self.solver.clone(), width, Some(name)).into()
                 }
                 Node::Next { .. } => panic!("should be unreachable"),
-                Node::Bad { .. } => panic!("should be unreachable"),
+                Node::Bad { cond, .. } => {
+                    self.visit(cond)
+                },
                 Node::Comment(_) => panic!("cannot translate"),
             }
         }
@@ -504,6 +511,16 @@ pub mod z3solver_impl {
                     let z3_right = self.visit(right).as_bv().expect("bv");
                     z3_left.bvand(&z3_right).into()
                 }
+                Node::Or { sort: NodeType::Bit, left, right, .. } => {
+                    let z3_left = self.visit(left).as_bool().expect("bool");
+                    let z3_right = self.visit(right).as_bool().expect("bool");
+                    Bool::or(self.context, &[&z3_left, &z3_right]).into()
+                }
+                Node::Or { left, right, .. } => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvor(&z3_right).into()
+                }
                 Node::Not { value, .. } => {
                     let z3_value = self.visit(value).as_bool().expect("bool");
                     z3_value.not().into()
@@ -527,7 +544,10 @@ pub mod z3solver_impl {
                     BV::new_const(self.context, name.to_owned(), width).into()
                 }
                 Node::Next { .. } => panic!("should be unreachable"),
-                Node::Bad { .. } => panic!("should be unreachable"),
+                Node::Bad { cond, .. } => {
+                    // TODO: It would be better if we would directly referece the condition instead of referencing the Bad node in the OR'ed graph. That way Bad conceptually remains as not producing any output and the graph that smt_solver.rs sees is still purely combinatorial. 
+                    self.visit(cond).clone()
+                },
                 Node::Comment(_) => panic!("cannot translate"),
             }
         }
