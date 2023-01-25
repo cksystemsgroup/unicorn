@@ -541,11 +541,11 @@ impl ModelBuilder {
     fn model_srliw(&mut self, itype: IType) {
         assert!(itype.imm() < 32, "immediate within bounds");
         assert!(itype.imm() != 0, "modeling broken for zero-shift");
-        let imm_node = self.new_const(itype.imm() as u64 + 32);
-        let thirtytwo = self.new_const(32); // for val << 32
-        let sll_node = self.new_sll(self.reg_node(itype.rs1()), thirtytwo);
-        let srl_node = self.new_srl(sll_node, imm_node);
-        self.reg_flow_ite(itype.rd(), srl_node);
+        let imm_node = self.new_const(itype.imm() as u64);
+        let srl_node = self.new_srl(self.reg_node(itype.rs1()), imm_node);
+        let thirtytwo = self.new_const((-1 as u32) as u64);
+        let and_node = self.new_and_bit(srl_node, thirtytwo);
+        self.reg_flow_ite(itype.rd(), and_node);
     }
 
     fn model_srai(&mut self, itype: IType) {
