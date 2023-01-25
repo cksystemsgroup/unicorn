@@ -828,7 +828,7 @@ impl<'a> BitBlasting<'a> {
             
 
             let remainder = if const_dividend < 0 {
-                let result = get_gates_from_numeric(
+                let mut result = get_gates_from_numeric(
                     (const_dividend.abs() % const_divisor.abs()) as u64,
                     &dividend32.len(),
                 );
