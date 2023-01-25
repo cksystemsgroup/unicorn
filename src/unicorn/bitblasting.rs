@@ -1138,7 +1138,7 @@ impl<'a> BitBlasting<'a> {
                 let replacement = self.bitwise_multiplication(&left_operand, &right_operand, false);
                 self.record_mapping(node, replacement)
             }
-            Node::Div { left, right, .. } => {
+            Node::Divu { left, right, .. } => {
                 let left_operand = self.visit(left);
                 let right_operand = self.visit(right);
                 let result = self.divide(&left_operand, &right_operand);

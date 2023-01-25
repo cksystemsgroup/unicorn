@@ -199,7 +199,7 @@ pub mod boolector_impl {
                     let bv_right = self.visit(right).into_bv();
                     bv_left.mul(&bv_right).into()
                 }
-                Node::Div { left, right, .. } => {
+                Node::Divu { left, right, .. } => {
                     let bv_left = self.visit(left).into_bv();
                     let bv_right = self.visit(right).into_bv();
                     bv_left.udiv(&bv_right).into()
@@ -440,7 +440,7 @@ pub mod z3solver_impl {
                     let z3_right = self.visit(right).as_bv().expect("bv");
                     z3_left.bvmul(&z3_right).into()
                 }
-                Node::Div { left, right, .. } => {
+                Node::Divu { left, right, .. } => {
                     let z3_left = self.visit(left).as_bv().expect("bv");
                     let z3_right = self.visit(right).as_bv().expect("bv");
                     z3_left.bvudiv(&z3_right).into()
