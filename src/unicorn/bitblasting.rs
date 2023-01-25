@@ -784,62 +784,42 @@ impl<'a> BitBlasting<'a> {
         fold_word_gate(&temp_word, and_gate, "WORD-AND")
     }
 
-    fn sign_extend(&mut self, word: Vec<GateRef>, bits_to_add: usize) -> Vec<GateRef>{
-        let sign_bit = word[word.len()-1].clone();
-        let mut answer = vec![];
-
-        for gate in word {
-            answer.push(gate.clone());
-        }
-        for _ in 0..bits_to_add {
-            answer.push(sign_bit.clone());
-        }
-        answer
-    }
-
     fn dividew(
         &mut self,
         dividend: &[GateRef],
         divisor: &[GateRef],
-        top: usize,
     ) -> (Vec<GateRef>, Vec<GateRef>) {
-        let dividend32 = &dividend[..top];
-        let divisor32 = &divisor[..top];
+        let sign_dividend = dividend[63].clone();
+        let sign_divisor = divisor[63].clone();
 
-        let sign_dividend = dividend[top - 1].clone();
-        let sign_divisor = divisor[top - 1].clone();
-
-        if get_non_constant_gate(dividend32).is_none() && get_non_constant_gate(divisor32).is_none()
-        {
-            let const_dividend = self.get_signed_numeric_from_gates(dividend32);
-            let const_divisor = self.get_signed_numeric_from_gates(divisor32);
+        if get_non_constant_gate(dividend).is_none() && get_non_constant_gate(divisor).is_none() {
+            let const_dividend = self.get_signed_numeric_from_gates(dividend);
+            let const_divisor = self.get_signed_numeric_from_gates(divisor);
 
             let mut quotient = get_gates_from_numeric(
                 (const_dividend.abs() / const_divisor.abs()) as u64,
-                &dividend32.len(),
+                &dividend.len(),
             );
-            
-            quotient = if   (const_dividend < 0 && const_divisor > 0) || (const_dividend > 0 && const_divisor < 0){
-                let c = self.get_2s_complement(&quotient);
-                self.sign_extend(c, 64-dividend32.len())
+
+            quotient = if (const_dividend < 0 && const_divisor > 0)
+                || (const_dividend > 0 && const_divisor < 0)
+            {
+                self.get_2s_complement(&quotient)
             } else {
-                self.sign_extend(quotient, 64-dividend32.len())
+                quotient
             };
-            
 
             let remainder = if const_dividend < 0 {
-                let mut result = get_gates_from_numeric(
-                    (const_dividend.abs() % const_divisor.abs()) as u64,
-                    &dividend32.len(),
-                );
-                result = self.get_2s_complement(&result);
-                self.sign_extend(result, 64-dividend32.len())
-            } else {
                 let result = get_gates_from_numeric(
                     (const_dividend.abs() % const_divisor.abs()) as u64,
-                    &dividend32.len(),
+                    &dividend.len(),
                 );
-                self.sign_extend(result, 64-dividend32.len())
+                self.get_2s_complement(&result)
+            } else {
+                get_gates_from_numeric(
+                    (const_dividend.abs() % const_divisor.abs()) as u64,
+                    &dividend.len(),
+                )
             };
 
             (quotient, remainder)
@@ -847,30 +827,26 @@ impl<'a> BitBlasting<'a> {
             let are_signs_equal =
                 self.eq(&[sign_dividend.clone()], &[sign_divisor.clone()])[0].clone();
 
-            let dividend_complement = self.get_2s_complement(dividend32);
-            let divisor_complement = self.get_2s_complement(divisor32);
+            let dividend_complement = self.get_2s_complement(dividend);
+            let divisor_complement = self.get_2s_complement(divisor);
 
             // if the sign-bit equals 1 we operate with the dividends 2's complement
-            let f_dividend = self.ite(&sign_dividend, &dividend_complement, dividend32);
+            let f_dividend = self.ite(&sign_dividend, &dividend_complement, dividend);
 
             // if the sign-bit equals 1 we operate with the divisor 2's complement
-            let f_divisor = self.ite(&sign_divisor, &divisor_complement, divisor32);
+            let f_divisor = self.ite(&sign_divisor, &divisor_complement, divisor);
 
             let (mut quotient, mut remainder) = self.divide(&f_dividend, &f_divisor);
 
             quotient = if let Some(const_signs_equal) = get_constant(&are_signs_equal) {
                 if !const_signs_equal {
-                    let result = self.get_2s_complement(&quotient);
-                    self.sign_extend(result, 64-dividend32.len())
+                    self.get_2s_complement(&quotient)
                 } else {
-                    
-                    self.sign_extend(quotient, 64-dividend32.len())
+                    quotient
                 }
             } else {
                 let quotient_complement = self.get_2s_complement(&quotient);
-                let result = self.ite(&are_signs_equal, &quotient, &quotient_complement);
-                
-                self.sign_extend(result, 64-dividend32.len())
+                self.ite(&are_signs_equal, &quotient, &quotient_complement)
             };
 
             remainder = if let Some(const_sign_dividend) = get_constant(&sign_dividend) {
@@ -883,8 +859,6 @@ impl<'a> BitBlasting<'a> {
                 let remainder_complement = self.get_2s_complement(&remainder);
                 self.ite(&sign_dividend, &remainder_complement, &remainder)
             };
-
-            remainder = self.sign_extend(remainder, 64 - dividend32.len());
 
             (quotient, remainder)
         }
@@ -1178,7 +1152,7 @@ impl<'a> BitBlasting<'a> {
             Node::Div { left, right, .. } => {
                 let left_operand = self.visit(left);
                 let right_operand = self.visit(right);
-                let result = self.dividew(&left_operand, &right_operand, 64);
+                let result = self.dividew(&left_operand, &right_operand);
                 self.record_constraint_dependency(&result.0.clone(), (left.clone(), right.clone()));
                 self.record_constraint_dependency(&result.1, (left.clone(), right.clone()));
                 let replacement = result.0;
@@ -1188,15 +1162,6 @@ impl<'a> BitBlasting<'a> {
                 let left_operand = self.visit(left);
                 let right_operand = self.visit(right);
                 let result = self.divide(&left_operand, &right_operand);
-                self.record_constraint_dependency(&result.0.clone(), (left.clone(), right.clone()));
-                self.record_constraint_dependency(&result.1, (left.clone(), right.clone()));
-                let replacement = result.0;
-                self.record_mapping(node, replacement)
-            }
-            Node::Divw { left, right, .. } => {
-                let left_operand = self.visit(left);
-                let right_operand = self.visit(right);
-                let result = self.dividew(&left_operand, &right_operand, 32);
                 self.record_constraint_dependency(&result.0.clone(), (left.clone(), right.clone()));
                 self.record_constraint_dependency(&result.1, (left.clone(), right.clone()));
                 let replacement = result.0;

@@ -228,7 +228,7 @@ impl ModelBuilder {
         })
     }
 
-    fn new_subw(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
+    fn _new_subw(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
         self.add_node(Node::Subw {
             nid: self.current_nid,
             left,
@@ -254,14 +254,6 @@ impl ModelBuilder {
 
     fn new_div(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
         self.add_node(Node::Div {
-            nid: self.current_nid,
-            left,
-            right,
-        })
-    }
-
-    fn new_divw(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
-        self.add_node(Node::Divw {
             nid: self.current_nid,
             left,
             right,
@@ -782,8 +774,8 @@ impl ModelBuilder {
         self.reg_flow_ite(rtype.rd(), sub_node);
     }
 
-    fn model_subw(&mut self, rtype: RType) {
-        let sub_node = self.new_subw(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
+    fn _model_subw(&mut self, rtype: RType) {
+        let sub_node = self._new_subw(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
         self.reg_flow_ite(rtype.rd(), sub_node);
     }
 
@@ -849,13 +841,17 @@ impl ModelBuilder {
     }
 
     fn model_divw(&mut self, rtype: RType) {
-        self.division_flow = self.new_ite(
-            self.pc_flag(),
-            self.reg_node(rtype.rs2()),
-            self.division_flow.clone(),
-            NodeType::Word,
-        );
-        let divw_node = self.new_divw(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
+        let thirtytwo = self.new_const(32);
+        // sign extend each operand
+        let mut left_sext = self.new_sll(self.reg_node(rtype.rs1()), thirtytwo.clone());
+        left_sext = self.new_sra(left_sext, thirtytwo.clone());
+
+        let mut right_sext = self.new_sll(self.reg_node(rtype.rs2()), thirtytwo.clone());
+        right_sext = self.new_sra(right_sext, thirtytwo);
+
+        // perform 64-bit signed division
+        let divw_node = self.new_div(left_sext, right_sext);
+
         self.reg_flow_ite(rtype.rd(), divw_node);
     }
 
