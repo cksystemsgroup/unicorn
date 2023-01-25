@@ -220,14 +220,6 @@ impl ModelBuilder {
         })
     }
 
-    fn new_addw(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
-        self.add_node(Node::Addw {
-            nid: self.current_nid,
-            left,
-            right,
-        })
-    }
-
     fn new_sub(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
         self.add_node(Node::Sub {
             nid: self.current_nid,
@@ -754,8 +746,11 @@ impl ModelBuilder {
     }
 
     fn model_addw(&mut self, rtype: RType) {
-        let add_node = self.new_addw(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
-        self.reg_flow_ite(rtype.rd(), add_node);
+        let add_node = self.new_add(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
+        let thirtytwo = self.new_const(32);
+        let sll_node = self.new_sll(add_node, thirtytwo.clone());
+        let sra_node = self.new_sra(sll_node, thirtytwo);
+        self.reg_flow_ite(rtype.rd(), sra_node);
     }
 
     fn model_sub(&mut self, rtype: RType) {

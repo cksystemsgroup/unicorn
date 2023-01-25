@@ -235,11 +235,6 @@ impl MemoryReplacer {
                 if let Some(n) = self.visit(right) { *right = n }
                 None
             }
-            Node::Addw { ref mut left, ref mut right, .. } => {
-                if let Some(n) = self.visit(left) { *left = n }
-                if let Some(n) = self.visit(right) { *right = n }
-                None
-            }
             Node::Sub { ref mut left, ref mut right, .. } => {
                 if let Some(n) = self.visit(left) { *left = n }
                 if let Some(n) = self.visit(right) { *right = n }

@@ -51,11 +51,6 @@ pub enum Node {
         left: NodeRef,
         right: NodeRef,
     },
-    Addw {
-        nid: Nid,
-        left: NodeRef,
-        right: NodeRef,
-    },
     Sub {
         nid: Nid,
         left: NodeRef,
@@ -237,8 +232,6 @@ where
                 writeln!(out, "{} write 3 {} {} {}", nid, get_nid(memory), get_nid(address), get_nid(value))?,
             Node::Add { nid, left, right } =>
                 writeln!(out, "{} add 2 {} {}", nid, get_nid(left), get_nid(right))?,
-            Node::Addw { nid, left, right } =>
-                writeln!(out, "{} addw 2 {} {}", nid, get_nid(left), get_nid(right))?,
             Node::Sub { nid, left, right } =>
                 writeln!(out, "{} sub 2 {} {}", nid, get_nid(left), get_nid(right))?,
             Node::Mul { nid, left, right } =>
@@ -295,7 +288,6 @@ pub fn get_nid(node: &NodeRef) -> Nid {
         Node::Read { nid, .. } => nid,
         Node::Write { nid, .. } => nid,
         Node::Add { nid, .. } => nid,
-        Node::Addw { nid, .. } => nid,
         Node::Sub { nid, .. } => nid,
         Node::Mul { nid, .. } => nid,
         Node::Div { nid, .. } => nid,
