@@ -560,11 +560,11 @@ impl ModelBuilder {
     fn model_sraiw(&mut self, itype: IType) {
         let imm_truncated = (itype.imm() & 0x3f) as u32;
         assert!(imm_truncated < 32, "immediate within bounds");
-        let imm_node = self.new_const(imm_truncated as u64 + 32);
-        let thirtytwo = self.new_const(32); // for val << 32
-        let sll_node = self.new_sll(self.reg_node(itype.rs1()), thirtytwo);
-        let sra_node = self.new_sra(sll_node, imm_node);
-        self.reg_flow_ite(itype.rd(), sra_node);
+        let imm_node = self.new_const(imm_truncated as u64);
+        let sra_node = self.new_sra(self.reg_node(itype.rs1()), imm_node);
+        let thirtytwo = self.new_const((-1 as u32) as u64);
+        let and_node = self.new_and_bit(sra_node, thirtytwo);
+        self.reg_flow_ite(itype.rd(), and_node);
     }
 
     fn model_lui(&mut self, utype: UType) {
