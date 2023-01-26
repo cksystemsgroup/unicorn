@@ -56,7 +56,7 @@ def get_max_controls_in_gates(circuit_stack) -> int:
         answer = max(answer, len(gate["controls"]))
     return answer
 
-def apply_mcx_gate(qis: BasicQisBuilder, module: SimpleModule, controls: List[int], target: int, ancilla_indices: List[int]):
+def apply_mcx_gate(qis: BasicQisBuilder, module: SimpleModule, controls: List[int], target: int, ancilla_indices: List[int], ccx_function: Any):
     '''
     tries to apply an MCX gate with arbitrary controls.
     '''
@@ -65,33 +65,34 @@ def apply_mcx_gate(qis: BasicQisBuilder, module: SimpleModule, controls: List[in
     elif len(controls) == 1:
         qis.cx(module.qubits[controls[0]], module.qubits[target])
     elif len(controls) == 2:
-
-        qis.ccx(qis._builder, module.qubits[controls[0]], module.qubits[controls[1]], module.qubits[target])
+        module.builder.call(ccx_function, [module.qubits[controls[0]], module.qubits[controls[1]], module.qubits[target]])
     else:
         # this is a custom MCX gate
         current_ancilla = 0
-        qis.ccx(qis._builder, module.qubits[controls[0]], module.qubits[controls[1]], module.qubits[ancilla_indices[current_ancilla]])
+        module.builder.call(ccx_function, [module.qubits[controls[0]], module.qubits[controls[1]], module.qubits[ancilla_indices[current_ancilla]]])
         current_ancilla += 1
 
         to_reverse = []
         for i in range(2, len(controls)-1):
-            qis.ccx(qis._builder, module.qubits[controls[i]], 
+            module.builder.call(ccx_function, [module.qubits[controls[i]], 
                     module.qubits[ancilla_indices[current_ancilla-1]], 
-                    module.qubits[ancilla_indices[current_ancilla]])
+                    module.qubits[ancilla_indices[current_ancilla]]])
             to_reverse.append([controls[i], ancilla_indices[current_ancilla-1], ancilla_indices[current_ancilla]])
             current_ancilla += 1
 
-        qis.ccx(qis._builder, module.qubits[controls[i]], 
+
+        module.builder.call(ccx_function, [module.qubits[controls[i]], 
                 module.qubits[ancilla_indices[current_ancilla-1]], 
-                module.qubits[target])
+                module.qubits[target]])
 
         # free up ancillas
         for gate in to_reverse[::-1]:
-            qis.ccx(qis._builder, module.qubits[gate[0]],module.qubits[gate[1]], module.qubits[gate[2]])
+            module.builder.call(ccx_function, [module.qubits[gate[0]],module.qubits[gate[1]], module.qubits[gate[2]]])
+            
 
 
-def qir_apply_gate(qis: BasicQisBuilder, module: SimpleModule, controls: List[int], target: int, ancilla_indices: List[int]) :
+def qir_apply_gate(qis: BasicQisBuilder, module: SimpleModule, controls: List[int], target: int, ancilla_indices: List[int], ccx_function: Any) :
     if len(controls) == 0:
         qis.x(module.qubits[target])
     elif len(controls) == 1:
-        apply_mcx_gate(qis, module, controls, target, ancilla_indices)
+        apply_mcx_gate(qis, module, controls, target, ancilla_indices, ccx_function)

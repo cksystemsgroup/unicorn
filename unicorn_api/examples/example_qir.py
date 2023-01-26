@@ -1,12 +1,12 @@
 from typing import Dict, List
 from unicorn_api import get_qc_from_binary
-from pyqir import BasicQisBuilder, SimpleModule
+import pyqir
 from utils_qir import *
 from math import ceil
 
 def get_pyqir_grover(path: str, unroll: int, max_heap: int = 8, max_stack: int = 32, memory_size: int = 1) :
     '''
-    It created a QIR module of the oracle (contains uncomputation as well).
+    It created a QIR module of grover algorithm to search for bad-states in the file specified by path
     This function returns:
     1. A module that is the oracle 
     2. A List of IDs of qubits which are the input we must search using Grover Algorithm
@@ -29,15 +29,20 @@ def get_pyqir_grover(path: str, unroll: int, max_heap: int = 8, max_stack: int =
     count_input  = len(input_qubits) + len(dependencies)
     last_gate = circuit_stack[len(circuit_stack)-1]
     last_gate_controls_ids = get_vec_local_ids(mapping_ids, last_gate["controls"])
+    print("last gate controls ", len(last_gate_controls_ids))
     for c in last_gate_controls_ids:
         assert(oracle_id != c)
     last_gate_target = mapping_ids[last_gate["target"]["id"]]
+    print(last_gate_target, oracle_id)
     assert(last_gate_target == oracle_id)
     # ------------------------------------------
 
     # init QIR module
-    module = SimpleModule(f"grover({path})", num_qubits=len(mapping_ids.keys()) + ancillas_mcx_count, num_results=len(input_qubits))
-    qis = BasicQisBuilder(module.builder)
+    module = pyqir.SimpleModule(f"grover({path})", num_qubits=len(mapping_ids.keys()) + ancillas_mcx_count, num_results=len(input_qubits))
+    qis = pyqir.BasicQisBuilder(module.builder)
+
+    void = pyqir.Type.void(module.context)
+    ccx_function = module.add_external_function("ccx", pyqir.FunctionType(void, [pyqir.qubit_type(module.context), pyqir.qubit_type(module.context), pyqir.qubit_type(module.context)]))
     
 
     # GROVER algorithm starts here
@@ -61,7 +66,7 @@ def get_pyqir_grover(path: str, unroll: int, max_heap: int = 8, max_stack: int =
         # apply oracle
         for gate in circuit_stack:
             controls = get_vec_local_ids(mapping_ids, gate["controls"])
-            qir_apply_gate(qis, module, controls, mapping_ids[gate["target"]["id"]], ancilla_qir_indices)
+            qir_apply_gate(qis, module, controls, mapping_ids[gate["target"]["id"]], ancilla_qir_indices, ccx_function)
 
         # uncompute oracle, without uncomputing the oracle's output
         for gate in circuit_stack[len(circuit_stack)-2::-1]:
@@ -69,7 +74,7 @@ def get_pyqir_grover(path: str, unroll: int, max_heap: int = 8, max_stack: int =
             for c in controls:
                 assert(c != oracle_id)
             target = mapping_ids[gate["target"]["id"]]
-            qir_apply_gate(qis, module, controls, target, ancilla_qir_indices)
+            qir_apply_gate(qis, module, controls, target, ancilla_qir_indices, ccx_function)
 
         # apply inversion above average procedure
         for qubit in all_inputs:
@@ -78,7 +83,7 @@ def get_pyqir_grover(path: str, unroll: int, max_heap: int = 8, max_stack: int =
 
         # multi-controlled Z
         qis.h(module.qubits[all_inputs[0]])
-        apply_mcx_gate(qis, module, all_inputs[1:], all_inputs[0], ancilla_qir_indices)
+        apply_mcx_gate(qis, module, all_inputs[1:], all_inputs[0], ancilla_qir_indices, ccx_function)
         qis.h(module.qubits[all_inputs[0]])
 
         # apply inversion above average procedure
@@ -88,8 +93,13 @@ def get_pyqir_grover(path: str, unroll: int, max_heap: int = 8, max_stack: int =
 
     # measure result
     for (index, qubit) in enumerate(input_qubits):
-        qis.mz(module.qubits[qubit], module.results[index])
+        qis.mz(module.qubits[mapping_ids[qubit["id"]]], module.results[index])
 
-    return module
+    return module.ir()
 
-get_pyqir_grover("../../examples/selfie/d.m", 84)
+print("file: d.m")
+qir_ir = get_pyqir_grover("../../examples/selfie/d.m", 84)
+file = open("d.qir", "w")
+file.write(qir_ir)
+file.close()
+
