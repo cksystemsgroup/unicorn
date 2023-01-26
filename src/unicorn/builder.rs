@@ -535,7 +535,7 @@ impl ModelBuilder {
         let thirtytwo = self.new_const(32);
 
         // Only the low 4 bits of rs2 are considered for the shift amount.
-        let mask_node = self.new_const(0xf); // TODO: Make this a global constant.
+        let mask_node = self.new_const(0x1f); // TODO: Make this a global constant.
         let amount_node = self.new_and_word(self.reg_node(rtype.rs2()), mask_node);
 
         let amount_node_sum = self.new_add(amount_node, thirtytwo.clone());
