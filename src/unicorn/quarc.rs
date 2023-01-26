@@ -751,11 +751,11 @@ impl<'a> QuantumCircuit<'a> {
             controls,
             target: target.clone(),
         }));
-        for qubit in self.bad_state_qubits.clone() {
-            assert!(!is_constant(&qubit));
-            self.circuit_stack
-                .push(UnitaryRef::from(Unitary::Not { input: qubit }));
-        }
+        // for qubit in self.bad_state_qubits.clone() {
+        //     assert!(!is_constant(&qubit));
+        //     self.circuit_stack
+        //         .push(UnitaryRef::from(Unitary::Not { input: qubit }));
+        // }
     }
 
     fn _are_all_ancillas_clean(&self) -> bool {
