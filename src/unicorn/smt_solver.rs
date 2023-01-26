@@ -205,14 +205,12 @@ pub mod boolector_impl {
                 Node::Sll { left, right, .. } => {
                     let bv_left = self.visit(left).into_bv();
                     let bv_right = self.visit(right).into_bv();
-
-                    bv_left.sll(bv_right).into()
+                    bv_left.sll(&bv_right).into()
                 },
                 Node::Srl { left, right, .. } => {
                     let bv_left = self.visit(left).into_bv();
                     let bv_right = self.visit(right).into_bv();
-
-                    bv_left.srl(bv_right).into()
+                    bv_left.srl(&bv_right).into()
                 },
                 Node::Ult { left, right, .. } => {
                     let bv_left = self.visit(left).into_bv();
