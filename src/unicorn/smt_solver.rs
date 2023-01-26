@@ -207,8 +207,16 @@ pub mod boolector_impl {
                     let bv_right = self.visit(right).into_bv();
                     bv_left.urem(&bv_right).into()
                 }
-                Node::Sll { .. } => todo!("implement SLL"),
-                Node::Srl { .. } => todo!("implement SRL"),
+                Node::Sll { left, right, .. } => {
+                    let bv_left = self.visit(left).into_bv();
+                    let bv_right = self.visit(right).into_bv();
+                    bv_left.sll(&bv_right).into()
+                },
+                Node::Srl { left, right, .. } => {
+                    let bv_left = self.visit(left).into_bv();
+                    let bv_right = self.visit(right).into_bv();
+                    bv_left.srl(&bv_right).into()
+                },
                 Node::Ult { left, right, .. } => {
                     let bv_left = self.visit(left).into_bv();
                     let bv_right = self.visit(right).into_bv();
@@ -446,8 +454,16 @@ pub mod z3solver_impl {
                     let z3_right = self.visit(right).as_bv().expect("bv");
                     z3_left.bvurem(&z3_right).into()
                 }
-                Node::Sll { .. } => todo!("implement SLL"),
-                Node::Srl { .. } => todo!("implement SRL"),
+                Node::Sll { left, right , ..} => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvshl(&z3_right).into()
+                },
+                Node::Srl { left, right, ..} => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvlshr(&z3_right).into()
+                },
                 Node::Ult { left, right, .. } => {
                     let z3_left = self.visit(left).as_bv().expect("bv");
                     let z3_right = self.visit(right).as_bv().expect("bv");
