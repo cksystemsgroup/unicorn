@@ -531,6 +531,23 @@ impl ModelBuilder {
         self.reg_flow_ite(itype.rd(), sra_node);
     }
 
+    fn model_sllw(&mut self, rtype: RType) {
+        let thirtytwo = self.new_const(32);
+
+        // Only the low 4 bits of rs2 are considered for the shift amount.
+        let mask_node = self.new_const(0x1f); // TODO: Make this a global constant.
+        let amount_node = self.new_and_word(self.reg_node(rtype.rs2()), mask_node);
+
+        let amount_node_sum = self.new_add(amount_node, thirtytwo.clone());
+
+        // shift left by n[0:4] + 32
+        let sll_node = self.new_sll(self.reg_node(rtype.rs1()), amount_node_sum);
+
+        // shift right by 32
+        let sra_node = self.new_sra(sll_node, thirtytwo);
+        self.reg_flow_ite(rtype.rd(), sra_node);
+    }
+
     fn model_srli(&mut self, itype: IType) {
         assert!(itype.imm() < 64, "immediate within bounds");
         let imm_node = self.new_const(itype.imm() as u64);
@@ -975,7 +992,7 @@ impl ModelBuilder {
             Instruction::Remu(rtype) => self.model_remu(rtype),
             Instruction::Addw(rtype) => self.model_addw(rtype),
             Instruction::Subw(rtype) => self.model_subw(rtype),
-            Instruction::Sllw(_rtype) => self.model_unimplemented(inst),
+            Instruction::Sllw(rtype) => self.model_sllw(rtype),
             Instruction::Mulw(rtype) => self.model_mulw(rtype),
             Instruction::Divw(_rtype) => self.model_unimplemented(inst),
             Instruction::Beq(btype) => self.model_beq(btype, &mut branch_true, &mut branch_false),
