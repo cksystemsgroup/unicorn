@@ -253,7 +253,7 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
         i64::checked_div(left as i64, right as i64).unwrap_or(i64::MAX) as u64
     }
 
-     // SMT-LIB does not specify the result of division by zero, for BTOR we
+    // SMT-LIB does not specify the result of division by zero, for BTOR we
     // take the largest unsigned integer that can be represented.
     fn btor_u64_divu(left: u64, right: u64) -> u64 {
         u64::checked_div(left, right).unwrap_or(u64::MAX)
