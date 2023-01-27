@@ -236,6 +236,14 @@ impl ModelBuilder {
         })
     }
 
+    fn new_divu(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
+        self.add_node(Node::Divu {
+            nid: self.current_nid,
+            left,
+            right,
+        })
+    }
+
     fn new_div(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
         self.add_node(Node::Div {
             nid: self.current_nid,
@@ -846,8 +854,34 @@ impl ModelBuilder {
             self.division_flow.clone(),
             NodeType::Word,
         );
+        let div_node = self.new_divu(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
+        self.reg_flow_ite(rtype.rd(), div_node);
+    }
+
+    fn model_div(&mut self, rtype: RType) {
+        self.division_flow = self.new_ite(
+            self.pc_flag(),
+            self.reg_node(rtype.rs2()),
+            self.division_flow.clone(),
+            NodeType::Word,
+        );
         let div_node = self.new_div(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
         self.reg_flow_ite(rtype.rd(), div_node);
+    }
+
+    fn model_divw(&mut self, rtype: RType) {
+        let thirtytwo = self.new_const(32);
+        // sign extend each operand
+        let mut left_sext = self.new_sll(self.reg_node(rtype.rs1()), thirtytwo.clone());
+        left_sext = self.new_sra(left_sext, thirtytwo.clone());
+
+        let mut right_sext = self.new_sll(self.reg_node(rtype.rs2()), thirtytwo.clone());
+        right_sext = self.new_sra(right_sext, thirtytwo);
+
+        // perform 64-bit signed division
+        let divw_node = self.new_div(left_sext, right_sext);
+
+        self.reg_flow_ite(rtype.rd(), divw_node);
     }
 
     fn model_remu(&mut self, rtype: RType) {
@@ -987,14 +1021,14 @@ impl ModelBuilder {
             Instruction::Or(rtype) => self.model_or(rtype),
             Instruction::And(rtype) => self.model_and(rtype),
             Instruction::Mul(rtype) => self.model_mul(rtype),
-            Instruction::Div(_rtype) => self.model_unimplemented(inst),
+            Instruction::Div(rtype) => self.model_div(rtype),
             Instruction::Divu(rtype) => self.model_divu(rtype),
             Instruction::Remu(rtype) => self.model_remu(rtype),
             Instruction::Addw(rtype) => self.model_addw(rtype),
+            Instruction::Divw(rtype) => self.model_divw(rtype),
             Instruction::Subw(rtype) => self.model_subw(rtype),
             Instruction::Sllw(rtype) => self.model_sllw(rtype),
             Instruction::Mulw(rtype) => self.model_mulw(rtype),
-            Instruction::Divw(_rtype) => self.model_unimplemented(inst),
             Instruction::Beq(btype) => self.model_beq(btype, &mut branch_true, &mut branch_false),
             Instruction::Bne(btype) => self.model_bne(btype, &mut branch_true, &mut branch_false),
             Instruction::Blt(btype) => self.model_blt(btype, &mut branch_true, &mut branch_false),
