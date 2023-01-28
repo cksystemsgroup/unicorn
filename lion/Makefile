@@ -86,7 +86,7 @@ data.csv: $(DATAS)
 # Generates an unrolled constant-folded bit-blasted CNF file.
 %.cnf: %.n
 	$(eval UNROLL := $(shell grep -oP '// @UNROLL = \K\d+' $*.c))
-	$(UNICORN) beator $< -o $@ -u $(UNROLL) -p -b -d --discretize-memory
+	$(UNICORN) beator $< -o $@ -u $(UNROLL) -p -b -d
 
 %.data: %.btor2 %.n %.bc
 	$(eval UNROLL := $(shell grep -oP '// @UNROLL = \K\d+' $*.c))
@@ -112,18 +112,18 @@ data.csv: $(DATAS)
 	timeout 5m bash $(MYTIME) $(UNICORN) beator $*.n -u $(UNROLL) -p -s z3 --fast-minimize --one-query >> $@ || echo T >> $@
 
 	@echo -n "unicorn-kissat-time-all : " >> $@
-	timeout 5m bash $(MYTIME) $(UNICORN) beator $*.n -u $(UNROLL) -p --sat-solver kissat --discretize-memory >> $@ || echo T >> $@
+	timeout 5m bash $(MYTIME) $(UNICORN) beator $*.n -u $(UNROLL) -p --sat-solver kissat >> $@ || echo T >> $@
 	@echo -n "unicorn-kissat-time-reverse : " >> $@
-	timeout 5m bash $(MYTIME) $(UNICORN) beator $*.n -u $(UNROLL) -p --sat-solver kissat --discretize-memory --terminate-on-bad >> $@ || echo T >> $@
+	timeout 5m bash $(MYTIME) $(UNICORN) beator $*.n -u $(UNROLL) -p --sat-solver kissat --terminate-on-bad >> $@ || echo T >> $@
 	@echo -n "unicorn-kissat-time-1 : " >> $@
-	timeout 5m bash $(MYTIME) $(UNICORN) beator $*.n -u $(UNROLL) -p --sat-solver kissat --discretize-memory --one-query >> $@ || echo T >> $@
+	timeout 5m bash $(MYTIME) $(UNICORN) beator $*.n -u $(UNROLL) -p --sat-solver kissat --one-query >> $@ || echo T >> $@
 
 	@echo -n "unicorn-cadical-time-all : " >> $@
-	timeout 5m bash $(MYTIME) $(UNICORN) beator $*.n -u $(UNROLL) -p --sat-solver cadical --discretize-memory >> $@ || echo T >> $@
+	timeout 5m bash $(MYTIME) $(UNICORN) beator $*.n -u $(UNROLL) -p --sat-solver cadical >> $@ || echo T >> $@
 	@echo -n "unicorn-cadical-time-reverse : " >> $@
-	timeout 5m bash $(MYTIME) $(UNICORN) beator $*.n -u $(UNROLL) -p --sat-solver cadical --discretize-memory --terminate-on-bad >> $@ || echo T >> $@
+	timeout 5m bash $(MYTIME) $(UNICORN) beator $*.n -u $(UNROLL) -p --sat-solver cadical --terminate-on-bad >> $@ || echo T >> $@
 	@echo -n "unicorn-cadical-time-1 : " >> $@
-	timeout 5m bash $(MYTIME) $(UNICORN) beator $*.n -u $(UNROLL) -p --sat-solver cadical --discretize-memory --one-query >> $@ || echo T >> $@
+	timeout 5m bash $(MYTIME) $(UNICORN) beator $*.n -u $(UNROLL) -p --sat-solver cadical --one-query >> $@ || echo T >> $@
 
 	@echo -n "klee-time : " >> $@
 	timeout 5m bash $(MYTIME) $(KLEE) $*.bc >> $@ || echo T >> $@
