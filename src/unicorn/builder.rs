@@ -787,6 +787,13 @@ impl ModelBuilder {
         self.reg_flow_ite(rtype.rd(), sll_node);
     }
 
+    fn model_sllw(&mut self, rtype: RType) {
+        let sll_node = self.new_sll(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
+        let thirtytwo = self.new_const(u32::MAX as u64);
+        let and_node = self.new_and_bit(sub_node, thirtytwo);
+        self.reg_flow_ite(rtype.rd(), and_node);
+    }
+
     fn model_srl(&mut self, rtype: RType) {
         // Only the low 6 bits of rs2 are considered for the shift amount.
         let mask_node = self.new_const(0x3f); // TODO: Make this a global constant.
@@ -951,7 +958,7 @@ impl ModelBuilder {
             Instruction::Remu(rtype) => self.model_remu(rtype),
             Instruction::Addw(_rtype) => self.model_addw(rtype),
             Instruction::Subw(_rtype) => self.model_subw(rtype),
-            Instruction::Sllw(_rtype) => self.model_unimplemented(inst),
+            Instruction::Sllw(_rtype) => self.model_sllw(_rtype),
             Instruction::Mulw(_rtype) => self.model_unimplemented(inst),
             Instruction::Divw(_rtype) => self.model_unimplemented(inst),
             Instruction::Remw(_rtype) => self.model_unimplemented(inst),
