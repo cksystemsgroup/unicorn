@@ -252,6 +252,7 @@ fn execute(state: &mut EmulatorState, instr: Instruction) {
         Instruction::Sw(stype) => exec_sw(state, stype),
         Instruction::Sd(stype) => exec_sd(state, stype),
         Instruction::Addi(itype) => exec_addi(state, itype),
+        Instruction::Slti(itype) => exec_slti(state, itype),
         Instruction::Sltiu(itype) => exec_sltiu(state, itype),
         Instruction::Xori(itype) => exec_xori(state, itype),
         Instruction::Ori(itype) => exec_ori(state, itype),
@@ -564,6 +565,18 @@ fn exec_addiw(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
     let rd_value = (rs1_value as i32).wrapping_add(itype.imm()) as u64;
     trace_itype(state, "addiw", itype, rd_value);
+    state.set_reg(itype.rd(), rd_value);
+    state.pc_next();
+}
+
+// rd = 1                     ||| if (rs1 <s s64(imm{12}))
+// rd = 0                     ||| otherwise
+// pc = pc + 4
+fn exec_slti(state: &mut EmulatorState, itype: IType) {
+    let rs1_value = state.get_reg(itype.rs1());
+    let condition = (rs1_value as i64) < itype.imm();
+    let rd_value = EmulatorValue::from(condition);
+    trace_itype(state, "slti", itype, rd_value);
     state.set_reg(itype.rd(), rd_value);
     state.pc_next();
 }
