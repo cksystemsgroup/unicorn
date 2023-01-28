@@ -11,7 +11,8 @@
 
 // Raises a verification error.
 void VERIFIER_error() {
-  exit(1);
+  uint64_t x = 10;
+  x = x / 0;
 }
 
 // Asserts a condition holds, raises verification error otherwise.
