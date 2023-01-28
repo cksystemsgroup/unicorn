@@ -1004,15 +1004,13 @@ impl ModelBuilder {
             | Instruction::And(_)
             | Instruction::Mul(_)
             | Instruction::Div(_)
-            | Instruction::Rem(_)
             | Instruction::Divu(_)
             | Instruction::Remu(_)
             | Instruction::Addw(_)
             | Instruction::Subw(_)
             | Instruction::Sllw(_)
             | Instruction::Mulw(_)
-            | Instruction::Divw(_)
-            | Instruction::Remw(_) => {
+            | Instruction::Divw(_) => {
                 self.go_to_instruction(
                     FromInstruction::Regular,
                     self.pc,
