@@ -59,15 +59,15 @@ data.csv: $(DATAS)
 	  echo >> $@; \
 	done
 
-%.m: %.c
+%.m: %.c ../tools/cstar-lib.c
 	$(SELFIE) -c ../tools/cstar-lib.c $< -o $@ > /dev/null
 
-%.n: %.c
+%.n: %.c ../tools/cstar-gcc.h
 	$(RVGCC) -Wno-div-by-zero -include ../tools/cstar-gcc.h $< -o $@
 
-%.bc: %.c
+%.bc: %.c ../tools/cstar-klee.h
 	clang -Werror -Wno-main-return-type -Wno-return-type -O0 \
-	      -Xclang -disable-O0-optnone -include ../tools/cstar-klee.h\
+	      -Xclang -disable-O0-optnone -include ../tools/cstar-klee.h \
 	      -emit-llvm -c $< -o $@
 
 # Generates a non-unrolled non-optimized BTOR2 file.

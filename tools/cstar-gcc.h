@@ -24,11 +24,9 @@ void VERIFIER_assert(uint64_t cond) {
 
 // Returns a zero-extended `unsigned char` (aka. `uint8_t`) value.
 uint64_t VERIFIER_nondet_uchar() {
-  uint64_t *x;
-  x = malloc(8);
-  *x = 0;  // touch memory
-  read(0, x, SIZEOFUINT8);
-  return *x;
+  uint64_t x = 0;
+  read(0, &x, SIZEOFUINT8);
+  return x;
 }
 
 // Returns a zero-extended pointer to `unsigned char` (aka. `uint8_t`) value.
@@ -42,18 +40,14 @@ uint64_t* VERIFIER_nondet_p_uchar() {
 
 // Returns a zero-extended `unsigned short` (aka. `uint16_t`) value.
 uint64_t VERIFIER_nondet_ushort() {
-  uint64_t *x;
-  x = malloc(8);
-  *x = 0;  // touch memory
-  read(0, x, SIZEOFUINT16);
-  return *x;
+  uint64_t x = 0;
+  read(0, &x, SIZEOFUINT16);
+  return x;
 }
 
 // Returns a zero-extended `unsigned int` (aka. `uint32_t`) value.
 uint64_t VERIFIER_nondet_uint() {
-  uint64_t *x;
-  x = malloc(8);
-  *x = 0;  // touch memory
-  read(0, x, SIZEOFUINT32);
-  return *x;
+  uint64_t x = 0;
+  read(0, &x, SIZEOFUINT32);
+  return x;
 }
