@@ -40,7 +40,7 @@ btormc: $(BMCS)
 cnf: $(CNFS)
 
 data.csv: $(DATAS) 
-	@echo "name,#unroll,#sat,btormc,unicorn+boolector-all,unicorn+boolector-r,unicorn+boolector-1,unicorn+z3-all,unicorn+z3-r,unicorn+z3-1,unicorn+kissat-all,unicorn+kissat-r,unicorn+kissat-1,unicorn+cadical-all,unicorn+cadical-r,unicorn+cadical-1,klee" > $@
+	@echo "name,#unroll,#sat,btormc,unicorn+boolector-all,unicorn+boolector-r,unicorn+boolector-1,unicorn+z3-all,unicorn+z3-r,unicorn+z3-1,unicorn+kissat-all,unicorn+kissat-r,unicorn+kissat-1,unicorn+cadical-all,unicorn+cadical-r,unicorn+cadical-1,minisat,klee" > $@
 	@for f in $^; do \
 	  echo -n $$(grep -oP 'name : \K\S+' $$f),                          >> $@; \
 	  echo -n $$(grep -oP 'unroll : \K\S+' $$f),                        >> $@; \
@@ -48,16 +48,17 @@ data.csv: $(DATAS)
 	  echo -n $$(grep -oP 'btormc-time : \K\S+' $$f),                   >> $@; \
 	  echo -n $$(grep -oP 'unicorn-boolector-time-all : \K\S+' $$f),    >> $@; \
 	  echo -n $$(grep -oP 'unicorn-boolector-time-reverse : \K\S+' $$f),>> $@; \
-	  echo -n $$(grep -oP 'unicorn-boolector-time-1 : \K\S+' $$f),		>> $@; \
+	  echo -n $$(grep -oP 'unicorn-boolector-time-1 : \K\S+' $$f),      >> $@; \
 	  echo -n $$(grep -oP 'unicorn-z3-time-all : \K\S+' $$f),           >> $@; \
 	  echo -n $$(grep -oP 'unicorn-z3-time-reverse : \K\S+' $$f),       >> $@; \
-	  echo -n $$(grep -oP 'unicorn-z3-time-1 : \K\S+' $$f),       		>> $@; \
+	  echo -n $$(grep -oP 'unicorn-z3-time-1 : \K\S+' $$f),             >> $@; \
 	  echo -n $$(grep -oP 'unicorn-kissat-time-all : \K\S+' $$f),       >> $@; \
 	  echo -n $$(grep -oP 'unicorn-kissat-time-reverse : \K\S+' $$f),   >> $@; \
-	  echo -n $$(grep -oP 'unicorn-kissat-time-1 : \K\S+' $$f),   		>> $@; \
+	  echo -n $$(grep -oP 'unicorn-kissat-time-1 : \K\S+' $$f),         >> $@; \
 	  echo -n $$(grep -oP 'unicorn-cadical-time-all : \K\S+' $$f),      >> $@; \
 	  echo -n $$(grep -oP 'unicorn-cadical-time-reverse : \K\S+' $$f),  >> $@; \
-	  echo -n $$(grep -oP 'unicorn-cadical-time-1 : \K\S+' $$f),  		>> $@; \
+	  echo -n $$(grep -oP 'unicorn-cadical-time-1 : \K\S+' $$f),        >> $@; \
+	  echo -n $$(grep -oP 'minisat-time : \K\S+' $$f),                  >> $@; \
 	  echo -n $$(grep -oP 'klee-time : \K\S+' $$f),                     >> $@; \
 	  echo >> $@; \
 	done
@@ -88,7 +89,7 @@ data.csv: $(DATAS)
 	$(eval UNROLL := $(shell grep -oP '// @UNROLL = \K\d+' $*.c))
 	$(UNICORN) beator $< -o $@ -u $(UNROLL) -p -b -d
 
-%.data: %.btor2 %.n %.bc
+%.data: %.btor2 %.n %.cnf %.bc
 	$(eval UNROLL := $(shell grep -oP '// @UNROLL = \K\d+' $*.c))
 	$(eval SOLUTIONS := $(shell grep -oP '// @SOLUTIONS = \K\d+' $*.c))
 	@echo name : $* > $@
@@ -124,6 +125,9 @@ data.csv: $(DATAS)
 	timeout 5m bash $(MYTIME) $(UNICORN) beator $*.n -u $(UNROLL) -p --sat-solver cadical --terminate-on-bad >> $@ || echo T >> $@
 	@echo -n "unicorn-cadical-time-1 : " >> $@
 	timeout 5m bash $(MYTIME) $(UNICORN) beator $*.n -u $(UNROLL) -p --sat-solver cadical --one-query >> $@ || echo T >> $@
+
+	@echo -n "minisat-time : " >> $@
+	timeout 5m bash $(MYTIME) $(MINISAT) $*.cnf >> $@ || echo T >> $@
 
 	@echo -n "klee-time : " >> $@
 	timeout 5m bash $(MYTIME) $(KLEE) $*.bc >> $@ || echo T >> $@
