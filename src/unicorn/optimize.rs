@@ -64,16 +64,19 @@ fn optimize_model_impl<S: SMTSolver>(
             .bad_states_sequential
             .retain(|s| constant_folder.should_retain_bad_state(s, true, terminate_on_bad));
     } else {
-        assert!(!minimize); // only works with the --fast-minimize flag
         model
             .bad_states_initial
             .retain(|s| constant_folder.should_retain_bad_state(s, false, true));
 
         if model.bad_states_initial.is_empty() {
-            panic!("No bad states happen");
+            warn!("Plain constant-folding already removed all bad states.");
         } else if model.bad_states_initial.len() == 1 {
-            constant_folder.should_retain_bad_state(&model.bad_states_initial[0], true, true);
-            panic!("No bad states happen");
+            let single_bad_state = &model.bad_states_initial[0];
+            if !constant_folder.smt_solver.is_always_false(single_bad_state) {
+                warn!("SMT solver '{}' found bad state (single).", S::name())
+            } else {
+                warn!("SMT solver '{}' cannot find bad state (single).", S::name())
+            }
         } else {
             let mut ored_bad_states = NodeRef::from(Node::Or {
                 nid: u64::MAX,
@@ -91,9 +94,9 @@ fn optimize_model_impl<S: SMTSolver>(
                 });
             }
             if !constant_folder.smt_solver.is_always_false(&ored_bad_states) {
-                panic!("bad states are satisfiable!")
+                warn!("SMT solver '{}' found bad state (OR'ed).", S::name())
             } else {
-                panic!("No bad state happen.")
+                warn!("SMT solver '{}' cannot find bad state (OR'ed).", S::name())
             }
         }
     }

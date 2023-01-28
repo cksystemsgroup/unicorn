@@ -191,7 +191,6 @@ fn main() -> Result<()> {
                 assert!(bitblast || !dimacs, "printing DIMACS requires bitblasting");
 
                 if bitblast {
-                    assert!(discretize, "bit-blasting requires discretized memory");
                     let gate_model = bitblast_model(&model.unwrap(), true, 64);
 
                     if sat_solver != SatType::None {
