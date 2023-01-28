@@ -509,9 +509,13 @@ pub mod z3solver_impl {
                     let z3_right = self.visit(right).as_bv().expect("bv");
                     z3_left.bvor(&z3_right).into()
                 }
-                Node::Not { value, .. } => {
+                Node::Not { sort: NodeType::Bit, value, .. } => {
                     let z3_value = self.visit(value).as_bool().expect("bool");
                     z3_value.not().into()
+                }
+                Node::Not { value, .. } => {
+                    let z3_value = self.visit(value).as_bv().expect("bv");
+                    z3_value.bvnot().into()
                 }
                 Node::State { sort: NodeType::Bit, name, .. } => {
                     let name = name.as_deref().expect("name");
