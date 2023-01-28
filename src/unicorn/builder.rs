@@ -917,6 +917,7 @@ impl ModelBuilder {
             Instruction::Sw(stype) => self.model_sw(stype),
             Instruction::Sd(stype) => self.model_sd(stype),
             Instruction::Addi(itype) => self.model_addi(itype),
+            Instruction::Slti(_itype) => self.model_unimplemented(inst),
             Instruction::Sltiu(_itype) => self.model_unimplemented(inst),
             Instruction::Xori(itype) => self.model_xori(itype),
             Instruction::Ori(itype) => self.model_ori(itype),
@@ -974,6 +975,7 @@ impl ModelBuilder {
             | Instruction::Sw(_)
             | Instruction::Sd(_)
             | Instruction::Addi(_)
+            | Instruction::Slti(_)
             | Instruction::Sltiu(_)
             | Instruction::Xori(_)
             | Instruction::Ori(_)
