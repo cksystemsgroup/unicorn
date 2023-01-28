@@ -269,6 +269,7 @@ fn execute(state: &mut EmulatorState, instr: Instruction) {
         Instruction::Sll(rtype) => exec_sll(state, rtype),
         Instruction::Slt(rtype) => exec_slt(state, rtype),
         Instruction::Sltu(rtype) => exec_sltu(state, rtype),
+        Instruction::Xor(rtype) => exec_xor(state, rtype),
         Instruction::Srl(rtype) => exec_srl(state, rtype),
         Instruction::Sra(rtype) => exec_sra(state, rtype),
         Instruction::Or(rtype) => exec_or(state, rtype),
@@ -487,7 +488,7 @@ fn exec_lw(state: &mut EmulatorState, itype: IType) {
     state.pc_next();
 }
 
-// rd = z64(mem32[rs1 + s64(imm{12})])
+// rd = z64(mem32[rs1 + u64(imm{12})])
 // pc = pc + 4
 fn exec_lwu(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
@@ -594,6 +595,17 @@ fn exec_sltiu(state: &mut EmulatorState, itype: IType) {
     let rd_value = EmulatorValue::from(condition);
     trace_itype(state, "sltiu", itype, rd_value);
     state.set_reg(itype.rd(), rd_value);
+    state.pc_next();
+}
+
+// rd = rs1 ^ rs2
+// pc = pc + 4
+fn exec_xor(state: &mut EmulatorState, rtype: RType) {
+    let rs1_value = state.get_reg(rtype.rs1());
+    let rs2_value = state.get_reg(rtype.rs2());
+    let rd_value = rs1_value ^ rs2_value;
+    trace_rtype(state, "xor", rtype, rd_value);
+    state.set_reg(rtype.rd(), rd_value);
     state.pc_next();
 }
 
