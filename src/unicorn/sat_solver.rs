@@ -1,6 +1,7 @@
-use crate::unicorn::bitblasting::{GateModel, GateRef};
+use crate::unicorn::bitblasting::{get_constant, or_gate, Gate, GateModel, GateRef};
 use crate::unicorn::{Node, NodeRef};
 use crate::SatType;
+use anyhow::{anyhow, Result};
 use log::{debug, warn};
 
 //
@@ -8,15 +9,32 @@ use log::{debug, warn};
 //
 
 #[allow(unused_variables)]
-pub fn solve_bad_states(gate_model: &GateModel, sat_type: SatType) {
+pub fn solve_bad_states(
+    gate_model: &GateModel,
+    sat_type: SatType,
+    terminate_on_bad: bool,
+    one_query: bool,
+) -> Result<()> {
     match sat_type {
         SatType::None => unreachable!(),
         #[cfg(feature = "kissat")]
-        SatType::Kissat => process_all_bad_states::<kissat_impl::KissatSolver>(gate_model),
+        SatType::Kissat => process_all_bad_states::<kissat_impl::KissatSolver>(
+            gate_model,
+            terminate_on_bad,
+            one_query,
+        ),
         #[cfg(feature = "varisat")]
-        SatType::Varisat => process_all_bad_states::<varisat_impl::VarisatSolver>(gate_model),
+        SatType::Varisat => process_all_bad_states::<varisat_impl::VarisatSolver>(
+            gate_model,
+            terminate_on_bad,
+            one_query,
+        ),
         #[cfg(feature = "cadical")]
-        SatType::Cadical => process_all_bad_states::<cadical_impl::CadicalSolver>(gate_model),
+        SatType::Cadical => process_all_bad_states::<cadical_impl::CadicalSolver>(
+            gate_model,
+            terminate_on_bad,
+            one_query,
+        ),
     }
 }
 
@@ -42,44 +60,122 @@ trait SATSolver {
 fn process_single_bad_state<S: SATSolver>(
     solver: &mut S,
     gate_model: &GateModel,
-    bad_state: &NodeRef,
+    bad_state_: Option<&NodeRef>,
     gate: &GateRef,
-) {
-    if let Node::Bad { name, .. } = &*bad_state.borrow() {
+    terminate_on_bad: bool,
+    one_query: bool,
+) -> Result<()> {
+    if !one_query {
+        let bad_state = bad_state_.unwrap();
+        if let Node::Bad { name, .. } = &*bad_state.borrow() {
+            let solution = solver.decide(gate_model, gate);
+            match solution {
+                SATSolution::Sat => {
+                    warn!(
+                        "Bad state '{}' is satisfiable ({})!",
+                        name.as_deref().unwrap_or("?"),
+                        S::name()
+                    );
+                    if terminate_on_bad {
+                        return Err(anyhow!("Bad state satisfiable"));
+                    }
+                }
+                SATSolution::Unsat => {
+                    debug!(
+                        "Bad state '{}' is unsatisfiable ({}).",
+                        name.as_deref().unwrap_or("?"),
+                        S::name()
+                    );
+                }
+                SATSolution::Timeout => unimplemented!(),
+            }
+            Ok(())
+        } else {
+            panic!("expecting 'Bad' node here");
+        }
+    } else {
+        assert!(bad_state_.is_none());
         let solution = solver.decide(gate_model, gate);
         match solution {
             SATSolution::Sat => {
-                warn!(
-                    "Bad state '{}' is satisfiable ({})!",
-                    name.as_deref().unwrap_or("?"),
-                    S::name()
-                );
+                warn!("At least one bad state evaluates to true ({})", S::name());
             }
             SATSolution::Unsat => {
-                debug!(
-                    "Bad state '{}' is unsatisfiable ({}).",
-                    name.as_deref().unwrap_or("?"),
-                    S::name()
-                );
+                debug!("No bad states occur ({}).", S::name());
             }
             SATSolution::Timeout => unimplemented!(),
         }
-    } else {
-        panic!("expecting 'Bad' node here");
+        Ok(())
     }
 }
 
 #[allow(dead_code)]
-fn process_all_bad_states<S: SATSolver>(gate_model: &GateModel) {
+fn process_all_bad_states<S: SATSolver>(
+    gate_model: &GateModel,
+    terminate_on_bad: bool,
+    one_query: bool,
+) -> Result<()> {
     debug!("Using {:?} to decide bad states ...", S::name());
     let mut solver = S::new();
-    let zip = gate_model
-        .bad_state_nodes
-        .iter()
-        .zip(gate_model.bad_state_gates.iter());
-    for (bad_state, gate) in zip {
-        process_single_bad_state(&mut solver, gate_model, bad_state, gate)
+
+    if !one_query {
+        let zip = gate_model
+            .bad_state_nodes
+            .iter()
+            .zip(gate_model.bad_state_gates.iter());
+        for (bad_state, gate) in zip {
+            process_single_bad_state(
+                &mut solver,
+                gate_model,
+                Some(bad_state),
+                gate,
+                terminate_on_bad,
+                one_query,
+            )?
+        }
+    } else {
+        let mut ored_bad_states: GateRef;
+        if gate_model.bad_state_gates.is_empty() {
+            ored_bad_states = GateRef::from(Gate::ConstFalse);
+        } else if gate_model.bad_state_gates.len() == 1 {
+            ored_bad_states = gate_model.bad_state_gates[0].clone();
+        } else {
+            let first_element = gate_model.bad_state_gates[0].clone();
+            let second_element = gate_model.bad_state_gates[1].clone();
+            ored_bad_states = or_gate(
+                get_constant(&first_element),
+                get_constant(&second_element),
+                &first_element,
+                &second_element,
+            );
+        }
+        for gate in gate_model.bad_state_gates.iter().skip(2) {
+            ored_bad_states = or_gate(
+                get_constant(&ored_bad_states),
+                get_constant(gate),
+                &ored_bad_states,
+                gate,
+            );
+        }
+        if let Some(value) = get_constant(&ored_bad_states) {
+            if value {
+                warn!("Bad state occurs");
+            } else {
+                warn!("No bad state occurs");
+            }
+        } else {
+            process_single_bad_state(
+                &mut solver,
+                gate_model,
+                None,
+                &ored_bad_states,
+                terminate_on_bad,
+                one_query,
+            )?
+        }
     }
+
+    Ok(())
 }
 
 // TODO: Move this module into separate file.
@@ -347,7 +443,7 @@ pub mod cadical_impl {
                 .builder
                 .container_mut()
                 .solver
-                .solve_with((&[bad_state_lit]).iter().copied())
+                .solve_with([bad_state_lit].iter().copied())
             {
                 Some(true) => SATSolution::Sat,
                 Some(false) => SATSolution::Unsat,

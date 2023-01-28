@@ -267,6 +267,7 @@ fn execute(state: &mut EmulatorState, instr: Instruction) {
         Instruction::Add(rtype) => exec_add(state, rtype),
         Instruction::Sub(rtype) => exec_sub(state, rtype),
         Instruction::Sll(rtype) => exec_sll(state, rtype),
+        Instruction::Slt(rtype) => exec_slt(state, rtype),
         Instruction::Sltu(rtype) => exec_sltu(state, rtype),
         Instruction::Srl(rtype) => exec_srl(state, rtype),
         Instruction::Sra(rtype) => exec_sra(state, rtype),
@@ -774,6 +775,19 @@ fn exec_sra(state: &mut EmulatorState, rtype: RType) {
     state.pc_next();
 }
 
+// rd = 1                     ||| if (rs1 <s rs2)
+// rd = 0                     ||| otherwise
+// pc = pc + 4
+fn exec_slt(state: &mut EmulatorState, rtype: RType) {
+    let rs1_value = state.get_reg(rtype.rs1());
+    let rs2_value = state.get_reg(rtype.rs2());
+    let condition = (rs1_value as i64) < (rs2_value as i64);
+    let rd_value = EmulatorValue::from(condition);
+    trace_rtype(state, "slt", rtype, rd_value);
+    state.set_reg(rtype.rd(), rd_value);
+    state.pc_next();
+}
+
 // rd = 1                     ||| if (rs1 <u rs2)
 // rd = 0                     ||| otherwise
 // pc = pc + 4
@@ -848,7 +862,7 @@ fn exec_div(state: &mut EmulatorState, rtype: RType) {
 fn exec_divw(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
     let rs2_value = state.get_reg(rtype.rs2());
-    assert!(rs2_value != 0, "check for non-zero divisor");
+    assert!((rs2_value as i32) != 0, "check for non-zero divisor");
     let rd_value = (rs1_value as i32).wrapping_div(rs2_value as i32) as u64;
     trace_rtype(state, "divw", rtype, rd_value);
     state.set_reg(rtype.rd(), rd_value);
@@ -884,7 +898,7 @@ fn exec_rem(state: &mut EmulatorState, rtype: RType) {
 fn exec_remw(state: &mut EmulatorState, rtype: RType) {
     let rs1_value = state.get_reg(rtype.rs1());
     let rs2_value = state.get_reg(rtype.rs2());
-    assert!(rs2_value != 0, "check for non-zero divisor");
+    assert!((rs2_value as i32) != 0, "check for non-zero divisor");
     let rd_value = (rs1_value as i32).wrapping_rem(rs2_value as i32) as u64;
     trace_rtype(state, "remw", rtype, rd_value);
     state.set_reg(rtype.rd(), rd_value);
@@ -915,10 +929,18 @@ fn exec_ecall(state: &mut EmulatorState) {
         syscall_read(state);
     } else if a7_value == SyscallId::Write as u64 {
         syscall_write(state);
+    } else if a7_value == SyscallId::Open as u64 {
+        syscall_open(state);
     } else if a7_value == SyscallId::Openat as u64 {
         syscall_openat(state);
     } else if a7_value == SyscallId::Brk as u64 {
         syscall_brk(state);
+    } else if a7_value == SyscallId::Close as u64 {
+        // TODO: Implement close system call
+        warn!("unimplemented 'close' system call reached");
+    } else if a7_value == SyscallId::Newfstat as u64 {
+        // TODO newfstat system call
+        warn!("unimplemented 'fstat' system call reached");
     } else {
         warn!("unknown system call: {}", a7_value);
         state.set_reg(Register::A0, u64::MAX);
@@ -975,6 +997,26 @@ fn syscall_write(state: &mut EmulatorState) {
 
     state.set_reg(Register::A0, result);
     debug!("write({},{:#x},{}) -> {}", fd, buffer, size, result);
+}
+
+fn syscall_open(state: &mut EmulatorState) {
+    let path = state.get_reg(Register::A0);
+    let flag = state.get_reg(Register::A1);
+    let mode = state.get_reg(Register::A2);
+    let temp = state.get_reg(Register::A3);
+
+    // TODO Set fd to AT_FDCWD
+    // state.set_reg(Register::A0, AT_FDCWD);
+    state.set_reg(Register::A1, path);
+    state.set_reg(Register::A2, flag);
+    state.set_reg(Register::A3, mode);
+
+    syscall_openat(state);
+
+    // needed?
+    state.set_reg(Register::A1, flag);
+    state.set_reg(Register::A2, mode);
+    state.set_reg(Register::A3, temp);
 }
 
 fn syscall_openat(state: &mut EmulatorState) {

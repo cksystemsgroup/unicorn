@@ -181,7 +181,7 @@ impl MemoryReplacer {
         addresses
             .iter()
             .zip(mem.iter())
-            .rfold(dead, |acc, (a, x)| new_ite_cmp(address, *a as u64, x, &acc))
+            .rfold(dead, |acc, (a, x)| new_ite_cmp(address, *a, x, &acc))
     }
 
     fn handle_store(&self, mem: &MemorySlice, address: &NodeRef, value: &NodeRef) -> MemoryState {
@@ -190,7 +190,7 @@ impl MemoryReplacer {
         addresses
             .iter()
             .zip(mem.iter())
-            .map(|(a, x)| new_ite_cmp(address, *a as u64, value, x))
+            .map(|(a, x)| new_ite_cmp(address, *a, value, x))
             .collect()
     }
 
@@ -241,6 +241,11 @@ impl MemoryReplacer {
                 None
             }
             Node::Mul { ref mut left, ref mut right, .. } => {
+                if let Some(n) = self.visit(left) { *left = n }
+                if let Some(n) = self.visit(right) { *right = n }
+                None
+            }
+            Node::Divu { ref mut left, ref mut right, .. } => {
                 if let Some(n) = self.visit(left) { *left = n }
                 if let Some(n) = self.visit(right) { *right = n }
                 None
@@ -296,6 +301,11 @@ impl MemoryReplacer {
                 None
             }
             Node::And { ref mut left, ref mut right, .. } => {
+                if let Some(n) = self.visit(left) { *left = n }
+                if let Some(n) = self.visit(right) { *right = n }
+                None
+            }
+            Node::Or { ref mut left, ref mut right, .. } => {
                 if let Some(n) = self.visit(left) { *left = n }
                 if let Some(n) = self.visit(right) { *right = n }
                 None
