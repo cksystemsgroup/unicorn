@@ -288,6 +288,7 @@ fn execute(state: &mut EmulatorState, instr: Instruction) {
         Instruction::Divw(rtype) => exec_divw(state, rtype),
         Instruction::Divuw(rtype) => exec_divuw(state, rtype),
         Instruction::Remw(rtype) => exec_remw(state, rtype),
+        Instruction::Remuw(rtype) => exec_remuw(state, rtype),
         Instruction::Ecall(_itype) => exec_ecall(state),
         // TODO: Cover all needed instructions here.
         _ => unimplemented!("not implemented: {:?}", instr),
@@ -962,6 +963,18 @@ fn exec_remu(state: &mut EmulatorState, rtype: RType) {
     assert!(rs2_value != 0, "check for non-zero divisor");
     let rd_value = rs1_value.wrapping_rem(rs2_value);
     trace_rtype(state, "remu", rtype, rd_value);
+    state.set_reg(rtype.rd(), rd_value);
+    state.pc_next();
+}
+
+// rd = s64(rs1{32} %u rs2{32})
+// pc = pc + 4
+fn exec_remuw(state: &mut EmulatorState, rtype: RType) {
+    let rs1_value = state.get_reg(rtype.rs1());
+    let rs2_value = state.get_reg(rtype.rs2());
+    assert!((rs2_value as u32) != 0, "check for non-zero divisor");
+    let rd_value = (rs1_value as u32).wrapping_rem(rs2_value as u32) as u64;
+    trace_rtype(state, "remuw", rtype, rd_value);
     state.set_reg(rtype.rd(), rd_value);
     state.pc_next();
 }
