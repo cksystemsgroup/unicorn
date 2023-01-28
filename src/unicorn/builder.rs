@@ -652,6 +652,12 @@ impl ModelBuilder {
         self.reg_flow_ite(itype.rd(), load_node);
     }
 
+    fn model_lwu(&mut self, itype: IType) {
+        let address_node = self.model_address(itype.rs1(), itype.imm() as u64);
+        let load_node = self.model_l(32, address_node, false);
+        self.reg_flow_ite(itype.rd(), load_node);
+    }
+
     fn model_ld(&mut self, itype: IType) {
         let address_node = self.model_address(itype.rs1(), itype.imm() as u64);
         self.access_flow = self.new_ite(
@@ -912,6 +918,7 @@ impl ModelBuilder {
             Instruction::Ld(itype) => self.model_ld(itype),
             Instruction::Lbu(itype) => self.model_lbu(itype),
             Instruction::Lhu(itype) => self.model_lhu(itype),
+            Instruction::Lwu(itype) => self.model_lwu(itype),
             Instruction::Sb(stype) => self.model_sb(stype),
             Instruction::Sh(stype) => self.model_sh(stype),
             Instruction::Sw(stype) => self.model_sw(stype),

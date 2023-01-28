@@ -246,6 +246,7 @@ fn execute(state: &mut EmulatorState, instr: Instruction) {
         Instruction::Ld(itype) => exec_ld(state, itype),
         Instruction::Lbu(itype) => exec_lbu(state, itype),
         Instruction::Lhu(itype) => exec_lhu(state, itype),
+        Instruction::Lwu(itype) => exec_lwu(state, itype),
         Instruction::Sb(stype) => exec_sb(state, stype),
         Instruction::Sh(stype) => exec_sh(state, stype),
         Instruction::Sw(stype) => exec_sw(state, stype),
@@ -477,6 +478,17 @@ fn exec_lw(state: &mut EmulatorState, itype: IType) {
     let address = rs1_value.wrapping_add(itype.imm() as u64);
     let rd_value = state.get_mem_typed::<i32>(address) as u64;
     trace_itype(state, "lw", itype, rd_value);
+    state.set_reg(itype.rd(), rd_value);
+    state.pc_next();
+}
+
+// rd = z64(mem32[rs1 + s64(imm{12})])
+// pc = pc + 4
+fn exec_lwu(state: &mut EmulatorState, itype: IType) {
+    let rs1_value = state.get_reg(itype.rs1());
+    let address = rs1_value.wrapping_add(itype.imm() as u64);
+    let rd_value = state.get_mem_typed::<u32>(address) as u64;
+    trace_itype(state, "lwu", itype, rd_value);
     state.set_reg(itype.rd(), rd_value);
     state.pc_next();
 }
