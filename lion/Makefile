@@ -10,11 +10,12 @@ SRCS := $(wildcard *.c)
 OBJS := $(patsubst %.c,%.m,$(SRCS))
 GCCS := $(patsubst %.c,%.n,$(SRCS))
 BCS := $(patsubst %.c,%.bc,$(SRCS))
+BMCS := $(patsubst %.c,%.bmc,$(SRCS))
 BTORS := $(patsubst %.c,%.btor2,$(SRCS))
 CNFS := $(patsubst %.c,%.cnf,$(SRCS))
 DATAS := $(patsubst %.c,%.data,$(SRCS))
 
-.PHONY: all clean obj bytecode btor2 cnf c2 cnf2
+.PHONY: all clean obj gcc bytecode btor2 btormc cnf c2 cnf2
 
 all: data.csv
 	@column -s, -t $<
@@ -24,6 +25,7 @@ clean:
 	rm -f $(OBJS)
 	rm -f $(GCCS)
 	rm -f $(BCS)
+	rm -f $(BMCS)
 	rm -f $(BTORS)
 	rm -f $(CNFS)
 	rm -f $(DATAS)
@@ -34,6 +36,7 @@ obj: $(OBJS)
 gcc: $(GCCS)
 bytecode: $(BCS)
 btor2: $(BTORS)
+btormc: $(BMCS)
 cnf: $(CNFS)
 
 data.csv: $(DATAS) 
@@ -74,6 +77,12 @@ data.csv: $(DATAS)
 %.btor2: %.m
 	$(UNICORN) beator $< -o $@
 
+# Generates a model-checking result using BtorMC (for debugging).
+%.bmc: %.btor2
+	$(eval UNROLL := $(shell grep -oP '// @UNROLL = \K\d+' $*.c))
+	grep bad $< | nl -v0 | sed 's|^|//|' > $@
+	$(BTORMC) -kmax $(UNROLL) $< >> $@
+
 # Generates an unrolled constant-folded bit-blasted CNF file.
 %.cnf: %.m
 	$(eval UNROLL := $(shell grep -oP '// @UNROLL = \K\d+' $*.c))
@@ -92,6 +101,7 @@ data.csv: $(DATAS)
 	timeout 5m bash $(MYTIME) $(UNICORN) beator $*.m -u $(UNROLL) -p -s boolector --fast-minimize >> $@ || echo T >> $@
 	@echo -n "unicorn-boolector-time-reverse : " >> $@
 	timeout 5m bash $(MYTIME) $(UNICORN) beator $*.m -u $(UNROLL) -p -s boolector --fast-minimize --terminate-on-bad >> $@ || echo T >> $@
+	@echo -n "unicorn-boolector-time-1 : " >> $@
 	timeout 5m bash $(MYTIME) $(UNICORN) beator $*.m -u $(UNROLL) -p -s boolector --fast-minimize --one-query >> $@ || echo T >> $@
 
 	@echo -n "unicorn-z3-time-all : " >> $@ 
