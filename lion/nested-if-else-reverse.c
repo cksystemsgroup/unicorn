@@ -1,9 +1,10 @@
 // cksystemsgroup.github.io/unicorn
 // @SOLUTIONS = 1
-// @UNROLL = 131
+// @UNROLL_SELFIE = 131
+// @UNROLL = 715
 
 uint64_t main() {
-  uint64_t  a;
+  uint64_t a;
   uint64_t x;
 
   a = 40;
@@ -21,8 +22,8 @@ uint64_t main() {
   }
 
   if (a == 42)
-    // non-zero exit code if the input is '1' (== 49 == b00110001)
-    return 1;
+    // failure if the input is '1' (== 49 == b00110001)
+    VERIFIER_error();
   else
     return 0;
 }
