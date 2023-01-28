@@ -23,7 +23,7 @@ all: data.csv
 clean:
 	rm -f data.csv
 	rm -f $(OBJS)
-	rm -f $(GCCS)
+	#rm -f $(GCCS)
 	rm -f $(BCS)
 	rm -f $(BMCS)
 	rm -f $(BTORS)
