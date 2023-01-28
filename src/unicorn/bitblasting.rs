@@ -1056,6 +1056,7 @@ impl<'a> BitBlasting<'a> {
                 assert!(left_operand.len() == replacement.len());
                 self.record_mapping(node, replacement)
             }
+            Node::Or { .. } => todo!("implement OR"),
             Node::Ext { from, value, .. } => {
                 let mut replacement: Vec<GateRef> = self.visit(value);
                 assert!(replacement.len() == from.bitsize());
@@ -1207,6 +1208,8 @@ impl<'a> BitBlasting<'a> {
                 let replacement = result.1;
                 self.record_mapping(node, replacement)
             }
+            Node::Sll { .. } => todo!("implement SLL"),
+            Node::Srl { .. } => todo!("implement SRL"),
             Node::Read {
                 memory, address, ..
             } => {
@@ -1362,9 +1365,8 @@ impl<'a> BitBlasting<'a> {
                 }
                 self.record_mapping(node, replacement)
             }
-            _ => {
-                panic!("this should not be happening!");
-            }
+            Node::Next { .. } => panic!("cannot bitblast sequentials"),
+            Node::Comment(_) => panic!("cannot bitblast comments"),
         }
     }
 
