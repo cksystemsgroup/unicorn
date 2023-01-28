@@ -14,6 +14,5 @@ uint64_t main() {
   // division by zero if the input is '0' (== 48 == b00110000)
   a = 41 + (1 / x);
 
-
   return 0;
 }

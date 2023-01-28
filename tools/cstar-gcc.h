@@ -10,10 +10,10 @@
 #define SIZEOFUINT64 sizeof(uint64_t)
 
 // Raises a verification error.
-void VERIFIER_error() {
-  uint64_t x = 10;
-  x = x / 0;
-}
+#define VERIFIER_error() do { \
+  uint64_t x = 10;            \
+  x = x / 0;                  \
+} while(0)
 
 // Asserts a condition holds, raises verification error otherwise.
 void VERIFIER_assert(uint64_t cond) {
