@@ -90,7 +90,7 @@ fn main() -> Result<()> {
             let arg0 = expect_arg::<String>(args, "input-file")?;
             let extras = collect_arg_values(args, "extras");
 
-            let model = if !input_is_dimacs {
+            let mut model = if !input_is_dimacs {
                 let mut model = if !input_is_btor2 {
                     let program = load_object_file(&input)?;
                     let argv = [vec![arg0], extras].concat();
@@ -191,6 +191,9 @@ fn main() -> Result<()> {
                 assert!(bitblast || !dimacs, "printing DIMACS requires bitblasting");
 
                 if bitblast {
+                    if !discretize {
+                        replace_memory(model.as_mut().unwrap());
+                    }
                     let gate_model = bitblast_model(&model.unwrap(), true, 64);
 
                     if sat_solver != SatType::None {
