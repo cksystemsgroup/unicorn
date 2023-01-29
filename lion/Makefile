@@ -6,7 +6,7 @@ MINISAT = minisat
 BTORMC = btormc
 KLEE = klee
 
-TIMEOUT = 5m
+TIMEOUT = 1m
 
 SRCS := $(wildcard *.c)
 OBJS := $(patsubst %.c,%.m,$(SRCS))
@@ -44,7 +44,7 @@ cnf: $(CNFS)
 data.csv: $(DATAS) 
 	@echo "name,#unroll,#sat,btormc,unicorn+boolector-all,unicorn+boolector-r,unicorn+boolector-1,unicorn+z3-all,unicorn+z3-r,unicorn+z3-1,unicorn+kissat-all,unicorn+kissat-r,unicorn+kissat-1,unicorn+cadical-all,unicorn+cadical-r,unicorn+cadical-1,minisat,klee" > $@
 	@for f in $^; do \
-	  echo -n $$(grep -oP 'name : \K\S+' $$f),                          >> $@; \
+	  echo -n $$(grep -oP '^name : \K.+' $$f),                          >> $@; \
 	  echo -n $$(grep -oP 'unroll : \K\S+' $$f),                        >> $@; \
 	  echo -n $$(grep -oP 'solutions : \K\S+' $$f),                     >> $@; \
 	  echo -n $$(grep -oP 'btormc-time : \K\S+' $$f),                   >> $@; \
@@ -97,7 +97,9 @@ data.csv: $(DATAS)
 	$(eval UNROLL := $(shell grep -oP '// @UNROLL = \K\d+' $*.c))
 	$(eval FLAGS := $(shell grep -oP '// @FLAGS = \K.+' $*.c))
 	$(eval SOLUTIONS := $(shell grep -oP '// @SOLUTIONS = \K\d+' $*.c))
-	@echo name : $* > $@
+	$(eval NAME := $(shell grep -oP '// @NAME = \K.+' $*.c))
+	@echo filename : $* > $@
+	@echo "name : $(NAME)" >> $@
 	@echo unroll : $(UNROLL) >> $@
 	@echo solutions : $(SOLUTIONS) >> $@
 	@echo -n "btormc-time : " >> $@

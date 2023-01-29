@@ -2,6 +2,7 @@
 // @SOLUTIONS = 119
 // @UNROLL_SELFIE = 190
 // @UNROLL = 767
+// @NAME = factorize (32bit/easy)
 
 uint64_t main() {
   uint64_t a;

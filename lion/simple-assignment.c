@@ -2,6 +2,7 @@
 // @SOLUTIONS = 255
 // @UNROLL_SELFIE = 122
 // @UNROLL = 703
+// @NAME = assignment
 
 uint64_t main() {
   uint64_t x;

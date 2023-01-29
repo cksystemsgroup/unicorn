@@ -2,6 +2,7 @@
 // @SOLUTIONS = 1
 // @UNROLL_SELFIE = 132
 // @UNROLL = 712
+// @NAME = simple-if (w/o else)
 
 uint64_t main() {
   uint64_t a;

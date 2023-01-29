@@ -2,6 +2,7 @@
 // @SOLUTIONS = 2
 // @UNROLL_SELFIE = 190
 // @UNROLL = 765
+// @NAME = factorize (32bit)
 
 // TODO: This is a work-around for missing support of the .rodata section that
 // GCC generates for large integers. Inline the value again when we support it.

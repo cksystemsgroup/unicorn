@@ -3,6 +3,7 @@
 // @UNROLL_SELFIE = 127
 // @UNROLL = 920
 // @FLAGS = --max-stack 64
+// @NAME = invalid-access
 
 uint64_t main() {
   uint64_t a;

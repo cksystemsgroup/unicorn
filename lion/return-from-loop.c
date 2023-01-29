@@ -2,6 +2,7 @@
 // @SOLUTIONS = 10
 // @UNROLL_SELFIE = 124
 // @UNROLL = 807
+// @NAME = loop
 
 uint64_t main() {
   uint64_t a;

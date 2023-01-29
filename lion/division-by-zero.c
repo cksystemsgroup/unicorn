@@ -2,6 +2,7 @@
 // @SOLUTIONS = 1
 // @UNROLL_SELFIE = 133
 // @UNROLL = 698
+// @NAME = div-zero
 
 uint64_t main() {
   uint64_t  a;

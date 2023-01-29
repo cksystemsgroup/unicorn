@@ -2,6 +2,7 @@
 // @SOLUTIONS = 1
 // @UNROLL_SELFIE = 138
 // @UNROLL = 716
+// @NAME = nested-if
 
 uint64_t main() {
   uint64_t a;

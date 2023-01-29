@@ -2,6 +2,7 @@
 // @SOLUTIONS = 1
 // @UNROLL_SELFIE = 100
 // @UNROLL = 696
+// @NAME = empty (sat)
 
 uint64_t main() {
   uint64_t a;

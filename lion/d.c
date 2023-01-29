@@ -2,6 +2,7 @@
 // @SOLUTIONS = 255
 // @UNROLL_SELFIE = 103
 // @UNROLL = 920
+// @NAME = dynamimc-memory
 
 uint64_t main() { 
   uint64_t a;
