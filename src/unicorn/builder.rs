@@ -1185,8 +1185,10 @@ impl ModelBuilder {
     }
 
     fn generate_model(&mut self, program: &Program, argv: &[String]) -> Result<()> {
-        let data_start = program.data.address;
-        let data_end = program.data.address + program.data.content.len() as u64;
+        let data_section_start = program.data.address;
+        let data_section_end = program.data.address + program.data.content.len() as u64;
+        let data_start = data_section_start & !(size_of::<u64>() as u64 - 1);
+        let data_end = next_multiple_of(data_section_end, size_of::<u64>() as u64);
         self.data_range = data_start..data_end;
         let heap_start = next_multiple_of(data_end, PAGE_SIZE);
         let heap_end = heap_start + self.max_heap_size;
@@ -1295,17 +1297,15 @@ impl ModelBuilder {
         self.new_comment("64-bit virtual memory".to_string());
         self.current_nid = 20000000;
         self.memory_node = self.new_state(None, "memory-dump".to_string(), NodeType::Memory);
-        let dump_start = data_start & !(size_of::<u64>() as u64 - 1);
-        let dump_end = next_multiple_of(data_end, size_of::<u64>() as u64);
         let mut dump_buffer = Vec::from(&program.data.content[..]);
-        if dump_start != data_start {
-            let padding = (data_start - dump_start) as usize;
-            debug!("Aligning data start: {:#010x}+{}", dump_start, padding);
+        if data_start != data_section_start {
+            let padding = (data_section_start - data_start) as usize;
+            debug!("Aligning data start: {:#010x}+{}", data_start, padding);
             dump_buffer = [vec![0; padding], dump_buffer].concat();
         }
-        if dump_end != data_end {
-            let padding = (dump_end - data_end) as usize;
-            debug!("Aligning data end: {:#010x}-{}", dump_end, padding);
+        if data_end != data_section_end {
+            let padding = (data_end - data_section_end) as usize;
+            debug!("Aligning data end: {:#010x}-{}", data_end, padding);
             dump_buffer.extend(vec![0; padding]);
         }
         assert!(dump_buffer.len() % size_of::<u64>() == 0, "has been padded");
@@ -1321,7 +1321,7 @@ impl ModelBuilder {
         dump_buffer
             .chunks(size_of::<u64>())
             .map(LittleEndian::read_u64)
-            .zip((dump_start..dump_end).step_by(size_of::<u64>()))
+            .zip((data_start..data_end).step_by(size_of::<u64>()))
             .for_each(|(val, adr)| write_value_to_memory(self, val, adr));
         initial_stack
             .into_iter()
