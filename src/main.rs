@@ -101,9 +101,6 @@ fn main() -> Result<()> {
 
                 if let Some(unroll_depth) = unroll {
                     model.lines.clear();
-                    if discretize {
-                        replace_memory(&mut model);
-                    }
                     let mut input_values: Vec<u64> = if has_concrete_inputs {
                         inputs
                             .as_ref()
@@ -122,6 +119,13 @@ fn main() -> Result<()> {
                     }
                     if prune {
                         prune_model(&mut model);
+                    }
+                    if discretize {
+                        // TODO: We perform a quick constant-folding pass before we discretize. This
+                        // introduces some overhead when no SMT solver is used, but helps otherwise.
+                        // It is not yet clear how to implement this in a cleaner way.
+                        optimize_model_with_input(&mut model, &mut vec![]);
+                        replace_memory(&mut model);
                     }
                     let timeout = solver_timeout.map(|&ms| Duration::from_millis(ms));
                     match smt_solver {
