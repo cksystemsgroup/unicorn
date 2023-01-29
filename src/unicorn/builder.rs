@@ -498,8 +498,8 @@ impl ModelBuilder {
     fn model_addiw(&mut self, itype: IType) {
         let imm_node = self.new_const(itype.imm() as u64);
         let add_node = self.new_add(self.reg_node(itype.rs1()), imm_node);
-        let thirtytwo = self.new_const(u32::MAX as u64);
-        let and_node = self.new_and_bit(add_node, thirtytwo);
+        let mask32 = self.new_const(u32::MAX as u64);
+        let and_node = self.new_and_bit(add_node, mask32);
         self.reg_flow_ite(itype.rd(), and_node);
     }
 
@@ -533,8 +533,8 @@ impl ModelBuilder {
         assert!(itype.imm() < 32, "immediate within bounds");
         let imm_node = self.new_const(itype.imm() as u64);
         let sll_node = self.new_sll(self.reg_node(itype.rs1()), imm_node);
-        let thirtytwo = self.new_const(u32::MAX as u64);
-        let and_node = self.new_and_bit(sll_node, thirtytwo);
+        let mask32 = self.new_const(u32::MAX as u64);
+        let and_node = self.new_and_bit(sll_node, mask32);
         self.reg_flow_ite(itype.rd(), and_node);
     }
 
@@ -568,8 +568,8 @@ impl ModelBuilder {
         assert!(itype.imm() != 0, "modeling broken for zero-shift");
         let imm_node = self.new_const(itype.imm() as u64);
         let srl_node = self.new_srl(self.reg_node(itype.rs1()), imm_node);
-        let thirtytwo = self.new_const(u32::MAX as u64);
-        let and_node = self.new_and_bit(srl_node, thirtytwo);
+        let mask32 = self.new_const(u32::MAX as u64);
+        let and_node = self.new_and_bit(srl_node, mask32);
         self.reg_flow_ite(itype.rd(), and_node);
     }
 
@@ -587,8 +587,8 @@ impl ModelBuilder {
         assert!(imm_truncated < 32, "immediate within bounds");
         let imm_node = self.new_const(imm_truncated as u64);
         let sra_node = self.new_sra(self.reg_node(itype.rs1()), imm_node);
-        let thirtytwo = self.new_const(u32::MAX as u64);
-        let and_node = self.new_and_bit(sra_node, thirtytwo);
+        let mask32 = self.new_const(u32::MAX as u64);
+        let and_node = self.new_and_bit(sra_node, mask32);
         self.reg_flow_ite(itype.rd(), and_node);
     }
 
@@ -777,8 +777,8 @@ impl ModelBuilder {
 
     fn model_addw(&mut self, rtype: RType) {
         let add_node = self.new_add(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
-        let thirtytwo = self.new_const(u32::MAX as u64);
-        let and_node = self.new_and_bit(add_node, thirtytwo);
+        let mask32 = self.new_const(u32::MAX as u64);
+        let and_node = self.new_and_bit(add_node, mask32);
         self.reg_flow_ite(rtype.rd(), and_node);
     }
 
@@ -789,8 +789,8 @@ impl ModelBuilder {
 
     fn model_subw(&mut self, rtype: RType) {
         let sub_node = self.new_sub(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
-        let thirtytwo = self.new_const(u32::MAX as u64);
-        let and_node = self.new_and_bit(sub_node, thirtytwo);
+        let mask32 = self.new_const(u32::MAX as u64);
+        let and_node = self.new_and_bit(sub_node, mask32);
         self.reg_flow_ite(rtype.rd(), and_node);
     }
 
