@@ -17,7 +17,7 @@ BTORS := $(patsubst %.c,%.btor2,$(SRCS))
 CNFS := $(patsubst %.c,%.cnf,$(SRCS))
 DATAS := $(patsubst %.c,%.data,$(SRCS))
 
-.PHONY: all clean obj gcc bytecode btor2 btormc cnf
+.PHONY: all clean obj gcc bytecode btor2 btormc cnf tex
 
 all: data.csv
 	@column -s, -t $<
@@ -40,6 +40,9 @@ bytecode: $(BCS)
 btor2: $(BTORS)
 btormc: $(BMCS)
 cnf: $(CNFS)
+
+tex: data.csv
+	@column -o'& ' -s, -t $< | sed 's|& $$|\\\\|'
 
 data.csv: $(DATAS) 
 	@echo "name,#unroll,#sat,btormc,unicorn+boolector-all,unicorn+boolector-r,unicorn+boolector-1,unicorn+z3-all,unicorn+z3-r,unicorn+z3-1,unicorn+kissat-all,unicorn+kissat-r,unicorn+kissat-1,unicorn+cadical-all,unicorn+cadical-r,unicorn+cadical-1,minisat,klee" > $@
