@@ -993,6 +993,14 @@ impl ModelBuilder {
         match inst {
             Instruction::Lui(utype) => self.model_lui(utype),
             Instruction::Auipc(utype) => self.model_auipc(utype),
+            Instruction::Jal(jtype) => self.model_jal(jtype),
+            Instruction::Jalr(itype) => self.model_jalr(itype),
+            Instruction::Beq(btype) => self.model_beq(btype, &mut branch_true, &mut branch_false),
+            Instruction::Bne(btype) => self.model_bne(btype, &mut branch_true, &mut branch_false),
+            Instruction::Blt(btype) => self.model_blt(btype, &mut branch_true, &mut branch_false),
+            Instruction::Bge(btype) => self.model_bge(btype, &mut branch_true, &mut branch_false),
+            Instruction::Bltu(btype) => self.model_bltu(btype, &mut branch_true, &mut branch_false),
+            Instruction::Bgeu(btype) => self.model_bgeu(btype, &mut branch_true, &mut branch_false),
             Instruction::Lb(itype) => self.model_lb(itype),
             Instruction::Lh(itype) => self.model_lh(itype),
             Instruction::Lw(itype) => self.model_lw(itype),
@@ -1020,7 +1028,9 @@ impl ModelBuilder {
             Instruction::Add(rtype) => self.model_add(rtype),
             Instruction::Sub(rtype) => self.model_sub(rtype),
             Instruction::Sll(rtype) => self.model_sll(rtype),
+            Instruction::Slt(_rtype) => self.model_unimplemented(inst),
             Instruction::Sltu(rtype) => self.model_sltu(rtype),
+            Instruction::Xor(_rtype) => self.model_unimplemented(inst),
             Instruction::Srl(rtype) => self.model_srl(rtype),
             Instruction::Sra(rtype) => self.model_sra(rtype),
             Instruction::Or(rtype) => self.model_or(rtype),
@@ -1028,20 +1038,16 @@ impl ModelBuilder {
             Instruction::Mul(rtype) => self.model_mul(rtype),
             Instruction::Div(rtype) => self.model_div(rtype),
             Instruction::Divu(rtype) => self.model_divu(rtype),
+            Instruction::Rem(_rtype) => self.model_unimplemented(inst),
             Instruction::Remu(rtype) => self.model_remu(rtype),
             Instruction::Addw(rtype) => self.model_addw(rtype),
-            Instruction::Divw(rtype) => self.model_divw(rtype),
             Instruction::Subw(rtype) => self.model_subw(rtype),
             Instruction::Sllw(rtype) => self.model_sllw(rtype),
             Instruction::Mulw(rtype) => self.model_mulw(rtype),
-            Instruction::Beq(btype) => self.model_beq(btype, &mut branch_true, &mut branch_false),
-            Instruction::Bne(btype) => self.model_bne(btype, &mut branch_true, &mut branch_false),
-            Instruction::Blt(btype) => self.model_blt(btype, &mut branch_true, &mut branch_false),
-            Instruction::Bge(btype) => self.model_bge(btype, &mut branch_true, &mut branch_false),
-            Instruction::Bltu(btype) => self.model_bltu(btype, &mut branch_true, &mut branch_false),
-            Instruction::Bgeu(btype) => self.model_bgeu(btype, &mut branch_true, &mut branch_false),
-            Instruction::Jal(jtype) => self.model_jal(jtype),
-            Instruction::Jalr(itype) => self.model_jalr(itype),
+            Instruction::Divw(rtype) => self.model_divw(rtype),
+            Instruction::Divuw(rtype) => self.model_divuw(rtype),
+            Instruction::Remw(_rtype) => self.model_unimplemented(inst),
+            Instruction::Remuw(_rtype) => self.model_unimplemented(inst),
             Instruction::Ecall(_) => self.model_ecall(),
             _ => todo!("{:?}", inst),
         }
@@ -1077,6 +1083,7 @@ impl ModelBuilder {
             | Instruction::Sub(_)
             | Instruction::Sll(_)
             | Instruction::Sltu(_)
+            | Instruction::Xor(_)
             | Instruction::Srl(_)
             | Instruction::Sra(_)
             | Instruction::Or(_)
@@ -1084,18 +1091,42 @@ impl ModelBuilder {
             | Instruction::Mul(_)
             | Instruction::Div(_)
             | Instruction::Divu(_)
+            | Instruction::Rem(_)
             | Instruction::Remu(_)
             | Instruction::Addw(_)
             | Instruction::Subw(_)
             | Instruction::Sllw(_)
+            | Instruction::Srlw(_)
+            | Instruction::Sraw(_)
             | Instruction::Mulw(_)
-            | Instruction::Divw(_) => {
+            | Instruction::Divw(_)
+            | Instruction::Divuw(_)
+            | Instruction::Remw(_)
+            | Instruction::Remuw(_) => {
                 self.go_to_instruction(
                     FromInstruction::Regular,
                     self.pc,
                     self.pc_add(INSTRUCTION_SIZE),
                     None,
                 );
+            }
+            Instruction::Jal(jtype) => {
+                self.go_to_instruction(
+                    FromInstruction::Regular,
+                    self.pc,
+                    self.pc_add(jtype.imm() as u64),
+                    None,
+                );
+            }
+            Instruction::Jalr(itype) => {
+                if itype.rs1() == Register::Zero {
+                    // TODO: Find a proper modeling for this.
+                    warn!("Detected JALR dispatch on zero: {:#x}: {:?}", self.pc, inst);
+                    self.model_unimplemented(inst);
+                    return;
+                }
+                assert_eq!(itype.imm(), 0, "dispatch with offset");
+                self.go_to_anywhere(self.pc, itype.rs1());
             }
             Instruction::Beq(btype)
             | Instruction::Bne(btype)
@@ -1117,24 +1148,6 @@ impl ModelBuilder {
                     self.pc_add(INSTRUCTION_SIZE),
                     branch_false,
                 );
-            }
-            Instruction::Jal(jtype) => {
-                self.go_to_instruction(
-                    FromInstruction::Regular,
-                    self.pc,
-                    self.pc_add(jtype.imm() as u64),
-                    None,
-                );
-            }
-            Instruction::Jalr(itype) => {
-                if itype.rs1() == Register::Zero {
-                    // TODO: Find a proper modeling for this.
-                    warn!("Detected JALR dispatch on zero: {:#x}: {:?}", self.pc, inst);
-                    self.model_unimplemented(inst);
-                    return;
-                }
-                assert_eq!(itype.imm(), 0, "dispatch with offset");
-                self.go_to_anywhere(self.pc, itype.rs1());
             }
             Instruction::Ecall(_) => {
                 self.go_to_instruction(
