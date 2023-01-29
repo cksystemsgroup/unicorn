@@ -109,18 +109,18 @@ data.csv: $(DATAS)
 	timeout $(TIMEOUT) bash $(MYTIME) $(BTORMC) -kmax $(UNROLL) $*.btor2 >> $@ || echo T >> $@
 
 	@echo -n "unicorn-boolector-time-all : " >> $@
-	timeout $(TIMEOUT) bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p -s boolector --fast-minimize >> $@ || echo T >> $@
+	timeout $(TIMEOUT) bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p -s boolector --discretize-memory --fast-minimize >> $@ || echo T >> $@
 	@echo -n "unicorn-boolector-time-reverse : " >> $@
-	timeout $(TIMEOUT) bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p -s boolector --fast-minimize --terminate-on-bad >> $@ || echo T >> $@
+	timeout $(TIMEOUT) bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p -s boolector --discretize-memory --fast-minimize --terminate-on-bad >> $@ || echo T >> $@
 	@echo -n "unicorn-boolector-time-1 : " >> $@
-	timeout $(TIMEOUT) bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p -s boolector --fast-minimize --one-query >> $@ || echo T >> $@
+	timeout $(TIMEOUT) bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p -s boolector --discretize-memory --fast-minimize --one-query >> $@ || echo T >> $@
 
 	@echo -n "unicorn-z3-time-all : " >> $@ 
-	timeout $(TIMEOUT) bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p -s z3 --fast-minimize >> $@ || echo T >> $@
+	timeout $(TIMEOUT) bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p -s z3 --discretize-memory --fast-minimize >> $@ || echo T >> $@
 	@echo -n "unicorn-z3-time-reverse : " >> $@ 
-	timeout $(TIMEOUT) bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p -s z3 --fast-minimize --terminate-on-bad >> $@ || echo T >> $@
+	timeout $(TIMEOUT) bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p -s z3 --discretize-memory --fast-minimize --terminate-on-bad >> $@ || echo T >> $@
 	@echo -n "unicorn-z3-time-1 : " >> $@ 
-	timeout $(TIMEOUT) bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p -s z3 --fast-minimize --one-query >> $@ || echo T >> $@
+	timeout $(TIMEOUT) bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p -s z3 --discretize-memory --fast-minimize --one-query >> $@ || echo T >> $@
 
 	@echo -n "unicorn-kissat-time-all : " >> $@
 	timeout $(TIMEOUT) bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p --sat-solver kissat >> $@ || echo T >> $@
