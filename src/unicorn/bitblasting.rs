@@ -1009,8 +1009,7 @@ impl<'a> BitBlasting<'a> {
                             self.bitwise_multiplication(&replacement, &current_power_gates, false);
                     }
                 } else {
-                    let mut temp = Vec::new();
-                    temp.push(k[i].clone());
+                    let mut temp = vec![k[i].clone()];
 
                     while temp.len() < k.len() {
                         temp.push(GateRef::from(Gate::ConstFalse));
