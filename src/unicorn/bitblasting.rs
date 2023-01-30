@@ -987,16 +987,15 @@ impl<'a> BitBlasting<'a> {
 
             get_gates_from_numeric(numeric_answer, &k.len())
         } else {
-
             // else do fast exponentiation
-                // long long res = 1;
-                // while (b > 0) {
-                //     if (b & 1)
-                //         res = res * a;
-                //     a = a * a;
-                //     b >>= 1;
-                // }
-                // return res;
+            // long long res = 1;
+            // while (b > 0) {
+            //     if (b & 1)
+            //         res = res * a;
+            //     a = a * a;
+            //     b >>= 1;
+            // }
+            // return res;
             let mut replacement = get_gates_from_numeric(1, &k.len());
 
             let mut current_power_two = 2;
