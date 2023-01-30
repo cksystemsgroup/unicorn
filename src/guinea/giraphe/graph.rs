@@ -298,7 +298,9 @@ impl Giraphe {
         if ui.rect_contains_pointer(ui.min_rect()) && ui.ctx().input().pointer.primary_down() {
             self.pan += ui.ctx().input().pointer.delta();
         }
-        self.pan += ui.ctx().input().scroll_delta;
+        if ui.rect_contains_pointer(ui.min_rect()) {
+            self.pan += ui.ctx().input().scroll_delta;
+        }
     }
 
     pub fn tick_over(&mut self) -> isize {

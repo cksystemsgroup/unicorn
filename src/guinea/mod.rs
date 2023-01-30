@@ -1,14 +1,15 @@
+use crate::cli::SmtType;
 use riscu::Program;
 use std::sync::mpsc::Receiver;
+use std::thread::JoinHandle;
+use std::time::Duration;
 
-use crate::guinea::cli2gui::Cli2Gui;
 use crate::guinea::giraphe::Giraphe;
 use crate::unicorn::Model;
 
 mod cli2gui;
 mod components;
-mod design;
-mod error_handling;
+mod crash_prevention;
 mod giraphe;
 pub mod gui;
 mod model2graph;
@@ -40,14 +41,10 @@ pub struct Guineacorn {
     pub model: Option<Model>,
     pub program: Option<Program>,
     pub picked_path: Option<String>,
-    pub output: Option<String>,
-    pub model_created: bool,
     pub using: Use,
 
-    pub error_message: Option<String>,
-    pub error_occurred: bool,
+    pub error: Option<anyhow::Error>,
 
-    pub memory_data: MemoryData,
     pub loading_data: LoadingData,
     pub cli2gui: Cli2Gui,
     pub giraphe: Giraphe,
@@ -59,23 +56,57 @@ pub struct LoadingData {
     progress: f32,
     maximum: f32,
     progress_receiver: Option<Receiver<f32>>,
+    processing_thread: Option<JoinHandle<String>>,
 }
 
 impl Guineacorn {
-    pub fn reset_model_params(&mut self) {
-        self.model_created = false;
+    pub fn reset_cli2gui(&mut self) {
         self.cli2gui.bit_blasted = false;
         self.cli2gui.pruned = false;
         self.cli2gui.times_unrolled = 0;
-        self.cli2gui.unroller = None;
+        self.cli2gui.output = None;
         self.model = None;
-        self.output = None;
+    }
+}
+
+#[derive(Clone)]
+pub struct Cli2Gui {
+    pub bit_blasted: bool,
+    pub pruned: bool,
+    pub from_beator: bool,
+    pub extras: String,
+    pub times_unrolled: usize,
+    pub desired_unrolls: usize,
+    pub dimacs: bool,
+    pub solver: SmtType,
+    pub minimize: bool,
+    pub timeout: Option<Duration>,
+    pub memory_data: MemoryData,
+    pub output: Option<String>,
+}
+
+impl Default for Cli2Gui {
+    fn default() -> Self {
+        Self {
+            bit_blasted: false,
+            pruned: false,
+            from_beator: false,
+            extras: "".to_string(),
+            times_unrolled: 0,
+            desired_unrolls: 0,
+            dimacs: false,
+            solver: SmtType::Generic,
+            minimize: false,
+            timeout: None,
+            memory_data: Default::default(),
+            output: None,
+        }
     }
 }
 
 #[derive(Default, PartialEq, Eq)]
 pub enum Use {
-    Cli2Gui,
     #[default]
+    Cli2Gui,
     NodeGraph,
 }

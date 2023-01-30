@@ -12,7 +12,7 @@ version = "0.4.1"
 
 [features]
 default = []
-gui = ["egui", "eframe", "rfd", "image", "indexmap"]
+gui = ["egui", "eframe", "rfd", "indexmap"]
 z3 = ["z3-solver", "z3-sys"]
 boolector = ["boolector-solver", "boolector-sys"]
 kissat = ["kissat-rs"]
@@ -43,8 +43,6 @@ egui = { version = "0.20.0", optional = true }
 indexmap = { version = "1.9.2", optional = true }
 eframe = { version = "0.20.0", optional = true }
 rfd = { version = "0.10.0", optional = true }
-image = { version = "0.24.5", optional = true }
-egui_node_graph = { version = "0.3.0", optional = true }
 boolector-solver = { package = "boolector", version = "~0.4", features = ["vendor-lgl"], optional = true }
 boolector-sys = { version = "~0", features = ["vendor-lgl"], optional = true }
 z3-solver = { package = "z3", version = "~0.11", features = ["static-link-z3"], optional = true }

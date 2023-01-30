@@ -1,24 +1,10 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
-
-use crate::guinea::design::get_frame_design;
 use crate::guinea::{cli2gui, model2graph, Guineacorn, Use};
 use eframe::egui;
-use image;
 use std::default::Default;
 
 pub fn gui() {
-    let icon = image::open("src/guinea/icon.png")
-        .expect("Failed to open icon path")
-        .to_rgba8();
-    let (icon_width, icon_height) = icon.dimensions();
-
     let options = eframe::NativeOptions {
         initial_window_size: Some(egui::vec2(1600.0, 900.0)),
-        icon_data: Some(eframe::IconData {
-            rgba: icon.into_raw(),
-            width: icon_width,
-            height: icon_height,
-        }),
         ..Default::default()
     };
     eframe::run_native(
@@ -30,15 +16,19 @@ pub fn gui() {
 
 impl eframe::App for Guineacorn {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // error popup
-        let error_msg = self.error_message.clone();
-        egui::Window::new("Error Occured")
-            .fixed_pos((350.0, 200.0))
-            .fixed_size((400.0, 200.0))
-            .resizable(false)
-            .collapsible(false)
-            .open(&mut self.error_occurred)
-            .show(ctx, |ui| ui.label(error_msg.unwrap()));
+        if self.error.is_some() {
+            egui::Window::new("Error Occured")
+                .fixed_pos((350.0, 200.0))
+                .fixed_size((400.0, 200.0))
+                .resizable(false)
+                .collapsible(false)
+                .show(ctx, |ui| {
+                    ui.label(self.error.as_ref().unwrap().to_string());
+                    if ui.button("OK").clicked() {
+                        self.error = None;
+                    }
+                });
+        }
 
         egui::SidePanel::right("Selection")
             .resizable(false)
@@ -65,5 +55,18 @@ impl eframe::App for Guineacorn {
                 Use::Cli2Gui => cli2gui::input_window(self, ui),
                 Use::NodeGraph => model2graph::input_window(self, ui),
             });
+    }
+}
+
+use egui::style::Margin;
+use egui::{Color32, Frame, Rounding, Stroke};
+
+pub fn get_frame_design() -> Frame {
+    Frame {
+        inner_margin: Margin::symmetric(8.0, 8.0),
+        rounding: Rounding::none(),
+        fill: Color32::from_gray(27),
+        stroke: Stroke::new(1.0, Color32::from_gray(60)),
+        ..Default::default()
     }
 }

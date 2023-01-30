@@ -12,11 +12,12 @@ pub fn open_file(ui: &mut Ui, data: &mut Guineacorn) {
     ui.horizontal_wrapped(|ui| {
         ui.label("Select a file to start.");
         if ui.button("Open file...").clicked() {
-            data.reset_model_params();
+            data.reset_cli2gui();
             if let Some(path) = rfd::FileDialog::new().pick_file() {
                 data.picked_path = Some(path.display().to_string());
             }
         }
+        ui.checkbox(&mut data.cli2gui.from_beator, "File is a model");
     });
 
     let picked_path = data
@@ -56,4 +57,17 @@ pub fn load_model(ui: &mut Ui, data: &mut Guineacorn, after_fn: fn(&mut Guineaco
         data.model = Some(model);
         after_fn(data);
     }
+}
+
+pub fn section_header(ui: &mut Ui, title: &str) {
+    ui.heading(title);
+    ui.separator();
+    ui.separator();
+    ui.add_space(10.0);
+}
+
+pub fn section_sub_header(ui: &mut Ui, title: &str) {
+    ui.label(title);
+    ui.separator();
+    ui.add_space(5.0);
 }
