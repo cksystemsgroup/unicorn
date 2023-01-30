@@ -976,6 +976,69 @@ impl<'a> BitBlasting<'a> {
         }
     }
 
+    fn get_power_two(&mut self, k: &[GateRef]) -> Vec<GateRef> {
+        if get_non_constant_gate(k).is_none() && get_non_constant_gate(k).is_none() {
+            let const_k = get_numeric_from_gates(k);
+
+            let numeric_answer = 2_u64.pow(const_k as u32);
+
+            get_gates_from_numeric(numeric_answer, &k.len())
+        } else {
+            let mut replacement = get_gates_from_numeric(1, &k.len());
+
+            let mut current_power_two = 2;
+
+            for i in 0..k.len() {
+                let current_power_gates = get_gates_from_numeric(current_power_two, &k.len());
+
+                if let Some(val) = get_constant(&k[i]) {
+                    if val {
+                        replacement =
+                            self.bitwise_multiplication(&replacement, &current_power_gates, false);
+                    }
+                } else {
+                    let mut temp = Vec::new();
+                    temp.push(k[i].clone());
+
+                    while temp.len() < k.len() {
+                        temp.push(GateRef::from(Gate::ConstFalse));
+                    }
+
+                    temp = self.bitwise_multiplication(&temp, &current_power_gates, false);
+
+                    self.bitwise_multiplication(&replacement, &temp, false);
+                }
+
+                current_power_two = current_power_two * current_power_two;
+            }
+
+            replacement
+        }
+    }
+
+    fn logic_shift(
+        &mut self,
+        left_operand: &[GateRef],
+        right_operand: &[GateRef],
+        is_left_shift: bool,
+        left_node: Option<NodeRef>,
+        right_node: Option<NodeRef>,
+    ) -> Vec<GateRef> {
+        let power_two = self.get_power_two(right_operand); // compute 2^right_operand
+        if is_left_shift {
+            self.bitwise_multiplication(left_operand, &power_two, false)
+        } else {
+            let result = self.divide(left_operand, &power_two);
+
+            self.record_constraint_dependency(
+                &result.0.clone(),
+                (left_node.clone().unwrap(), right_node.clone().unwrap()),
+            );
+            self.record_constraint_dependency(&result.1, (left_node.unwrap(), right_node.unwrap()));
+            result.0
+        }
+    }
+
     fn visit(&mut self, node: &NodeRef) -> Vec<GateRef> {
         let key = HashableNodeRef::from(node.clone());
         if self.mapping.contains_key(&key) {
@@ -1208,8 +1271,27 @@ impl<'a> BitBlasting<'a> {
                 let replacement = result.1;
                 self.record_mapping(node, replacement)
             }
-            Node::Sll { .. } => todo!("implement SLL"),
-            Node::Srl { .. } => todo!("implement SRL"),
+            Node::Sll { left, right, .. } => {
+                let left_operand = self.visit(left);
+                let right_operand = self.visit(right);
+
+                let replacement = self.logic_shift(&left_operand, &right_operand, true, None, None);
+
+                self.record_mapping(node, replacement)
+            }
+            Node::Srl { left, right, .. } => {
+                let left_operand = self.visit(left);
+                let right_operand = self.visit(right);
+
+                let replacement = self.logic_shift(
+                    &left_operand,
+                    &right_operand,
+                    false,
+                    Some(left.clone()),
+                    Some(right.clone()),
+                );
+                self.record_mapping(node, replacement)
+            }
             Node::Read {
                 memory, address, ..
             } => {
