@@ -6,8 +6,6 @@ MINISAT = minisat
 BTORMC = btormc
 KLEE = klee
 
-TIMEOUT = 1m
-
 SRCS := $(wildcard *.c)
 OBJS := $(patsubst %.c,%.m,$(SRCS))
 GCCS := $(patsubst %.c,%.n,$(SRCS))
@@ -63,7 +61,7 @@ data.csv: $(DATAS)
 	  echo -n $$(grep -oP 'unicorn-cadical-time-all : \K\S+' $$f),      >> $@; \
 	  echo -n $$(grep -oP 'unicorn-cadical-time-reverse : \K\S+' $$f),  >> $@; \
 	  echo -n $$(grep -oP 'unicorn-cadical-time-1 : \K\S+' $$f),        >> $@; \
-	  echo -n $$(grep -oP 'minisat-time : \K\S+' $$f),                  >> $@; \
+	  echo -n $$(printf '%.4f' `grep -oP 'CPU time\s+: \K\S+' $$f`),    >> $@; \
 	  echo -n $$(grep -oP 'klee-time : \K\S+' $$f),                     >> $@; \
 	  echo >> $@; \
 	done
@@ -106,38 +104,38 @@ data.csv: $(DATAS)
 	@echo unroll : $(UNROLL) >> $@
 	@echo solutions : $(SOLUTIONS) >> $@
 	@echo -n "btormc-time : " >> $@
-	timeout $(TIMEOUT) bash $(MYTIME) $(BTORMC) -kmax $(UNROLL) $*.btor2 >> $@ || echo T >> $@
+	timeout 5m bash $(MYTIME) $(BTORMC) -kmax $(UNROLL) $*.btor2 >> $@ || echo T >> $@
 
 	@echo -n "unicorn-boolector-time-all : " >> $@
-	timeout $(TIMEOUT) bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p -s boolector --discretize-memory --fast-minimize >> $@ || echo T >> $@
+	timeout 1m bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p -s boolector --discretize-memory --fast-minimize >> $@ || echo T >> $@
 	@echo -n "unicorn-boolector-time-reverse : " >> $@
-	timeout $(TIMEOUT) bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p -s boolector --discretize-memory --fast-minimize --terminate-on-bad >> $@ || echo T >> $@
+	timeout 1m bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p -s boolector --discretize-memory --fast-minimize --terminate-on-bad >> $@ || echo T >> $@
 	@echo -n "unicorn-boolector-time-1 : " >> $@
-	timeout $(TIMEOUT) bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p -s boolector --discretize-memory --fast-minimize --one-query >> $@ || echo T >> $@
+	timeout 1m bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p -s boolector --discretize-memory --fast-minimize --one-query >> $@ || echo T >> $@
 
 	@echo -n "unicorn-z3-time-all : " >> $@ 
-	timeout $(TIMEOUT) bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p -s z3 --discretize-memory --fast-minimize >> $@ || echo T >> $@
+	timeout 1m bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p -s z3 --discretize-memory --fast-minimize >> $@ || echo T >> $@
 	@echo -n "unicorn-z3-time-reverse : " >> $@ 
-	timeout $(TIMEOUT) bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p -s z3 --discretize-memory --fast-minimize --terminate-on-bad >> $@ || echo T >> $@
+	timeout 1m bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p -s z3 --discretize-memory --fast-minimize --terminate-on-bad >> $@ || echo T >> $@
 	@echo -n "unicorn-z3-time-1 : " >> $@ 
-	timeout $(TIMEOUT) bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p -s z3 --discretize-memory --fast-minimize --one-query >> $@ || echo T >> $@
+	timeout 1m bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p -s z3 --discretize-memory --fast-minimize --one-query >> $@ || echo T >> $@
 
 	@echo -n "unicorn-kissat-time-all : " >> $@
-	timeout $(TIMEOUT) bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p --sat-solver kissat >> $@ || echo T >> $@
+	timeout 1m bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p --sat-solver kissat >> $@ || echo T >> $@
 	@echo -n "unicorn-kissat-time-reverse : " >> $@
-	timeout $(TIMEOUT) bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p --sat-solver kissat --terminate-on-bad >> $@ || echo T >> $@
+	timeout 1m bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p --sat-solver kissat --terminate-on-bad >> $@ || echo T >> $@
 	@echo -n "unicorn-kissat-time-1 : " >> $@
-	timeout $(TIMEOUT) bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p --sat-solver kissat --one-query >> $@ || echo T >> $@
+	timeout 1m bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p --sat-solver kissat --one-query >> $@ || echo T >> $@
 
 	@echo -n "unicorn-cadical-time-all : " >> $@
-	timeout $(TIMEOUT) bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p --sat-solver cadical >> $@ || echo T >> $@
+	timeout 1m bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p --sat-solver cadical >> $@ || echo T >> $@
 	@echo -n "unicorn-cadical-time-reverse : " >> $@
-	timeout $(TIMEOUT) bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p --sat-solver cadical --terminate-on-bad >> $@ || echo T >> $@
+	timeout 1m bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p --sat-solver cadical --terminate-on-bad >> $@ || echo T >> $@
 	@echo -n "unicorn-cadical-time-1 : " >> $@
-	timeout $(TIMEOUT) bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p --sat-solver cadical --one-query >> $@ || echo T >> $@
-
-	@echo -n "minisat-time : " >> $@
-	timeout $(TIMEOUT) bash $(MYTIME) $(MINISAT) $*.cnf >> $@ || echo T >> $@
+	timeout 1m bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p --sat-solver cadical --one-query >> $@ || echo T >> $@
 
 	@echo -n "klee-time : " >> $@
-	timeout $(TIMEOUT) bash $(MYTIME) $(KLEE) $*.bc >> $@ || echo T >> $@
+	timeout 5m bash $(MYTIME) $(KLEE) $*.bc >> $@ || echo T >> $@
+
+	@echo "minisat-output ..." >> $@
+	$(MINISAT) $*.cnf | tee -a $@
