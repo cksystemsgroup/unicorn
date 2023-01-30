@@ -977,13 +977,26 @@ impl<'a> BitBlasting<'a> {
     }
 
     fn get_power_two(&mut self, k: &[GateRef]) -> Vec<GateRef> {
+        // computes 2^k
         if get_non_constant_gate(k).is_none() && get_non_constant_gate(k).is_none() {
+            // if k is constant...
+
             let const_k = get_numeric_from_gates(k);
 
             let numeric_answer = 2_u64.pow(const_k as u32);
 
             get_gates_from_numeric(numeric_answer, &k.len())
         } else {
+
+            // else do fast exponentiation
+                // long long res = 1;
+                // while (b > 0) {
+                //     if (b & 1)
+                //         res = res * a;
+                //     a = a * a;
+                //     b >>= 1;
+                // }
+                // return res;
             let mut replacement = get_gates_from_numeric(1, &k.len());
 
             let mut current_power_two = 2;
@@ -1004,9 +1017,11 @@ impl<'a> BitBlasting<'a> {
                         temp.push(GateRef::from(Gate::ConstFalse));
                     }
 
+                    // temp =  k[i] * current_power
                     temp = self.bitwise_multiplication(&temp, &current_power_gates, false);
 
-                    self.bitwise_multiplication(&replacement, &temp, false);
+                    // compute replacement *= k[i]*current_power
+                    replacement = self.bitwise_multiplication(&replacement, &temp, false);
                 }
 
                 current_power_two = current_power_two * current_power_two;
