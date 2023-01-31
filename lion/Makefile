@@ -92,7 +92,7 @@ data.csv: $(DATAS)
 %.cnf: %.n
 	$(eval UNROLL := $(shell grep -oP '// @UNROLL = \K\d+' $*.c))
 	$(eval FLAGS := $(shell grep -oP '// @FLAGS = \K.+' $*.c))
-	$(UNICORN) beator $< -o $@ $(FLAGS) -u $(UNROLL) -p -b -d || touch $@
+	$(UNICORN) beator $< -o $@ $(FLAGS) -u $(UNROLL) -p -b -d
 
 %.data: %.btor2 %.n %.cnf %.bc
 	$(eval UNROLL := $(shell grep -oP '// @UNROLL = \K\d+' $*.c))
