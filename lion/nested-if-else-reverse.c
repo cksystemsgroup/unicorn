@@ -25,6 +25,8 @@ uint64_t main() {
   if (a == 42)
     // failure if the input is '1' (== 49 == b00110001)
     VERIFIER_error();
-  else
+  else {
+    while (--a > 0); // TODO: This is a work-around to avoid GCC destructors.
     return 0;
+  }
 }
