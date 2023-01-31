@@ -42,7 +42,7 @@ cnf: $(CNFS)
 tex: data.csv
 	@column -o'& ' -s, -t $< | sed 's|& $$|\\\\|'
 
-data.csv: $(DATAS) 
+data.csv: $(DATAS)
 	@echo "name,#unroll,#sat,btormc,unicorn+boolector-all,unicorn+boolector-r,unicorn+boolector-1,unicorn+z3-all,unicorn+z3-r,unicorn+z3-1,unicorn+kissat-all,unicorn+kissat-r,unicorn+kissat-1,unicorn+cadical-all,unicorn+cadical-r,unicorn+cadical-1,minisat,klee" > $@
 	@for f in $^; do \
 	  echo -n $$(grep -oP '^name : \K.+' $$f),                          >> $@; \
@@ -104,7 +104,7 @@ data.csv: $(DATAS)
 	@echo unroll : $(UNROLL) >> $@
 	@echo solutions : $(SOLUTIONS) >> $@
 	@echo -n "btormc-time : " >> $@
-	timeout 5m bash $(MYTIME) $(BTORMC) -kmax $(UNROLL) $*.btor2 >> $@ || echo T >> $@
+	$(MYTIME) $(BTORMC) -kmax $(UNROLL) $*.btor2 >> $@
 
 	@echo -n "unicorn-boolector-time-all : " >> $@
 	timeout 1m bash $(MYTIME) $(UNICORN) beator $*.n $(FLAGS) -u $(UNROLL) -p -s boolector --discretize-memory --fast-minimize >> $@ || echo T >> $@
