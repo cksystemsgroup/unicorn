@@ -1,29 +1,27 @@
 // cksystemsgroup.github.io/unicorn
-// @SOLUTIONS = 10
+// @SOLUTIONS = 1
 // @UNROLL_SELFIE = 124
-// @UNROLL = 807
+// @UNROLL = 727
 // @NAME = loop
 
 uint64_t main() {
   uint64_t a;
   uint64_t x;
-  uint64_t f;
 
   x = VERIFIER_nondet_uchar();
-  f = 0;
-  a = 0;
+  a = 40;
 
-  while (a < 10) {
-
-    // failure if the input is a digit
-    if (x - 48 == a)
-      f = 1;
-
+  x = x - 47;
+  while (x < 4) {
     a = a + 1;
+    x = x + 1;
   }
 
-  if (f > 0)
+  if (a == 42)
+    // failure if the input is '1' (== 49 == b00110001)
     VERIFIER_error();
-
-  return 0;
+  else {
+    while (--a > 0); // TODO: This is a work-around to avoid GCC destructors.
+    return 0;
+  }
 }
