@@ -1,7 +1,7 @@
 // cksystemsgroup.github.io/unicorn
 // @SOLUTIONS = 1
 // @UNROLL_SELFIE = 124
-// @UNROLL = 727
+// @UNROLL = 718
 // @NAME = loop
 
 uint64_t main() {
@@ -9,10 +9,10 @@ uint64_t main() {
   uint64_t x;
 
   x = VERIFIER_nondet_uchar();
-  a = 40;
+  a = 41;
 
   x = x - 47;
-  while (x < 4) {
+  while (x < 3) {
     a = a + 1;
     x = x + 1;
   }
