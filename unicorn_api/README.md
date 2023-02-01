@@ -3,7 +3,7 @@ You will need to install [maturin](https://www.maturin.rs/installation.htm) and 
 
 You can algo generate additional documentation using `cargo doc`. This will create a `docs` folder in `unicorn_api/target/`. 
 
-Also, there is an example of how to build Grover algorithm using quarc's output in `unicorn_api/examples`. Just `cd unicorn_api/examples` and invoke `python3 example_qir.py`.
+Also, there is an example of how to build Grover algorithm with pyqir using quarc's output in `unicorn_api/examples`. Just `cd unicorn_api/examples` and invoke `python3 example_qir.py`.
 
 ## QUARC
 
