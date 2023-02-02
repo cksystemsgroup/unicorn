@@ -3,6 +3,7 @@ RVGCC = riscv64-unknown-elf-gcc
 UNICORN = ../target/release/unicorn
 MYTIME = ../tools/mytime.sh
 MINISAT = minisat
+KISSAT = kissat
 BTORMC = btormc
 KLEE = klee
 
@@ -43,7 +44,7 @@ tex: data.csv
 	@column -o'& ' -s, -t $< | sed 's|& $$|\\\\|'
 
 data.csv: $(DATAS)
-	@echo "name,#unroll,#sat,btormc,unicorn+boolector-all,unicorn+boolector-r,unicorn+boolector-1,unicorn+z3-all,unicorn+z3-r,unicorn+z3-1,unicorn+kissat-all,unicorn+kissat-r,unicorn+kissat-1,unicorn+cadical-all,unicorn+cadical-r,unicorn+cadical-1,minisat,klee" > $@
+	@echo "name,#unroll,#sat,btormc,unicorn+boolector-all,unicorn+boolector-r,unicorn+boolector-1,unicorn+z3-all,unicorn+z3-r,unicorn+z3-1,unicorn+kissat-all,unicorn+kissat-r,unicorn+kissat-1,unicorn+cadical-all,unicorn+cadical-r,unicorn+cadical-1,kissat,klee" > $@
 	@for f in $^; do \
 	  echo -n $$(grep -oP '^name : \K.+' $$f),                          >> $@; \
 	  echo -n $$(grep -oP 'unroll : \K\S+' $$f),                        >> $@; \
@@ -61,7 +62,8 @@ data.csv: $(DATAS)
 	  echo -n $$(grep -oP 'unicorn-cadical-time-all : \K\S+' $$f),      >> $@; \
 	  echo -n $$(grep -oP 'unicorn-cadical-time-reverse : \K\S+' $$f),  >> $@; \
 	  echo -n $$(grep -oP 'unicorn-cadical-time-1 : \K\S+' $$f),        >> $@; \
-	  echo -n $$(printf '%.4f' `grep -oP 'CPU time\s+: \K\S+' $$f`),    >> $@; \
+	  echo -n $$(grep -oP 'kissat-time : \K\S+' $$f),                   >> $@; \
+	  #echo -n $$(printf '%.4f' `grep -oP 'CPU time\s+: \K\S+' $$f`),    >> $@; \
 	  echo -n $$(grep -oP 'klee-time : \K\S+' $$f),                     >> $@; \
 	  echo >> $@; \
 	done
@@ -136,6 +138,9 @@ data.csv: $(DATAS)
 
 	@echo -n "klee-time : " >> $@
 	timeout 5m bash $(MYTIME) $(KLEE) $*.bc >> $@ || echo T >> $@
+
+	@echo -n "kissat-time : " >> $@
+	bash -c 'time $(KISSAT) $*.cnf -n -q' 2>&1 | grep -oP 'real\s+0m\K[\d.]+' >> $@
 
 	@echo "minisat-output ..." >> $@
 	$(MINISAT) $*.cnf | tee -a $@
