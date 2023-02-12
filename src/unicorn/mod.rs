@@ -12,6 +12,7 @@ use std::rc::Rc;
 pub mod bitblasting;
 pub mod bitblasting_dimacs;
 pub mod bitblasting_printer;
+#[cfg(feature = "boolector")]
 pub mod boolector_impl;
 pub mod btor2file_parser;
 pub mod builder;
@@ -26,6 +27,7 @@ pub mod qubot;
 pub mod sat_solver;
 pub mod smt_solver;
 pub mod unroller;
+#[cfg(feature = "z3")]
 pub mod z3solver_impl;
 
 pub type Nid = u64;

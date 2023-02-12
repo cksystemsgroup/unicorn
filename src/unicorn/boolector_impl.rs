@@ -1,40 +1,27 @@
-#[cfg(feature = "boolector")]
 use crate::unicorn::smt_solver::{SMTSolution, SMTSolver};
-#[cfg(feature = "boolector")]
 use crate::unicorn::{HashableNodeRef, Node, NodeRef, NodeType};
-#[cfg(feature = "boolector")]
 use boolector_solver::{
     option::{BtorOption, ModelGen, OutputFileFormat},
     Array, Btor, SolverResult, BV,
 };
-#[cfg(feature = "boolector")]
 use log::debug;
-#[cfg(feature = "boolector")]
 use std::collections::HashMap;
-#[cfg(feature = "boolector")]
 use std::rc::Rc;
-#[cfg(feature = "boolector")]
 use std::time::Duration;
-
-#[cfg(feature = "boolector")]
 type ArrayRef = Array<Rc<Btor>>;
-#[cfg(feature = "boolector")]
 type BitVectorRef = BV<Rc<Btor>>;
 
-#[cfg(feature = "boolector")]
 #[derive(Clone)]
 enum BoolectorValue {
     BitVector(BitVectorRef),
     Array(ArrayRef),
 }
 
-#[cfg(feature = "boolector")]
 pub struct BoolectorSolver {
     solver: Rc<Btor>,
     mapping: HashMap<HashableNodeRef, BoolectorValue>,
 }
 
-#[cfg(feature = "boolector")]
 impl SMTSolver for BoolectorSolver {
     fn name() -> &'static str {
         "Boolector"
@@ -76,7 +63,6 @@ impl SMTSolver for BoolectorSolver {
     }
 }
 
-#[cfg(feature = "boolector")]
 impl BoolectorSolver {
     fn solve_impl(&mut self, bv: BitVectorRef) -> SMTSolution {
         self.solver.push(1);
@@ -213,21 +199,18 @@ impl BoolectorSolver {
     }
 }
 
-#[cfg(feature = "boolector")]
 impl From<BitVectorRef> for BoolectorValue {
     fn from(item: BitVectorRef) -> Self {
         Self::BitVector(item)
     }
 }
 
-#[cfg(feature = "boolector")]
 impl From<ArrayRef> for BoolectorValue {
     fn from(item: ArrayRef) -> Self {
         Self::Array(item)
     }
 }
 
-#[cfg(feature = "boolector")]
 impl BoolectorValue {
     fn into_bv(self) -> BitVectorRef {
         match self {

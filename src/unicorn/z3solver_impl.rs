@@ -1,22 +1,14 @@
-#[cfg(feature = "z3")]
 use crate::unicorn::smt_solver::{SMTSolution, SMTSolver};
-#[cfg(feature = "z3")]
 use crate::unicorn::{HashableNodeRef, Node, NodeRef, NodeType};
-#[cfg(feature = "z3")]
 use log::debug;
-#[cfg(feature = "z3")]
 use std::collections::HashMap;
-#[cfg(feature = "z3")]
 use std::convert::TryInto;
-#[cfg(feature = "z3")]
 use std::time::Duration;
-#[cfg(feature = "z3")]
 use z3_solver::{
     ast::{Array, Ast, Bool, Dynamic, BV},
     Config, Context, SatResult, Solver as Z3Solver, Sort,
 };
 
-#[cfg(feature = "z3")]
 pub struct Z3SolverWrapper<'ctx> {
     context: &'ctx Context,
     solver: Z3Solver<'ctx>,
@@ -25,7 +17,6 @@ pub struct Z3SolverWrapper<'ctx> {
     one: BV<'ctx>,
 }
 
-#[cfg(feature = "z3")]
 impl<'ctx> SMTSolver for Z3SolverWrapper<'ctx> {
     fn name() -> &'static str {
         "Z3"
@@ -71,7 +62,6 @@ impl<'ctx> SMTSolver for Z3SolverWrapper<'ctx> {
     }
 }
 
-#[cfg(feature = "z3")]
 impl<'ctx> Z3SolverWrapper<'ctx> {
     fn solve_impl(&mut self, z3_bool: &Bool<'ctx>) -> SMTSolution {
         self.solver.push();
