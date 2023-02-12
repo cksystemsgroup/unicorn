@@ -95,7 +95,6 @@ fn main() -> Result<()> {
             let emulate_model = is_beator && args.get_flag("emulate");
             let arg0 = expect_arg::<String>(args, "input-file")?;
             let extras = collect_arg_values(args, "extras");
-            println!("arg0: {:?}", arg0);
 
             let model = if !input_is_dimacs {
                 let mut model = if !input_is_btor2 {
