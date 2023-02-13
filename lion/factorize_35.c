@@ -1,6 +1,8 @@
 // cksystemsgroup.github.io/unicorn
 // @SOLUTIONS = 2
-// @UNROLL = 190
+// @UNROLL_SELFIE = 190
+// @UNROLL = 765
+// @NAME = factorize (35)
 
 uint64_t main() {
   uint64_t a;
