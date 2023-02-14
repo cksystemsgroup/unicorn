@@ -132,6 +132,8 @@ impl EmulatorState {
     }
 
     fn get_mem_typed<T: MyLittleEndian>(&self, adr: EmulatorValue) -> T {
+        assert!(adr % (size_of::<T>() as u64) == 0, "adress aligned");
+
         MyLittleEndian::read(&self.memory[adr as usize..])
     }
 
@@ -325,7 +327,7 @@ fn exec_jal(state: &mut EmulatorState, jtype: JType) {
     state.pc_add(jtype.imm() as u64);
 }
 
-// rd = pc + 4
+// rd = pc + instruction_length
 // pc = rs1 + s64(imm)
 fn exec_jalr(state: &mut EmulatorState, itype: IType) {
     let rs1_value = state.get_reg(itype.rs1());
