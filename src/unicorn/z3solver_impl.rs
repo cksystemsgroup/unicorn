@@ -88,127 +88,144 @@ impl<'ctx> Z3SolverWrapper<'ctx> {
         &self.mapping[&key]
     }
 
-    #[rustfmt::skip]
+        #[rustfmt::skip]
     fn translate(&mut self, node: &NodeRef) -> Dynamic<'ctx> {
-        match &*node.borrow() {
-            Node::Const { sort: NodeType::Bit, imm, .. } => {
-                Bool::from_bool(self.context, *imm != 0).into()
+            match &*node.borrow() {
+                Node::Const { sort: NodeType::Bit, imm, .. } => {
+                    Bool::from_bool(self.context, *imm != 0).into()
+                }
+                Node::Const { sort, imm, .. } => {
+                    let width = sort.bitsize() as u32;
+                    BV::from_u64(self.context, *imm, width).into()
+                }
+                Node::Read { memory, address, .. } => {
+                    let z3_memory = self.visit(memory).as_array().expect("array");
+                    let z3_address = self.visit(address).as_bv().expect("bv");
+                    z3_memory.select(&z3_address)
+                }
+                Node::Write { memory, address, value, .. } => {
+                    let z3_memory = self.visit(memory).as_array().expect("array");
+                    let z3_address = self.visit(address).as_bv().expect("bv");
+                    let z3_value = self.visit(value).as_bv().expect("bv");
+                    z3_memory.store(&z3_address, &z3_value).into()
+                }
+                Node::Add { left, right, .. } => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvadd(&z3_right).into()
+                }
+                Node::Sub { left, right, .. } => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvsub(&z3_right).into()
+                }
+                Node::Mul { left, right, .. } => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvmul(&z3_right).into()
+                }
+                Node::Divu { left, right, .. } => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvudiv(&z3_right).into()
+                }
+                Node::Div { left, right, .. } => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvsdiv(&z3_right).into()
+                }
+                Node::Rem { left, right, .. } => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvurem(&z3_right).into()
+                }
+                Node::Sll { left, right , ..} => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvshl(&z3_right).into()
+                },
+                Node::Srl { left, right, ..} => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvlshr(&z3_right).into()
+                },
+                Node::Ult { left, right, .. } => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvult(&z3_right).into()
+                }
+                Node::Ext { from: NodeType::Bit, value, .. } => {
+                    let z3_value = self.visit(value).as_bool().expect("bool");
+                    z3_value.ite(&self.zero, &self.one).into()
+                }
+                Node::Ext { from, value, .. } => {
+                    let width = from.bitsize() as u32;
+                    let z3_value = self.visit(value).as_bv().expect("bv");
+                    z3_value.zero_ext(64 - width).into()
+                }
+                Node::Ite { cond, left, right, .. } => {
+                    let z3_cond = self.visit(cond).as_bool().expect("bool");
+                    let z3_left = Dynamic::from_ast(self.visit(left));
+                    let z3_right = Dynamic::from_ast(self.visit(right));
+                    z3_cond.ite(&z3_left, &z3_right)
+                }
+                Node::Eq { left, right, .. } => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left._eq(&z3_right).into()
+                }
+                Node::And { sort: NodeType::Bit, left, right, .. } => {
+                    let z3_left = self.visit(left).as_bool().expect("bool");
+                    let z3_right = self.visit(right).as_bool().expect("bool");
+                    Bool::and(self.context, &[&z3_left, &z3_right]).into()
+                }
+                Node::And { left, right, .. } => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvand(&z3_right).into()
+                }
+                Node::Or { sort: NodeType::Bit, left, right, .. } => {
+                    let z3_left = self.visit(left).as_bool().expect("bool");
+                    let z3_right = self.visit(right).as_bool().expect("bool");
+                    Bool::or(self.context, &[&z3_left, &z3_right]).into()
+                }
+                Node::Or { left, right, .. } => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvor(&z3_right).into()
+                }
+                Node::Not { sort: NodeType::Bit, value, .. } => {
+                    let z3_value = self.visit(value).as_bool().expect("bool");
+                    z3_value.not().into()
+                }
+                Node::Not { value, .. } => {
+                    let z3_value = self.visit(value).as_bv().expect("bv");
+                    z3_value.bvnot().into()
+                }
+                Node::State { sort: NodeType::Bit, name, .. } => {
+                    let name = name.as_deref().expect("name");
+                    Bool::new_const(self.context, name).into()
+                }
+                Node::State { sort: NodeType::Memory, name, .. } => {
+                    let name = name.as_deref().expect("name");
+                    let bv64 = Sort::bitvector(self.context, 64);
+                    Array::new_const(self.context, name, &bv64, &bv64).into()
+                }
+                Node::State { sort, name, .. } => {
+                    let width = sort.bitsize() as u32;
+                    let name = name.as_deref().expect("name");
+                    BV::new_const(self.context, name, width).into()
+                }
+                Node::Input { sort, name, .. } => {
+                    let width = sort.bitsize() as u32;
+                    BV::new_const(self.context, name.to_owned(), width).into()
+                }
+                Node::Next { .. } => panic!("should be unreachable"),
+                Node::Bad { cond, .. } => {
+                    // TODO: It would be better if we would directly referece the condition instead of referencing the Bad node in the OR'ed graph. That way Bad conceptually remains as not producing any output and the graph that smt_solver.rs sees is still purely combinatorial. 
+                    self.visit(cond).clone()
+                },
+                Node::Comment(_) => panic!("cannot translate"),
             }
-            Node::Const { sort, imm, .. } => {
-                let width = sort.bitsize() as u32;
-                BV::from_u64(self.context, *imm, width).into()
-            }
-            Node::Read { memory, address, .. } => {
-                let z3_memory = self.visit(memory).as_array().expect("array");
-                let z3_address = self.visit(address).as_bv().expect("bv");
-                z3_memory.select(&z3_address)
-            }
-            Node::Write { memory, address, value, .. } => {
-                let z3_memory = self.visit(memory).as_array().expect("array");
-                let z3_address = self.visit(address).as_bv().expect("bv");
-                let z3_value = self.visit(value).as_bv().expect("bv");
-                z3_memory.store(&z3_address, &z3_value).into()
-            }
-            Node::Add { left, right, .. } => {
-                let z3_left = self.visit(left).as_bv().expect("bv");
-                let z3_right = self.visit(right).as_bv().expect("bv");
-                z3_left.bvadd(&z3_right).into()
-            }
-            Node::Sub { left, right, .. } => {
-                let z3_left = self.visit(left).as_bv().expect("bv");
-                let z3_right = self.visit(right).as_bv().expect("bv");
-                z3_left.bvsub(&z3_right).into()
-            }
-            Node::Mul { left, right, .. } => {
-                let z3_left = self.visit(left).as_bv().expect("bv");
-                let z3_right = self.visit(right).as_bv().expect("bv");
-                z3_left.bvmul(&z3_right).into()
-            }
-            Node::Div { left, right, .. } => {
-                let z3_left = self.visit(left).as_bv().expect("bv");
-                let z3_right = self.visit(right).as_bv().expect("bv");
-                z3_left.bvudiv(&z3_right).into()
-            }
-            Node::Rem { left, right, .. } => {
-                let z3_left = self.visit(left).as_bv().expect("bv");
-                let z3_right = self.visit(right).as_bv().expect("bv");
-                z3_left.bvurem(&z3_right).into()
-            }
-            Node::Sll { .. } => todo!("implement SLL"),
-            Node::Srl { .. } => todo!("implement SRL"),
-            Node::Ult { left, right, .. } => {
-                let z3_left = self.visit(left).as_bv().expect("bv");
-                let z3_right = self.visit(right).as_bv().expect("bv");
-                z3_left.bvult(&z3_right).into()
-            }
-            Node::Ext { from: NodeType::Bit, value, .. } => {
-                let z3_value = self.visit(value).as_bool().expect("bool");
-                z3_value.ite(&self.zero, &self.one).into()
-            }
-            Node::Ext { from, value, .. } => {
-                let width = from.bitsize() as u32;
-                let z3_value = self.visit(value).as_bv().expect("bv");
-                z3_value.zero_ext(64 - width).into()
-            }
-            Node::Ite { cond, left, right, .. } => {
-                let z3_cond = self.visit(cond).as_bool().expect("bool");
-                let z3_left = Dynamic::from_ast(self.visit(left));
-                let z3_right = Dynamic::from_ast(self.visit(right));
-                z3_cond.ite(&z3_left, &z3_right)
-            }
-            Node::Eq { left, right, .. } => {
-                let z3_left = self.visit(left).as_bv().expect("bv");
-                let z3_right = self.visit(right).as_bv().expect("bv");
-                z3_left._eq(&z3_right).into()
-            }
-            Node::And { sort: NodeType::Bit, left, right, .. } => {
-                let z3_left = self.visit(left).as_bool().expect("bool");
-                let z3_right = self.visit(right).as_bool().expect("bool");
-                Bool::and(self.context, &[&z3_left, &z3_right]).into()
-            }
-            Node::And { left, right, .. } => {
-                let z3_left = self.visit(left).as_bv().expect("bv");
-                let z3_right = self.visit(right).as_bv().expect("bv");
-                z3_left.bvand(&z3_right).into()
-            }
-            Node::Or { sort: NodeType::Bit, left, right, .. } => {
-                let z3_left = self.visit(left).as_bool().expect("bool");
-                let z3_right = self.visit(right).as_bool().expect("bool");
-                Bool::or(self.context, &[&z3_left, &z3_right]).into()
-            }
-            Node::Or { left, right, .. } => {
-                let z3_left = self.visit(left).as_bv().expect("bv");
-                let z3_right = self.visit(right).as_bv().expect("bv");
-                z3_left.bvor(&z3_right).into()
-            }
-            Node::Not { value, .. } => {
-                let z3_value = self.visit(value).as_bool().expect("bool");
-                z3_value.not().into()
-            }
-            Node::State { sort: NodeType::Bit, name, .. } => {
-                let name = name.as_deref().expect("name");
-                Bool::new_const(self.context, name).into()
-            }
-            Node::State { sort: NodeType::Memory, name, .. } => {
-                let name = name.as_deref().expect("name");
-                let bv64 = Sort::bitvector(self.context, 64);
-                Array::new_const(self.context, name, &bv64, &bv64).into()
-            }
-            Node::State { sort, name, .. } => {
-                let width = sort.bitsize() as u32;
-                let name = name.as_deref().expect("name");
-                BV::new_const(self.context, name, width).into()
-            }
-            Node::Input { sort, name, .. } => {
-                let width = sort.bitsize() as u32;
-                BV::new_const(self.context, name.to_owned(), width).into()
-            }
-            Node::Next { .. } => panic!("should be unreachable"),
-            Node::Bad { cond, .. } => {
-                // TODO: It would be better if we would directly referece the condition instead of referencing the Bad node in the OR'ed graph. That way Bad conceptually remains as not producing any output and the graph that smt_solver.rs sees is still purely combinatorial. 
-                self.visit(cond).clone()
-            },
-            Node::Comment(_) => panic!("cannot translate"),
         }
-    }
 }
