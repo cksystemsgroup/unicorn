@@ -2147,7 +2147,7 @@ impl<'a> QuantumCircuit<'a> {
                 // assert!(self.used_ancillas.is_empty());
                 self.record_mapping(node, self.current_n, replacement)
             }
-            Node::Div {
+            Node::Divu {
                 left, right, nid, ..
             } => {
                 let (replacement, _) = self.div(left, right, nid);
