@@ -9,6 +9,7 @@
 .DS_Store
 .z3-trace
 lion/*.bc
+lion/*.bmc
 lion/*.btor2
 lion/*.cnf
 lion/*.data

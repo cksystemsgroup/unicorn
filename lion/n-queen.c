@@ -1,6 +1,8 @@
 // cksystemsgroup.github.io/unicorn
 // @SOLUTIONS = 1
-// @UNROLL = 281
+// @UNROLL_SELFIE = 281
+// @UNROLL = 0 # TODO: Determine bound.
+// @NAME = n-queen
 
 uint64_t main() {
   uint64_t* x;

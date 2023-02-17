@@ -1,8 +1,8 @@
 // cksystemsgroup.github.io/unicorn
 // @SOLUTIONS = 1
-// @UNROLL_SELFIE = 133
+// @UNROLL_SELFIE = 132
 // @UNROLL = 712
-// @NAME = simple-if
+// @NAME = simple-if (w/o else)
 
 uint64_t main() {
   uint64_t a;
@@ -15,8 +15,6 @@ uint64_t main() {
 
   if (x == 2)
     a = a + x;
-  else
-    a = a + (x * 0);
 
   if (a == 42)
     // failure if the input is '1' (== 49 == b00110001)

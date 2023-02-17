@@ -1,24 +1,21 @@
 /*
- * Library of useful functions and constants for all benchmarks.
- *
- * Note that this library is written in C* (a subset of C) in which the
- * only available integral data type is `uint64_t`. Semantics of other
- * data types are mapped to `uint64_t`, see comments below for details.
- *
- * Note that unless otherwise noted the comments and names used in this
- * library follow the LP64 data model.
+ * Header file to adapt functions and constants towards CBMC
  */
 
-// Constants for integral byte-sizes.
-uint64_t SIZEOFUINT8 = 1;
-uint64_t SIZEOFUINT16 = 2;
-uint64_t SIZEOFINT32 = 4;
-uint64_t SIZEOFUINT32 = 4;
-uint64_t SIZEOFUINT64 = 8;
+#include <stdint.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <stdio.h>
 
-// Constants for integral limit values.
-uint64_t INT32_MIN = 2147483648; // 1 << 31
-uint64_t INT64_MIN = 9223372036854775808; // 1 << 63
+// Constants for integral byte-sizes.
+#define SIZEOFUINT8  sizeof( uint8_t)
+#define SIZEOFUINT16 sizeof(uint16_t)
+#define SIZEOFINT32  sizeof( int32_t)
+#define SIZEOFUINT32 sizeof(uint32_t)
+#define SIZEOFUINT64 sizeof(uint64_t)
 
 // Raises a verification error.
 void VERIFIER_error() {
@@ -36,48 +33,38 @@ void VERIFIER_assert(uint64_t cond) {
 
 // Returns a zero-extended `unsigned char` (aka. `uint8_t`) value.
 uint64_t VERIFIER_nondet_uchar() {
-  uint64_t *x;
-  x = malloc(8);
-  *x = 0;  // touch memory
-  read(0, x, SIZEOFUINT8);
-  return *x;
+  uint8_t x;
+  scanf("%d", &x);
+  return x;
 }
 
 // Returns a zero-extended pointer to `unsigned char` (aka. `uint8_t`) value.
 uint64_t* VERIFIER_nondet_p_uchar() {
   uint64_t *x;
   x = malloc(8);
-  *x = 0;  // touch memory
-  read(0, x, SIZEOFUINT8);
+  *x = VERIFIER_nondet_uchar();
   return x;
 }
 
 // Returns a zero-extended `unsigned short` (aka. `uint16_t`) value.
 uint64_t VERIFIER_nondet_ushort() {
-  uint64_t *x;
-  x = malloc(8);
-  *x = 0;  // touch memory
-  read(0, x, SIZEOFUINT16);
-  return *x;
+  uint16_t x;
+  scanf("%d", &x);
+  return x;
 }
 
 // Returns a zero-extended `unsigned int` (aka. `uint32_t`) value.
 uint64_t VERIFIER_nondet_uint() {
-  uint64_t *x;
-  x = malloc(8);
-  *x = 0;  // touch memory
-  read(0, x, SIZEOFUINT32);
-  return *x;
+  uint32_t x;
+  scanf("%d", &x);
+  return x;
 }
 
 // Returns a sign-extended `int` (aka. `int32_t`) value.
 uint64_t VERIFIER_nondet_int() {
-  uint64_t *x;
-  x = malloc(8);
-  *x = 0;  // touch memory
-  read(0, x, SIZEOFINT32);
-  *x = *x - INT32_MIN;
-  return *x;
+  int32_t x;
+  scanf("%d", &x);
+  return x;
 }
 
 // Returns `1 << n` (aka. two to the power of n).
@@ -94,3 +81,4 @@ uint64_t VERIFIER_two_pow_n(uint64_t n) {
 uint64_t VERIFIER_slt(uint64_t a, uint64_t b) {
   return a + INT64_MIN < b + INT64_MIN;
 }
+

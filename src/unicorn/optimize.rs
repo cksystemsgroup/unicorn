@@ -64,16 +64,19 @@ fn optimize_model_impl<S: SMTSolver>(
             .bad_states_sequential
             .retain(|s| constant_folder.should_retain_bad_state(s, true, terminate_on_bad));
     } else {
-        assert!(!minimize); // only works with the --fast-minimize flag
         model
             .bad_states_initial
             .retain(|s| constant_folder.should_retain_bad_state(s, false, true));
 
         if model.bad_states_initial.is_empty() {
-            panic!("No bad states happen");
+            warn!("Plain constant-folding already removed all bad states.");
         } else if model.bad_states_initial.len() == 1 {
-            constant_folder.should_retain_bad_state(&model.bad_states_initial[0], true, true);
-            panic!("No bad states happen");
+            let single_bad_state = &model.bad_states_initial[0];
+            if !constant_folder.smt_solver.is_always_false(single_bad_state) {
+                warn!("SMT solver '{}' found bad state (single).", S::name())
+            } else {
+                warn!("SMT solver '{}' cannot find bad state (single).", S::name())
+            }
         } else {
             let mut ored_bad_states = NodeRef::from(Node::Or {
                 nid: u64::MAX,
@@ -91,9 +94,9 @@ fn optimize_model_impl<S: SMTSolver>(
                 });
             }
             if !constant_folder.smt_solver.is_always_false(&ored_bad_states) {
-                panic!("bad states are satisfiable!")
+                warn!("SMT solver '{}' found bad state (OR'ed).", S::name())
             } else {
-                panic!("No bad state happen.")
+                warn!("SMT solver '{}' cannot find bad state (OR'ed).", S::name())
             }
         }
     }
@@ -250,6 +253,12 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
     // SMT-LIB does not specify the result of division by zero, for BTOR we
     // take the largest unsigned integer that can be represented.
     fn btor_u64_div(left: u64, right: u64) -> u64 {
+        i64::checked_div(left as i64, right as i64).unwrap_or(i64::MAX) as u64
+    }
+
+    // SMT-LIB does not specify the result of division by zero, for BTOR we
+    // take the largest unsigned integer that can be represented.
+    fn btor_u64_divu(left: u64, right: u64) -> u64 {
         u64::checked_div(left, right).unwrap_or(u64::MAX)
     }
 
@@ -287,6 +296,10 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
 
     fn fold_div(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
         self.fold_any_binary(left, right, Self::btor_u64_div, "DIV")
+    }
+
+    fn fold_divu(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
+        self.fold_any_binary(left, right, Self::btor_u64_divu, "DIVU")
     }
 
     fn fold_rem(&self, left: &NodeRef, right: &NodeRef) -> Option<NodeRef> {
@@ -568,6 +581,11 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
                 if let Some(n) = self.visit(left) { *left = n }
                 if let Some(n) = self.visit(right) { *right = n }
                 self.fold_mul(left, right)
+            }
+            Node::Divu { ref mut left, ref mut right, .. } => {
+                if let Some(n) = self.visit(left) { *left = n }
+                if let Some(n) = self.visit(right) { *right = n }
+                self.fold_divu(left, right)
             }
             Node::Div { ref mut left, ref mut right, .. } => {
                 if let Some(n) = self.visit(left) { *left = n }
