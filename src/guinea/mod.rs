@@ -11,17 +11,16 @@ mod cli2gui;
 mod components;
 mod crash_prevention;
 mod giraphe;
-pub mod gui;
+pub(crate) mod gui;
 mod model2graph;
-mod print;
 
 #[derive(Clone)]
 pub struct MemoryData {
-    pub memory_size: u64,
-    pub max_heap: u32,
-    pub max_stack: u32,
-    pub data_start: u64,
-    pub data_end: u64,
+    pub(crate) memory_size: u64,
+    pub(crate) max_heap: u32,
+    pub(crate) max_stack: u32,
+    pub(crate) data_start: u64,
+    pub(crate) data_end: u64,
 }
 
 impl Default for MemoryData {
@@ -37,21 +36,21 @@ impl Default for MemoryData {
 }
 
 #[derive(Default)]
-pub struct Guineacorn {
-    pub model: Option<Model>,
-    pub program: Option<Program>,
-    pub picked_path: Option<String>,
-    pub using: Use,
+pub(crate) struct Guineacorn {
+    pub(crate) model: Option<Model>,
+    pub(crate) program: Option<Program>,
+    pub(crate) picked_path: Option<String>,
+    pub(crate) using: Use,
 
-    pub error: Option<anyhow::Error>,
+    pub(crate) error: Option<anyhow::Error>,
 
-    pub loading_data: LoadingData,
-    pub cli2gui: Cli2Gui,
-    pub giraphe: Giraphe,
+    pub(crate) loading_data: LoadingData,
+    pub(crate) cli2gui: Cli2Gui,
+    pub(crate) giraphe: Giraphe,
 }
 
 #[derive(Default)]
-pub struct LoadingData {
+pub(crate) struct LoadingData {
     message: String,
     progress: f32,
     maximum: f32,
@@ -60,7 +59,7 @@ pub struct LoadingData {
 }
 
 impl Guineacorn {
-    pub fn reset_cli2gui(&mut self) {
+    pub(crate) fn reset_cli2gui(&mut self) {
         self.cli2gui.bit_blasted = false;
         self.cli2gui.pruned = false;
         self.cli2gui.times_unrolled = 0;
@@ -70,19 +69,18 @@ impl Guineacorn {
 }
 
 #[derive(Clone)]
-pub struct Cli2Gui {
-    pub bit_blasted: bool,
-    pub pruned: bool,
-    pub from_beator: bool,
-    pub extras: String,
-    pub times_unrolled: usize,
-    pub desired_unrolls: usize,
-    pub dimacs: bool,
-    pub solver: SmtType,
-    pub minimize: bool,
-    pub timeout: Option<Duration>,
-    pub memory_data: MemoryData,
-    pub output: Option<String>,
+pub(crate) struct Cli2Gui {
+    pub(crate) bit_blasted: bool,
+    pub(crate) pruned: bool,
+    pub(crate) extras: String,
+    pub(crate) times_unrolled: usize,
+    pub(crate) desired_unrolls: usize,
+    pub(crate) dimacs: bool,
+    pub(crate) solver: SmtType,
+    pub(crate) minimize: bool,
+    pub(crate) timeout: Option<Duration>,
+    pub(crate) memory_data: MemoryData,
+    pub(crate) output: Option<String>,
 }
 
 impl Default for Cli2Gui {
@@ -90,7 +88,6 @@ impl Default for Cli2Gui {
         Self {
             bit_blasted: false,
             pruned: false,
-            from_beator: false,
             extras: "".to_string(),
             times_unrolled: 0,
             desired_unrolls: 0,
@@ -105,7 +102,7 @@ impl Default for Cli2Gui {
 }
 
 #[derive(Default, PartialEq, Eq)]
-pub enum Use {
+pub(crate) enum Use {
     #[default]
     Cli2Gui,
     NodeGraph,

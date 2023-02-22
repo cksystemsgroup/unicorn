@@ -7,8 +7,8 @@ use crate::guinea::giraphe::{Spot, Value};
 use crate::unicorn::{Node, NodeRef, NodeType};
 
 impl Spot {
-    pub fn from(n: &NodeRef) -> Spot {
-        let val_cur = match &*n.borrow() {
+    pub(crate) fn from(n: &NodeRef) -> Spot {
+        let current_value = match &*n.borrow() {
             Node::Input { .. } => Value::Undefined,
             Node::Const { sort, imm, .. } => match sort {
                 NodeType::Bit => Boolean(*imm != 0),
@@ -34,15 +34,15 @@ impl Spot {
 
         Self {
             tick: 0,
-            val_old: Value::Undefined,
-            val_cur,
+            old_value: Value::Undefined,
+            current_value,
             origin: n.clone(),
         }
     }
 
-    pub fn set_value(&mut self, val: Value) {
-        self.val_old = std::mem::replace(&mut self.val_cur, Value::Undefined);
-        self.val_cur = val;
+    pub(crate) fn set_value(&mut self, val: Value) {
+        self.old_value = std::mem::replace(&mut self.current_value, Value::Undefined);
+        self.current_value = val;
     }
 
     pub(crate) fn title(&self) -> &str {
@@ -71,8 +71,8 @@ impl Spot {
         }
     }
 
-    pub fn display_value_abbreviated(&self) -> String {
-        match self.val_cur {
+    pub(crate) fn display_value_abbreviated(&self) -> String {
+        match self.current_value {
             Boolean(x) => if x { "T" } else { "F" }.to_string(),
             Bitvector(x) => {
                 let Concrete(x) = x;
@@ -89,8 +89,8 @@ impl Spot {
         }
     }
 
-    pub fn display_value(&self) -> String {
-        match self.val_cur {
+    pub(crate) fn display_value(&self) -> String {
+        match self.current_value {
             Boolean(x) => if x { "True" } else { "False" }.to_string(),
             Bitvector(x) => {
                 let Concrete(x) = x;
@@ -101,7 +101,7 @@ impl Spot {
         }
     }
 
-    pub fn node_name(&self) -> Option<String> {
+    pub(crate) fn node_name(&self) -> Option<String> {
         match &*self.origin.borrow() {
             Node::State { name, .. } => name.clone(),
             Node::Next { state, .. } => {
@@ -117,7 +117,7 @@ impl Spot {
         }
     }
 
-    pub fn color(&self) -> Color32 {
+    pub(crate) fn color(&self) -> Color32 {
         match &*self.origin.borrow() {
             Node::Const { .. } => Color32::from_rgb(188, 189, 59),
             Node::Read { .. } => Color32::from_rgb(156, 117, 95),

@@ -1,9 +1,14 @@
+use crate::guinea::MemoryData;
 use crate::unicorn::{get_nodetype, Model, Nid, Node, NodeRef, NodeType};
+use bytesize::ByteSize;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufRead};
+use std::mem::size_of;
 use std::ops::Range;
 use std::path::Path;
+use unicorn::engine::system::PAGE_SIZE;
+use unicorn::util::next_multiple_of;
 
 //
 // Public Interface
@@ -30,7 +35,7 @@ pub fn parse_btor2_file(path: &Path) -> Model {
 }
 
 #[cfg(feature = "gui")]
-pub fn parse_btor2_string(string: &str) -> Model {
+pub fn parse_btor2_string(string: &str, data: &MemoryData) -> Model {
     let mut parser = BTOR2Parser::new();
     parser.parse_string(string);
     parser.run_inits();
@@ -38,15 +43,22 @@ pub fn parse_btor2_string(string: &str) -> Model {
         .get_bad_states()
         .into_iter()
         .partition(has_depth_in_name);
+
+    let heap_start = next_multiple_of(data.data_end, PAGE_SIZE as u64);
+    let heap_end = heap_start + data.max_heap as u64 * size_of::<u64>() as u64;
+    let stack_start =
+        ByteSize::mib(data.memory_size).as_u64() - data.max_stack as u64 * size_of::<u64>() as u64;
+    let stack_end = ByteSize::mib(data.memory_size).as_u64();
+
     Model {
         lines: Vec::new(),
         sequentials: parser.get_sequentials(),
         bad_states_initial,
         bad_states_sequential,
-        data_range: Range { start: 0, end: 0 },
-        heap_range: Range { start: 0, end: 0 },
-        stack_range: Range { start: 0, end: 0 },
-        memory_size: 0,
+        data_range: data.data_start..data.data_end,
+        heap_range: heap_start..heap_end,
+        stack_range: stack_start..stack_end,
+        memory_size: ByteSize::mib(data.memory_size).as_u64(),
     }
 }
 

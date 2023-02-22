@@ -1,26 +1,21 @@
 use std::io::BufWriter;
-use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::mpsc::{Receiver, Sender};
 use std::{fs, thread};
 
 use anyhow::Error;
-use bytesize::ByteSize;
 use egui::Ui;
-use riscu::load_object_file;
 
 use unicorn::disassemble::Disassembly;
 
 use crate::cli::SmtType;
 use crate::guinea::components::general;
 use crate::guinea::components::general::{section_header, section_sub_header};
-use crate::guinea::crash_prevention::{fix_memory, to_proper_error, try_catch};
+use crate::guinea::crash_prevention::to_proper_error;
 use crate::guinea::Guineacorn;
 use crate::unicorn::bitblasting::bitblast_model;
 use crate::unicorn::bitblasting_dimacs::write_dimacs_model;
 use crate::unicorn::bitblasting_printer::write_btor2_model;
-use crate::unicorn::btor2file_parser::{parse_btor2_file, parse_btor2_string};
-use crate::unicorn::builder::generate_model;
+use crate::unicorn::btor2file_parser::parse_btor2_string;
 use crate::unicorn::memory::replace_memory;
 use crate::unicorn::optimize::{optimize_model_with_input, optimize_model_with_solver};
 #[cfg(feature = "boolector")]
@@ -31,7 +26,7 @@ use crate::unicorn::smt_solver::z3solver_impl;
 use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
 use crate::unicorn::{write_model, Model};
 
-pub fn input_window(data: &mut Guineacorn, ui: &mut Ui) {
+pub(crate) fn input_window(data: &mut Guineacorn, ui: &mut Ui) {
     section_header(ui, "Input");
 
     section_sub_header(ui, "Selecting Input");
@@ -53,7 +48,7 @@ pub fn input_window(data: &mut Guineacorn, ui: &mut Ui) {
     });
 }
 
-pub fn output_window(data: &mut Guineacorn, ui: &mut Ui) {
+pub(crate) fn output_window(data: &mut Guineacorn, ui: &mut Ui) {
     section_header(ui, "Output");
 
     if is_concurrent(data) {
@@ -106,26 +101,21 @@ fn input_selection(ui: &mut Ui, data: &mut Guineacorn) {
         return;
     }
 
-    if ui.button("Preview File").clicked() {
-        data.reset_cli2gui();
-        let path = PathBuf::from_str(data.picked_path.as_ref().unwrap()).unwrap();
-
-        if !data.cli2gui.from_beator {
-            match load_object_file(&path) {
-                Ok(program) => match Disassembly::from(&program) {
-                    Ok(disassembly) => {
-                        data.cli2gui.output = Some(disassembly.to_string());
-                    }
-                    Err(e) => data.error = Some(Error::from(e)),
-                },
+    general::load(ui, data, "Preview File", |data| {
+        if let Some(program) = &data.program {
+            match Disassembly::from(program) {
+                Ok(disassembly) => {
+                    data.cli2gui.output = Some(disassembly.to_string());
+                }
                 Err(e) => data.error = Some(Error::from(e)),
             }
-        } else {
-            let mut model = parse_btor2_file(&path);
-            renumber_model(&mut model);
-            data.cli2gui.output = Some(stringify_model(&model));
+        } else if let Some(model) = &data.model {
+            data.cli2gui.output = Some(stringify_model(model));
         }
-    }
+
+        data.program = None;
+        data.model = None;
+    });
 }
 
 fn model_creation(ui: &mut Ui, data: &mut Guineacorn) {
@@ -148,47 +138,9 @@ fn model_creation(ui: &mut Ui, data: &mut Guineacorn) {
             );
         });
 
-        if ui.button("Create Model").clicked() {
-            let picked_path = data.picked_path.as_ref().unwrap().clone();
-
-            let path = PathBuf::from_str(&picked_path).unwrap();
-            let program = load_object_file(path);
-
-            match program {
-                Ok(_) => {
-                    let program = program.unwrap();
-                    let result = try_catch(|| {
-                        let argv = [
-                            vec![picked_path.clone()],
-                            data.cli2gui.extras.split(' ').map(String::from).collect(),
-                        ]
-                        .concat();
-                        data.cli2gui.memory_data.data_start = program.data.address;
-                        data.cli2gui.memory_data.data_end =
-                            program.data.address + program.data.content.len() as u64;
-                        generate_model(
-                            &program,
-                            ByteSize::mib(data.cli2gui.memory_data.memory_size).as_u64(),
-                            data.cli2gui.memory_data.max_heap,
-                            data.cli2gui.memory_data.max_stack,
-                            &argv,
-                        )
-                    });
-
-                    match result {
-                        Ok(m) => {
-                            let model = m.unwrap();
-                            data.cli2gui.output = Some(stringify_model(&model));
-                            data.model = Some(model);
-                        }
-                        Err(e) => {
-                            data.error = Some(e);
-                        }
-                    }
-                }
-                Err(e) => data.error = Some(Error::from(e)),
-            }
-        }
+        general::load(ui, data, "Create Model", |data| {
+            data.cli2gui.output = Some(stringify_model(data.model.as_ref().unwrap()));
+        });
     });
 }
 
@@ -320,8 +272,7 @@ fn do_unroll(data: &mut Guineacorn) {
     data.loading_data.progress_receiver = Some(receiver);
 
     let concurrent_unrolling = move || {
-        let mut model = parse_btor2_string(&serial_model);
-        fix_memory(&mut model, &parameters.memory_data);
+        let mut model = parse_btor2_string(&serial_model, &parameters.memory_data);
         model.lines.clear();
         replace_memory(&mut model);
 
@@ -385,8 +336,7 @@ fn is_concurrent(data: &mut Guineacorn) -> bool {
             let serial_model = thread.join();
             match serial_model {
                 Ok(model) => {
-                    let mut model = parse_btor2_string(&model);
-                    fix_memory(&mut model, &data.cli2gui.memory_data);
+                    let mut model = parse_btor2_string(&model, &data.cli2gui.memory_data);
                     renumber_model(&mut model);
 
                     data.model = Some(model);

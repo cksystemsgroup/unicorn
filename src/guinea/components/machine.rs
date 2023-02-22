@@ -1,13 +1,17 @@
-use crate::guinea::giraphe::MachineWord::Concrete;
-use crate::guinea::giraphe::{Giraphe, MachineWord, Value};
-use crate::guinea::print::stringify_program;
-use crate::guinea::Guineacorn;
-use egui::{RichText, Ui};
-use indexmap::IndexMap;
-use riscu::decode;
 use std::iter::zip;
 
-pub fn step(ui: &mut Ui, graph: &mut Giraphe) {
+use anyhow::Error;
+use egui::{RichText, Ui};
+use indexmap::IndexMap;
+use riscu::{decode, Register};
+
+use unicorn::disassemble::Disassembly;
+
+use crate::guinea::giraphe::MachineWord::Concrete;
+use crate::guinea::giraphe::{Giraphe, MachineWord, Value};
+use crate::guinea::Guineacorn;
+
+pub(crate) fn step(ui: &mut Ui, graph: &mut Giraphe) {
     ui.add_enabled_ui(!graph.in_bad_state, |ui| {
         ui.horizontal(|ui| {
             if ui.button("Step Over").clicked() {
@@ -25,7 +29,7 @@ pub fn step(ui: &mut Ui, graph: &mut Giraphe) {
     });
 }
 
-pub fn input(ui: &mut Ui, graph: &mut Giraphe) {
+pub(crate) fn input(ui: &mut Ui, graph: &mut Giraphe) {
     ui.horizontal(|ui| {
         if graph.is_ascii {
             let edit =
@@ -43,156 +47,57 @@ pub fn input(ui: &mut Ui, graph: &mut Giraphe) {
         .max_height(30.0)
         .auto_shrink([false, true])
         .show(ui, |ui| {
-            for (i, s) in zip(1.., &graph.input_queue) {
+            for (i, s) in zip(1.., &graph.consumed_inputs) {
                 ui.label(format!("Input {i}: {s}"));
             }
         });
 }
 
-pub fn registers(ui: &mut Ui, regs: Vec<Value>) {
+pub(crate) fn registers(ui: &mut Ui, regs: Vec<Value>) {
     ui.heading("Registers");
-
-    // TODO: get rid of magic numbers when selecting registers
     ui.horizontal_top(|ui| {
-        egui::Grid::new("registers1")
-            .striped(true)
-            .min_col_width(40.0)
-            .max_col_width(40.0)
-            .show(ui, |ui| {
-                ui.label("zero");
-                ui.label(format!("{}", regs.get(0).unwrap()));
-                ui.end_row();
-                ui.label("ra");
-                ui.label(format!("{}", regs.get(1).unwrap()));
-                ui.end_row();
-                ui.label("sp");
-                ui.label(format!("{}", regs.get(2).unwrap()));
-                ui.end_row();
-                ui.label("gp");
-                ui.label(format!("{}", regs.get(3).unwrap()));
-                ui.end_row();
-                ui.label("tp");
-                ui.label(format!("{}", regs.get(4).unwrap()));
-                ui.end_row();
-                ui.label("t0");
-                ui.label(format!("{}", regs.get(5).unwrap()));
-                ui.end_row();
-                ui.label("t1");
-                ui.label(format!("{}", regs.get(6).unwrap()));
-                ui.end_row();
-                ui.label("t2");
-                ui.label(format!("{}", regs.get(7).unwrap()));
-            });
-        egui::Grid::new("registers2")
-            .striped(true)
-            .min_col_width(50.0)
-            .max_col_width(50.0)
-            .show(ui, |ui| {
-                ui.label("s0");
-                ui.label(format!("{}", regs.get(8).unwrap()));
-                ui.end_row();
-                ui.label("s1");
-                ui.label(format!("{}", regs.get(9).unwrap()));
-                ui.end_row();
-                ui.label("a0");
-                ui.label(format!("{}", regs.get(10).unwrap()));
-                ui.end_row();
-                ui.label("a1");
-                ui.label(format!("{}", regs.get(11).unwrap()));
-                ui.end_row();
-                ui.label("a2");
-                ui.label(format!("{}", regs.get(12).unwrap()));
-                ui.end_row();
-                ui.label("a3");
-                ui.label(format!("{}", regs.get(13).unwrap()));
-                ui.end_row();
-                ui.label("a4");
-                ui.label(format!("{}", regs.get(14).unwrap()));
-                ui.end_row();
-                ui.label("a5");
-                ui.label(format!("{}", regs.get(15).unwrap()));
-                ui.end_row();
-            });
-        egui::Grid::new("registers3")
-            .striped(true)
-            .min_col_width(50.0)
-            .max_col_width(50.0)
-            .show(ui, |ui| {
-                ui.label("a6");
-                ui.label(format!("{}", regs.get(16).unwrap()));
-                ui.end_row();
-                ui.label("a7");
-                ui.label(format!("{}", regs.get(17).unwrap()));
-                ui.end_row();
-                ui.label("s2");
-                ui.label(format!("{}", regs.get(18).unwrap()));
-                ui.end_row();
-                ui.label("s3");
-                ui.label(format!("{}", regs.get(19).unwrap()));
-                ui.end_row();
-                ui.label("s4");
-                ui.label(format!("{}", regs.get(20).unwrap()));
-                ui.end_row();
-                ui.label("s5");
-                ui.label(format!("{}", regs.get(21).unwrap()));
-                ui.end_row();
-                ui.label("s6");
-                ui.label(format!("{}", regs.get(22).unwrap()));
-                ui.end_row();
-                ui.label("s7");
-                ui.label(format!("{}", regs.get(23).unwrap()));
-                ui.end_row();
-            });
-        egui::Grid::new("registers4")
-            .striped(true)
-            .min_col_width(50.0)
-            .max_col_width(50.0)
-            .show(ui, |ui| {
-                ui.label("s8");
-                ui.label(format!("{}", regs.get(24).unwrap()));
-                ui.end_row();
-                ui.label("s9");
-                ui.label(format!("{}", regs.get(25).unwrap()));
-                ui.end_row();
-                ui.label("s10");
-                ui.label(format!("{}", regs.get(26).unwrap()));
-                ui.end_row();
-                ui.label("s11");
-                ui.label(format!("{}", regs.get(27).unwrap()));
-                ui.end_row();
-                ui.label("t3");
-                ui.label(format!("{}", regs.get(28).unwrap()));
-                ui.end_row();
-                ui.label("t4");
-                ui.label(format!("{}", regs.get(29).unwrap()));
-                ui.end_row();
-                ui.label("t5");
-                ui.label(format!("{}", regs.get(30).unwrap()));
-                ui.end_row();
-                ui.label("t6");
-                ui.label(format!("{}", regs.get(31).unwrap()));
-                ui.end_row();
-            });
+        for col in 0..4 {
+            egui::Grid::new(format!("registers{col}"))
+                .striped(true)
+                .min_col_width(30.0)
+                .max_col_width(50.0)
+                .show(ui, |ui| {
+                    for i in 0..8 {
+                        let idx = i + 8 * col;
+                        let register = Register::from(idx);
+                        ui.label(format!("{:?}", register));
+                        ui.label(format!("{}", regs.get(idx as usize).unwrap()));
+                        ui.end_row();
+                    }
+                });
+        }
     });
 }
 
-pub fn program_counter(ui: &mut Ui, pc: u64, kernel_mode: bool, data: &Guineacorn) {
+pub(crate) fn program_counter(
+    ui: &mut Ui,
+    pc: Option<u64>,
+    kernel_mode: bool,
+    data: &mut Guineacorn,
+) {
     ui.heading("Program Counter");
     ui.horizontal(|ui| {
-        ui.monospace(if pc != 0 {
+        ui.monospace(if let Some(pc) = pc {
             format!("PC = 0x{:08x}", pc)
         } else {
             "PC = Undefined".to_string()
         });
+
         if kernel_mode {
             let sys_id = data
                 .giraphe
                 .nid_to_spot(&data.giraphe.registers[17].unwrap())
-                .val_cur
+                .current_value
                 .clone();
             ui.label(format!("(kernel-mode is active, syscall: {})", sys_id));
         }
-        if pc != 0 {
+
+        if let Some(pc) = pc {
             let pc = pc - data.program.as_ref().unwrap().code.address;
             let pc = pc / 4;
             let inst = &data.program.as_ref().unwrap().code.content;
@@ -208,11 +113,16 @@ pub fn program_counter(ui: &mut Ui, pc: u64, kernel_mode: bool, data: &Guineacor
         };
     });
     ui.collapsing("Full Program", |ui| {
-        ui.label(stringify_program(data.program.as_ref().unwrap()));
+        match Disassembly::from(data.program.as_ref().unwrap()) {
+            Ok(disassembly) => {
+                ui.monospace(disassembly.to_string());
+            }
+            Err(e) => data.error = Some(Error::from(e)),
+        }
     });
 }
 
-pub fn virtual_memory(ui: &mut Ui, vm: IndexMap<MachineWord, MachineWord>) {
+pub(crate) fn virtual_memory(ui: &mut Ui, vm: IndexMap<MachineWord, MachineWord>) {
     ui.heading("Virtual Memory");
     let mut vm: Vec<_> = vm.iter().collect();
     vm.sort_by(|(x, _), (y, _)| {
@@ -221,7 +131,6 @@ pub fn virtual_memory(ui: &mut Ui, vm: IndexMap<MachineWord, MachineWord>) {
         x.cmp(y)
     });
 
-    // TODO: differentiate stack, heap and data segment
     egui::ScrollArea::vertical()
         .id_source("virtual memory scroll")
         .auto_shrink([false, true])
