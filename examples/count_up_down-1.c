@@ -27,7 +27,7 @@ uint64_t main() {
 
   read(0, n, 8); 
 
-  x = n;
+  x = *n;
   y = 0;
 
   while(x > 0) {

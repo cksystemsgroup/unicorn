@@ -292,6 +292,26 @@ impl Giraphe {
             Node::Input { .. } => None,
             Node::Bad { .. } => None,
             Node::Comment(_) => unreachable!(),
+            Node::Divu { left, right, .. } => {
+                let left = self.node_lookup.get(&noderef_to_nid(left)).unwrap();
+                let right = self.node_lookup.get(&noderef_to_nid(right)).unwrap();
+                Some(format!(
+                    "{} / {} = {}",
+                    left.display_value(),
+                    right.display_value(),
+                    spot.display_value()
+                ))
+            }
+            Node::Or { left, right, .. } => {
+                let left = self.node_lookup.get(&noderef_to_nid(left)).unwrap();
+                let right = self.node_lookup.get(&noderef_to_nid(right)).unwrap();
+                Some(format!(
+                    "{} | {} = {}",
+                    left.display_value(),
+                    right.display_value(),
+                    spot.display_value()
+                ))
+            }
         }
     }
 }

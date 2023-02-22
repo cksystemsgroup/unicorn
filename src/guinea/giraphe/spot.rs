@@ -68,6 +68,8 @@ impl Spot {
             Node::Input { .. } => "Input",
             Node::Bad { .. } => "Bad",
             Node::Comment(_) => unreachable!(),
+            Node::Divu { .. } => "Unsigned Division",
+            Node::Or { .. } => "Or",
         }
     }
 
@@ -126,14 +128,17 @@ impl Spot {
             | Node::Sub { .. }
             | Node::Mul { .. }
             | Node::Div { .. }
+            | Node::Divu { .. }
             | Node::Rem { .. }
             | Node::Sll { .. }
             | Node::Ext { .. }
             | Node::Srl { .. } => Color32::from_rgb(255, 157, 167),
             Node::Ite { .. } => Color32::from_rgb(176, 122, 161),
-            Node::Ult { .. } | Node::Eq { .. } | Node::And { .. } | Node::Not { .. } => {
-                Color32::from_rgb(242, 142, 43)
-            }
+            Node::Ult { .. }
+            | Node::Eq { .. }
+            | Node::And { .. }
+            | Node::Not { .. }
+            | Node::Or { .. } => Color32::from_rgb(242, 142, 43),
             Node::State { .. } => Color32::from_rgb(118, 183, 178),
             Node::Next { .. } => Color32::from_rgb(78, 121, 165),
             Node::Input { .. } => Color32::from_rgb(89, 161, 79),

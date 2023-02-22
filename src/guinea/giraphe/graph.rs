@@ -81,6 +81,12 @@ impl Giraphe {
                 }
                 | Node::And {
                     nid, left, right, ..
+                }
+                | Node::Or {
+                    nid, left, right, ..
+                }
+                | Node::Divu {
+                    nid, left, right, ..
                 } => {
                     let child1 = noderef_to_nid(left);
                     let child2 = noderef_to_nid(right);
@@ -371,6 +377,11 @@ impl Giraphe {
                 let spot2 = &noderef_to_nid(right);
                 Boolean(self.evaluate(spot1) < self.evaluate(spot2))
             }
+            Node::Divu { left, right, .. } => {
+                let spot1 = &noderef_to_nid(left);
+                let spot2 = &noderef_to_nid(right);
+                self.evaluate(spot1).divu(self.evaluate(spot2))
+            }
             Node::Ext { value, .. } => {
                 let spot = &noderef_to_nid(value);
                 let result = self.evaluate(spot);
@@ -407,12 +418,19 @@ impl Giraphe {
                 let spot2 = &noderef_to_nid(right);
                 self.evaluate(spot1) & self.evaluate(spot2)
             }
+            Node::Or { left, right, .. } => {
+                let spot1 = &noderef_to_nid(left);
+                let spot2 = &noderef_to_nid(right);
+                self.evaluate(spot1) | self.evaluate(spot2)
+            }
             Node::Not { value, .. } => {
                 let spot = &noderef_to_nid(value);
                 !self.evaluate(spot)
             }
-            Node::State { init, .. } => {
+            Node::State { init, sort, .. } => {
                 if init.is_some() {
+                    current_value
+                } else if let NodeType::Memory { .. } = sort {
                     current_value
                 } else {
                     let result = if self.is_ascii {
@@ -575,6 +593,8 @@ pub(crate) fn noderef_to_nid(n: &NodeRef) -> Nid {
         | Node::State { nid, .. }
         | Node::Next { nid, .. }
         | Node::Input { nid, .. }
+        | Node::Divu { nid, .. }
+        | Node::Or { nid, .. }
         | Node::Bad { nid, .. } => *nid,
         Node::Comment(_) => unreachable!(),
     }

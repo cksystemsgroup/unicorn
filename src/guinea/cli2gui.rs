@@ -16,7 +16,6 @@ use crate::unicorn::bitblasting::bitblast_model;
 use crate::unicorn::bitblasting_dimacs::write_dimacs_model;
 use crate::unicorn::bitblasting_printer::write_btor2_model;
 use crate::unicorn::btor2file_parser::parse_btor2_string;
-use crate::unicorn::memory::replace_memory;
 use crate::unicorn::optimize::{optimize_model_with_input, optimize_model_with_solver};
 #[cfg(feature = "boolector")]
 use crate::unicorn::smt_solver::boolector_impl;
@@ -215,18 +214,24 @@ fn prune(ui: &mut Ui, data: &mut Guineacorn) {
                 data.model.as_mut().unwrap(),
                 data.cli2gui.timeout,
                 data.cli2gui.minimize,
+                false,
+                false,
             ),
             #[cfg(feature = "boolector")]
             SmtType::Boolector => optimize_model_with_solver::<boolector_impl::BoolectorSolver>(
                 data.model.as_mut().unwrap(),
                 data.cli2gui.timeout,
                 data.cli2gui.minimize,
+                false,
+                false,
             ),
             #[cfg(feature = "z3")]
             SmtType::Z3 => optimize_model_with_solver::<z3solver_impl::Z3SolverWrapper>(
                 data.model.as_mut().unwrap(),
                 data.cli2gui.timeout,
                 data.cli2gui.minimize,
+                false,
+                false,
             ),
         }
         renumber_model(data.model.as_mut().unwrap());
@@ -274,7 +279,6 @@ fn do_unroll(data: &mut Guineacorn) {
     let concurrent_unrolling = move || {
         let mut model = parse_btor2_string(&serial_model, &parameters.memory_data);
         model.lines.clear();
-        replace_memory(&mut model);
 
         for n in 0..parameters.desired_unrolls {
             unroll_model(&mut model, n);
@@ -296,18 +300,24 @@ fn do_unroll(data: &mut Guineacorn) {
                 &mut model,
                 parameters.timeout,
                 parameters.minimize,
+                false,
+                false,
             ),
             #[cfg(feature = "boolector")]
             SmtType::Boolector => optimize_model_with_solver::<boolector_impl::BoolectorSolver>(
                 &mut model,
                 parameters.timeout,
                 parameters.minimize,
+                false,
+                false,
             ),
             #[cfg(feature = "z3")]
             SmtType::Z3 => optimize_model_with_solver::<z3solver_impl::Z3SolverWrapper>(
                 &mut model,
                 parameters.timeout,
                 parameters.minimize,
+                false,
+                false,
             ),
         }
 

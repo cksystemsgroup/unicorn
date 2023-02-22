@@ -34,6 +34,8 @@ pub enum SatType {
     Kissat,
     #[cfg(feature = "varisat")]
     Varisat,
+    #[cfg(feature = "cadical")]
+    Cadical,
 }
 
 const DEFAULT_MEMORY_SIZE: &str = "1"; // 1 MiB
@@ -220,6 +222,18 @@ pub fn args() -> Command {
                         .num_args(1)
                         .value_name("NUMBER")
                         .value_parser(value_parser!(u64)),
+                )
+                .arg(
+                    Arg::new("terminate-on-bad")
+                        .help("Terminate once bad state becomes satisfiable")
+                        .long("terminate-on-bad")
+                        .num_args(0)
+                )
+                .arg(
+                    Arg::new("one-query")
+                        .help("Perform only one query for all bad states OR-ed")
+                        .long("one-query")
+                        .num_args(0)
                 )
                 .arg(
                     Arg::new("unroll-model")

@@ -9,6 +9,10 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <klee/klee.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 // Constants for integral byte-sizes.
 #define SIZEOFUINT8  sizeof( uint8_t)
@@ -27,6 +31,13 @@ void __assert_fail();
 uint64_t VERIFIER_nondet_uchar() {
   uint8_t x;
   klee_make_symbolic(&x, sizeof(x), "uint8_t");
+  return x;
+}
+
+uint64_t *VERIFIER_nondet_p_uchar() {
+  uint64_t *x;
+  x = malloc(8);
+  klee_make_symbolic(x, 8, "uint8_t");
   return x;
 }
 

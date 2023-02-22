@@ -236,6 +236,14 @@ impl ModelBuilder {
         })
     }
 
+    fn new_divu(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
+        self.add_node(Node::Divu {
+            nid: self.current_nid,
+            left,
+            right,
+        })
+    }
+
     fn new_div(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
         self.add_node(Node::Div {
             nid: self.current_nid,
@@ -531,6 +539,23 @@ impl ModelBuilder {
         self.reg_flow_ite(itype.rd(), sra_node);
     }
 
+    fn model_sllw(&mut self, rtype: RType) {
+        let thirtytwo = self.new_const(32);
+
+        // Only the low 4 bits of rs2 are considered for the shift amount.
+        let mask_node = self.new_const(0x1f); // TODO: Make this a global constant.
+        let amount_node = self.new_and_word(self.reg_node(rtype.rs2()), mask_node);
+
+        let amount_node_sum = self.new_add(amount_node, thirtytwo.clone());
+
+        // shift left by n[0:4] + 32
+        let sll_node = self.new_sll(self.reg_node(rtype.rs1()), amount_node_sum);
+
+        // shift right by 32
+        let sra_node = self.new_sra(sll_node, thirtytwo);
+        self.reg_flow_ite(rtype.rd(), sra_node);
+    }
+
     fn model_srli(&mut self, itype: IType) {
         assert!(itype.imm() < 64, "immediate within bounds");
         let imm_node = self.new_const(itype.imm() as u64);
@@ -745,9 +770,25 @@ impl ModelBuilder {
         self.reg_flow_ite(rtype.rd(), add_node);
     }
 
+    fn model_addw(&mut self, rtype: RType) {
+        let add_node = self.new_add(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
+        let thirtytwo = self.new_const(32);
+        let sll_node = self.new_sll(add_node, thirtytwo.clone());
+        let sra_node = self.new_sra(sll_node, thirtytwo);
+        self.reg_flow_ite(rtype.rd(), sra_node);
+    }
+
     fn model_sub(&mut self, rtype: RType) {
         let sub_node = self.new_sub(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
         self.reg_flow_ite(rtype.rd(), sub_node);
+    }
+
+    fn model_subw(&mut self, rtype: RType) {
+        let sub_node = self.new_sub(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
+        let thirtytwo = self.new_const(32);
+        let sll_node = self.new_sll(sub_node, thirtytwo.clone());
+        let sra_node = self.new_sra(sll_node, thirtytwo);
+        self.reg_flow_ite(rtype.rd(), sra_node);
     }
 
     fn model_or(&mut self, rtype: RType) {
@@ -789,7 +830,35 @@ impl ModelBuilder {
         self.reg_flow_ite(rtype.rd(), mul_node);
     }
 
+    fn model_mulw(&mut self, rtype: RType) {
+        let thirtytwo = self.new_const(32);
+        // sign extend each operand
+        let mut left_sext = self.new_sll(self.reg_node(rtype.rs1()), thirtytwo.clone());
+        left_sext = self.new_sra(left_sext, thirtytwo.clone());
+
+        let mut right_sext = self.new_sll(self.reg_node(rtype.rs2()), thirtytwo.clone());
+        right_sext = self.new_sra(right_sext, thirtytwo.clone());
+
+        let mul_node = self.new_mul(left_sext, right_sext);
+
+        let mut sext_mul_node = self.new_sll(mul_node, thirtytwo.clone());
+        sext_mul_node = self.new_sra(sext_mul_node, thirtytwo);
+
+        self.reg_flow_ite(rtype.rd(), sext_mul_node);
+    }
+
     fn model_divu(&mut self, rtype: RType) {
+        self.division_flow = self.new_ite(
+            self.pc_flag(),
+            self.reg_node(rtype.rs2()),
+            self.division_flow.clone(),
+            NodeType::Word,
+        );
+        let div_node = self.new_divu(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
+        self.reg_flow_ite(rtype.rd(), div_node);
+    }
+
+    fn model_div(&mut self, rtype: RType) {
         self.division_flow = self.new_ite(
             self.pc_flag(),
             self.reg_node(rtype.rs2()),
@@ -798,6 +867,21 @@ impl ModelBuilder {
         );
         let div_node = self.new_div(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
         self.reg_flow_ite(rtype.rd(), div_node);
+    }
+
+    fn model_divw(&mut self, rtype: RType) {
+        let thirtytwo = self.new_const(32);
+        // sign extend each operand
+        let mut left_sext = self.new_sll(self.reg_node(rtype.rs1()), thirtytwo.clone());
+        left_sext = self.new_sra(left_sext, thirtytwo.clone());
+
+        let mut right_sext = self.new_sll(self.reg_node(rtype.rs2()), thirtytwo.clone());
+        right_sext = self.new_sra(right_sext, thirtytwo);
+
+        // perform 64-bit signed division
+        let divw_node = self.new_div(left_sext, right_sext);
+
+        self.reg_flow_ite(rtype.rd(), divw_node);
     }
 
     fn model_remu(&mut self, rtype: RType) {
@@ -819,6 +903,19 @@ impl ModelBuilder {
             value: ult_node,
         });
         self.reg_flow_ite(rtype.rd(), ext_node);
+    }
+
+    fn model_sltiu(&mut self, itype: IType) {
+        let imm = itype.imm() as u64;
+        let imm_node = self.new_const(imm);
+
+        let ult_node = self.new_ult(self.reg_node(itype.rs1()), imm_node);
+        let ext_node = self.add_node(Node::Ext {
+            nid: self.current_nid,
+            from: NodeType::Bit,
+            value: ult_node,
+        });
+        self.reg_flow_ite(itype.rd(), ext_node);
     }
 
     fn model_branch<F>(
@@ -904,7 +1001,7 @@ impl ModelBuilder {
             Instruction::Sw(stype) => self.model_sw(stype),
             Instruction::Sd(stype) => self.model_sd(stype),
             Instruction::Addi(itype) => self.model_addi(itype),
-            Instruction::Sltiu(_itype) => self.model_unimplemented(inst),
+            Instruction::Sltiu(itype) => self.model_sltiu(itype),
             Instruction::Xori(itype) => self.model_xori(itype),
             Instruction::Ori(itype) => self.model_ori(itype),
             Instruction::Andi(itype) => self.model_andi(itype),
@@ -924,14 +1021,14 @@ impl ModelBuilder {
             Instruction::Or(rtype) => self.model_or(rtype),
             Instruction::And(rtype) => self.model_and(rtype),
             Instruction::Mul(rtype) => self.model_mul(rtype),
-            Instruction::Div(_rtype) => self.model_unimplemented(inst),
+            Instruction::Div(rtype) => self.model_div(rtype),
             Instruction::Divu(rtype) => self.model_divu(rtype),
             Instruction::Remu(rtype) => self.model_remu(rtype),
-            Instruction::Addw(_rtype) => self.model_unimplemented(inst),
-            Instruction::Subw(_rtype) => self.model_unimplemented(inst),
-            Instruction::Sllw(_rtype) => self.model_unimplemented(inst),
-            Instruction::Mulw(_rtype) => self.model_unimplemented(inst),
-            Instruction::Divw(_rtype) => self.model_unimplemented(inst),
+            Instruction::Addw(rtype) => self.model_addw(rtype),
+            Instruction::Divw(rtype) => self.model_divw(rtype),
+            Instruction::Subw(rtype) => self.model_subw(rtype),
+            Instruction::Sllw(rtype) => self.model_sllw(rtype),
+            Instruction::Mulw(rtype) => self.model_mulw(rtype),
             Instruction::Beq(btype) => self.model_beq(btype, &mut branch_true, &mut branch_false),
             Instruction::Bne(btype) => self.model_bne(btype, &mut branch_true, &mut branch_false),
             Instruction::Blt(btype) => self.model_blt(btype, &mut branch_true, &mut branch_false),
@@ -1088,8 +1185,10 @@ impl ModelBuilder {
     }
 
     fn generate_model(&mut self, program: &Program, argv: &[String]) -> Result<()> {
-        let data_start = program.data.address;
-        let data_end = program.data.address + program.data.content.len() as u64;
+        let data_section_start = program.data.address;
+        let data_section_end = program.data.address + program.data.content.len() as u64;
+        let data_start = data_section_start & !(size_of::<u64>() as u64 - 1);
+        let data_end = next_multiple_of(data_section_end, size_of::<u64>() as u64);
         self.data_range = data_start..data_end;
         let heap_start = next_multiple_of(data_end, PAGE_SIZE);
         let heap_end = heap_start + self.max_heap_size;
@@ -1198,17 +1297,15 @@ impl ModelBuilder {
         self.new_comment("64-bit virtual memory".to_string());
         self.current_nid = 20000000;
         self.memory_node = self.new_state(None, "memory-dump".to_string(), NodeType::Memory);
-        let dump_start = data_start & !(size_of::<u64>() as u64 - 1);
-        let dump_end = next_multiple_of(data_end, size_of::<u64>() as u64);
         let mut dump_buffer = Vec::from(&program.data.content[..]);
-        if dump_start != data_start {
-            let padding = (data_start - dump_start) as usize;
-            debug!("Aligning data start: {:#010x}+{}", dump_start, padding);
+        if data_start != data_section_start {
+            let padding = (data_section_start - data_start) as usize;
+            debug!("Aligning data start: {:#010x}+{}", data_start, padding);
             dump_buffer = [vec![0; padding], dump_buffer].concat();
         }
-        if dump_end != data_end {
-            let padding = (dump_end - data_end) as usize;
-            debug!("Aligning data end: {:#010x}-{}", dump_end, padding);
+        if data_end != data_section_end {
+            let padding = (data_end - data_section_end) as usize;
+            debug!("Aligning data end: {:#010x}-{}", data_end, padding);
             dump_buffer.extend(vec![0; padding]);
         }
         assert!(dump_buffer.len() % size_of::<u64>() == 0, "has been padded");
@@ -1224,7 +1321,7 @@ impl ModelBuilder {
         dump_buffer
             .chunks(size_of::<u64>())
             .map(LittleEndian::read_u64)
-            .zip((dump_start..dump_end).step_by(size_of::<u64>()))
+            .zip((data_start..data_end).step_by(size_of::<u64>()))
             .for_each(|(val, adr)| write_value_to_memory(self, val, adr));
         initial_stack
             .into_iter()
@@ -1459,17 +1556,6 @@ impl ModelBuilder {
         let check_syscall = self.new_and_bit(self.ecall_flow.clone(), check_syscall_and4);
         self.new_bad(check_syscall, "invalid-syscall-id");
 
-        self.new_comment("checking exit code".to_string());
-        let check_exit_code = self.new_neq(self.reg_node(Register::A0), self.zero_word.clone());
-        let check_exit = self.new_and_bit(active_exit, check_exit_code);
-        self.new_bad(check_exit, "non-zero-exit-code");
-
-        self.new_comment("checking division and remainder by zero".to_string());
-        let check_div = self.new_eq(self.division_flow.clone(), self.zero_word.clone());
-        self.new_bad(check_div, "division-by-zero");
-        let check_rem = self.new_eq(self.remainder_flow.clone(), self.zero_word.clone());
-        self.new_bad(check_rem, "remainder-by-zero");
-
         self.new_comment("checking segmentation faults".to_string());
         let data_start = self.new_const(self.data_range.start);
         let data_end = self.new_const(self.data_range.end);
@@ -1497,6 +1583,17 @@ impl ModelBuilder {
         self.new_bad(check_between4, "memory-access-between-dyn-and-max-stack");
         let above_stack = self.new_ugt(self.access_flow.clone(), stack_end_inclusive);
         self.new_bad(above_stack, "memory-access-above-stack");
+
+        self.new_comment("checking division and remainder by zero".to_string());
+        let check_div = self.new_eq(self.division_flow.clone(), self.zero_word.clone());
+        self.new_bad(check_div, "division-by-zero");
+        let check_rem = self.new_eq(self.remainder_flow.clone(), self.zero_word.clone());
+        self.new_bad(check_rem, "remainder-by-zero");
+
+        self.new_comment("checking exit code".to_string());
+        let check_exit_code = self.new_neq(self.reg_node(Register::A0), self.zero_word.clone());
+        let check_exit = self.new_and_bit(active_exit, check_exit_code);
+        self.new_bad(check_exit, "non-zero-exit-code");
 
         Ok(())
     }

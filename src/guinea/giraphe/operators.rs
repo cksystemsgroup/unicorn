@@ -4,7 +4,7 @@ use crate::unicorn::optimize::ConstantFolder;
 use crate::unicorn::smt_solver::none_impl;
 use std::cmp::Ordering;
 use std::cmp::Ordering::{Equal, Greater, Less};
-use std::ops::{Add, BitAnd, Div, Mul, Not, Rem, Shl, Shr, Sub};
+use std::ops::{Add, BitAnd, BitOr, Div, Mul, Not, Rem, Shl, Shr, Sub};
 
 // ----------------------------
 //         NODE VALUES
@@ -48,6 +48,15 @@ impl Div for Value {
     fn div(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
             (Self::Bitvector(lhs), Self::Bitvector(rhs)) => Self::Bitvector(lhs / rhs),
+            (x, y) => panic!("Can't divide {:?} and {:?}", x, y),
+        }
+    }
+}
+
+impl Value {
+    pub(crate) fn divu(self, rhs: Self) -> Value {
+        match (self, rhs) {
+            (Self::Bitvector(lhs), Self::Bitvector(rhs)) => Self::Bitvector(lhs.divu(rhs)),
             (x, y) => panic!("Can't divide {:?} and {:?}", x, y),
         }
     }
@@ -127,6 +136,18 @@ impl BitAnd for Value {
     }
 }
 
+impl BitOr for Value {
+    type Output = Value;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Self::Boolean(lhs), Self::Boolean(rhs)) => Self::Boolean(lhs || rhs),
+            (Self::Bitvector(lhs), Self::Bitvector(rhs)) => Self::Bitvector(lhs | rhs),
+            (x, y) => panic!("Can't and {:?} and {:?}", x, y),
+        }
+    }
+}
+
 impl Not for Value {
     type Output = Value;
 
@@ -183,6 +204,16 @@ impl Div for MachineWord {
     }
 }
 
+impl MachineWord {
+    fn divu(self, rhs: Self) -> MachineWord {
+        match (self, rhs) {
+            (Concrete(x), Concrete(y)) => {
+                Concrete(ConstantFolder::<none_impl::NoneSolver>::btor_u64_divu(x, y))
+            }
+        }
+    }
+}
+
 impl Rem for MachineWord {
     type Output = MachineWord;
 
@@ -233,6 +264,16 @@ impl BitAnd for MachineWord {
     fn bitand(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
             (Concrete(x), Concrete(y)) => Concrete(x & y),
+        }
+    }
+}
+
+impl BitOr for MachineWord {
+    type Output = MachineWord;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Concrete(x), Concrete(y)) => Concrete(x | y),
         }
     }
 }
