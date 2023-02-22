@@ -7,7 +7,7 @@ pub fn gui() {
         initial_window_size: Some(egui::vec2(1600.0, 900.0)),
         ..Default::default()
     };
-    eframe::run_native(
+    let _ = eframe::run_native(
         "Guineacorn",
         options,
         Box::new(|_cc| Box::<Guineacorn>::default()),

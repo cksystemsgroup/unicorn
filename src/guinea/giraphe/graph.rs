@@ -243,11 +243,11 @@ impl Giraphe {
     }
 
     pub(crate) fn interact(&mut self, ui: &mut Ui) {
-        if ui.rect_contains_pointer(ui.min_rect()) && ui.ctx().input().pointer.primary_down() {
-            self.pan += ui.ctx().input().pointer.delta();
+        if ui.rect_contains_pointer(ui.min_rect()) && ui.ctx().input(|i| i.pointer.primary_down()) {
+            ui.ctx().input(|i| self.pan += i.pointer.delta());
         }
         if ui.rect_contains_pointer(ui.min_rect()) {
-            self.pan += ui.ctx().input().scroll_delta;
+            ui.ctx().input(|i| self.pan += i.scroll_delta);
         }
     }
 
