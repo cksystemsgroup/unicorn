@@ -1,14 +1,12 @@
-use crate::guinea::MemoryData;
-use crate::unicorn::{get_nodetype, Model, Nid, Node, NodeRef, NodeType};
-use bytesize::ByteSize;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufRead};
-use std::mem::size_of;
 use std::ops::Range;
 use std::path::Path;
-use unicorn::engine::system::PAGE_SIZE;
-use unicorn::util::next_multiple_of;
+
+#[cfg(feature = "gui")]
+use crate::guinea::MemoryData;
+use crate::unicorn::{get_nodetype, Model, Nid, Node, NodeRef, NodeType};
 
 //
 // Public Interface
@@ -36,6 +34,11 @@ pub fn parse_btor2_file(path: &Path) -> Model {
 
 #[cfg(feature = "gui")]
 pub fn parse_btor2_string(string: &str, data: &MemoryData) -> Model {
+    use bytesize::ByteSize;
+    use std::mem::size_of;
+    use unicorn::engine::system::PAGE_SIZE;
+    use unicorn::util::next_multiple_of;
+
     let mut parser = BTOR2Parser::new();
     parser.parse_string(string);
     parser.run_inits();
@@ -392,9 +395,10 @@ impl BTOR2Parser {
 
 #[cfg(test)]
 mod tests_btor2_parser {
-    use super::*;
     use crate::unicorn::bitblasting::bitblast_model;
     use crate::unicorn::qubot::{InputEvaluator, Qubot};
+
+    use super::*;
 
     fn get_model(file: &str) -> Model {
         let mut parser = BTOR2Parser::new();
