@@ -102,7 +102,7 @@ fn optimize_model_impl<S: SMTSolver>(
     }
 }
 
-struct ConstantFolder<'a, S> {
+pub struct ConstantFolder<'a, S> {
     smt_solver: S,
     marks: HashSet<HashableNodeRef>,
     mapping: HashMap<HashableNodeRef, NodeRef>,
@@ -252,33 +252,33 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
 
     // SMT-LIB does not specify the result of division by zero, for BTOR we
     // take the largest unsigned integer that can be represented.
-    fn btor_u64_div(left: u64, right: u64) -> u64 {
+    pub fn btor_u64_div(left: u64, right: u64) -> u64 {
         i64::checked_div(left as i64, right as i64).unwrap_or(i64::MAX) as u64
     }
 
     // SMT-LIB does not specify the result of division by zero, for BTOR we
     // take the largest unsigned integer that can be represented.
-    fn btor_u64_divu(left: u64, right: u64) -> u64 {
+    pub fn btor_u64_divu(left: u64, right: u64) -> u64 {
         u64::checked_div(left, right).unwrap_or(u64::MAX)
     }
 
     // SMT-LIB does not specify the result of remainder by zero, for BTOR we
     // take the largest unsigned integer that can be represented.
-    fn btor_u64_rem(left: u64, right: u64) -> u64 {
+    pub fn btor_u64_rem(left: u64, right: u64) -> u64 {
         u64::checked_rem(left, right).unwrap_or(u64::MAX)
     }
 
     // SMT-LIB specifies shifts in terms of multiplication/division and is
     // supposed to saturate on overflows, similarly BTOR2 (and btormc) also
     // saturates. We mirror the same behavior here.
-    fn btor_u64_sll(left: u64, right: u64) -> u64 {
+    pub fn btor_u64_sll(left: u64, right: u64) -> u64 {
         u64::checked_shl(left, right.try_into().unwrap_or(u32::MAX)).unwrap_or(0)
     }
 
     // SMT-LIB specifies shifts in terms of multiplication/division and is
     // supposed to saturate on overflows, similarly BTOR2 (and btormc) also
     // saturates. We mirror the same behavior here.
-    fn btor_u64_srl(left: u64, right: u64) -> u64 {
+    pub fn btor_u64_srl(left: u64, right: u64) -> u64 {
         u64::checked_shr(left, right.try_into().unwrap_or(u32::MAX)).unwrap_or(0)
     }
 
