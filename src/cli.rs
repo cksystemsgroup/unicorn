@@ -306,6 +306,11 @@ pub fn args() -> Command<'static> {
                     .required(true),
             )
             .arg(
+                Arg::new("with-grover")
+                    .help("Builds a quantum circuit of Grover's algorithm.")
+                    .short('g')
+            )
+            .arg(
                 Arg::new("dynamic-memory")
                     .help("Pass this flag to compile a program with dynamic quantum memory")
                     .short('d')

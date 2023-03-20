@@ -78,6 +78,7 @@ fn main() -> Result<()> {
             let input_is_btor2 = args.contains_id("from-btor2");
             let prune = !is_beator || args.contains_id("prune-model");
             let input_is_dimacs = !is_beator && args.contains_id("from-dimacs");
+
             let compile_model = is_beator && args.contains_id("compile");
             let emulate_model = is_beator && args.contains_id("emulate");
             let arg0 = expect_arg::<String>(args, "input-file")?;
@@ -194,9 +195,76 @@ fn main() -> Result<()> {
                 }
             } else if is_quarc {
                 let m = model.unwrap();
-                let mut qc = QuantumCircuit::new(&m, 64); // 64 is a paramater describing wordsize
+                let with_grover = args.contains_id("with-grover");
+                println!("with grover {}", with_grover);
+                let mut qc = QuantumCircuit::new(&m, 64, with_grover); // 64 is a paramater describing wordsize
                                                           // TODO: make wordsize parameter customizable from command line
                 let _ = qc.process_model(1);
+
+                if with_grover {
+                    for qubit in qc.all_qubits.iter() {
+                        qrack.allocate(qubit);    
+                    }
+
+                    // prepare with hadamard gates input qubits
+                    for (_, input_register) in qc.input_qubits.iter() {
+                        for qubit in input_register {
+                            qrack.hadamard(qubit);
+                        }
+                    }
+
+                    // prepare with hadamard gates coefficients and remainders of div. and rem
+                    for (_, register) in qc.dependencies.iter() {
+                        for qubit in register.iter(){
+                            qrack.hadamard(qubit);
+                        }
+                    }
+
+                    if let Some(oracle_qubit) = qc.output_oracle {
+                        // its definitively not None
+                        qrack.not(oracle_qubit);
+                        qrack.hadamard(oracle_qubit);
+                        for i in 0..(sqrt(2^n)) {
+                            // apply circuit stack
+                            for gate in circuit_stack.iter() {
+                                match &*gate.borrow() {
+                                    Unitary::Not { input } => {
+                                        Qrack.not(input);
+                                    },
+                                    Unitary::Cnot { control, target } => {
+                                        Qrack.cnot(control, target);
+                                    },
+                                    Unitary::Mcx {
+                                        controls:,
+                                        target,
+                                    } => {
+                                        Qrack.cnot(controls, target);
+                                    },
+                                    Unitary::Barrier => None,
+                                }
+                                qrack.apply_gate(gate);
+                            }
+
+                            // phase flip
+                            qrack.hadamard(oracle_qubit);
+
+                            // uncompute
+                            for gate in circuit_stack.iter().rev() {
+                                qrack.apply_gate(gate);
+                            }
+                        }
+
+                        for (_, input_register) in qc.input_qubits.iter() {
+                            for qubit in input_register {
+                                qrack.measure(qubit);
+                            }
+                        }
+                    } else{
+                        panic!("oracle has a constant value, no problem to solve!");
+                    }
+                    
+                    
+                }
                 if has_concrete_inputs {
                     let inputs = expect_optional_arg::<String>(args, "inputs")?;
                     let total_variables = qc.input_qubits.len();
