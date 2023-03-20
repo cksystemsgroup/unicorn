@@ -6,7 +6,7 @@ use clap::{
 };
 use strum::{EnumString, EnumVariantNames, IntoStaticStr, VariantNames};
 
-#[derive(Debug, PartialEq, Eq, EnumString, EnumVariantNames, IntoStaticStr)]
+#[derive(Clone, Debug, EnumString, EnumVariantNames, Eq, IntoStaticStr, PartialEq)]
 #[strum(serialize_all = "kebab_case")]
 pub enum LogLevel {
     Trace,
@@ -16,7 +16,7 @@ pub enum LogLevel {
     Error,
 }
 
-#[derive(Debug, EnumString, EnumVariantNames, IntoStaticStr, PartialEq, Eq, Clone)]
+#[derive(Clone, Debug, EnumString, EnumVariantNames, Eq, IntoStaticStr, PartialEq)]
 #[strum(serialize_all = "kebab_case")]
 pub enum SmtType {
     Generic,
@@ -26,7 +26,7 @@ pub enum SmtType {
     Z3,
 }
 
-#[derive(Debug, PartialEq, Eq, EnumString, EnumVariantNames, IntoStaticStr)]
+#[derive(Clone, Debug, EnumString, EnumVariantNames, Eq, IntoStaticStr, PartialEq)]
 #[strum(serialize_all = "kebab_case")]
 pub enum SatType {
     None,
