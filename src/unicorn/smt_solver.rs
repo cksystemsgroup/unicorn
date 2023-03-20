@@ -13,9 +13,6 @@ pub enum SMTSolution {
     Timeout,
 }
 
-// TODO: Clippy in Rust 1.60.0 is overly pedantic. Revisit this on Rust
-// upgrades to an even higher version number.
-#[allow(clippy::wrong_self_convention)]
 pub trait SMTSolver {
     fn new(timeout: Option<Duration>) -> Self;
     fn name() -> &'static str;
