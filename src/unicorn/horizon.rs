@@ -64,6 +64,8 @@ pub fn compute_reasoning_horizon(
         if has_time_budget && time_budget.unwrap() < exec_time {
             exec_time -= elapsed;
 
+            debug!("Time budget exceeded: {:#?} ({:#?}+{:#?}; elapsed time) / {:#?} (time budget)", exec_time+elapsed, exec_time, elapsed, time_budget.unwrap());
+
             // TODO(2): Cf. TODO(1)
             let r = reason_backwards(
                 &mut model.clone(),
@@ -77,10 +79,10 @@ pub fn compute_reasoning_horizon(
                 minimize,
                 terminate_on_bad,
                 one_query,
-                &(time_budget.unwrap() - exec_time)
+                &mut(time_budget.unwrap() - exec_time)
             );
 
-            warn!("Reasoning horizon: depth [n={}] (in {:#?}/{:#?})", r.0, exec_time + r.1, time_budget.unwrap());
+            warn!("Reasoning horizon: depth [n={}] in {:#?} (elapsed time) / {:#?} (time budget)", prev_n + r.0, exec_time + r.1, time_budget.unwrap());
             break;
         }
 
@@ -167,7 +169,7 @@ fn reason_backwards(
   minimize: bool,
   terminate_on_bad: bool,
   one_query: bool,
-  time_budget: &Duration,
+  time_budget: &mut Duration,
 ) -> (usize, Duration) {
   debug!("Backwards reasoning (binary search) for the last {} bad states ...", bad_states_initial.len());
 
@@ -175,22 +177,22 @@ fn reason_backwards(
       prune_model(model)
   }
 
-  let mut start: usize = prev_n;
-  let mut end: usize = n;
+  let mut start: usize = 0;
+  let mut end: usize = n - prev_n;
   
-  let mut last_n: usize = n;
-  let mut last_exec_time = Duration::from_millis(0);
+  let mut exec_n: usize = end;
+  let mut exec_time = Duration::from_millis(0);
 
-  while start <= end {
-      let mid: usize = (start + end)/2;
-      let steps: usize = mid - prev_n;
+  let mut mid: usize = start + (end - start) / 2;
+  let mut prev_mid: usize;
 
-      debug!("Trying to fit remaining time budget {:#?} into the last {} steps ({} to {}) ...", time_budget, steps, prev_n, mid);
+  while start < end {
+      debug!("Trying to fit remaining time budget {:#?} into the last {} steps ({} to {}) ...", time_budget, mid, mid, end);
       
       let now = Instant::now();
 
       model.bad_states_initial =
-          bad_states_initial.clone()[(prev_n - steps) * 10..].to_vec();
+          bad_states_initial.clone()[mid * 10 .. end * 10].to_vec();
 
       match smt_solver {
           #[rustfmt::skip]
@@ -210,21 +212,37 @@ fn reason_backwards(
       }
 
       let elapsed = now.elapsed();
-
-      if *time_budget < elapsed {
-          end = mid - 1;
-          debug!("Elapsed time for the last {} steps: {:#?}", steps, elapsed);
-      } else if *time_budget > elapsed {
-          start = mid + 1;
-
-          last_n = mid;
-          last_exec_time = elapsed;
+      
+      if *time_budget > elapsed {
+        end = mid;
         
-          debug!("Elapsed time for the last {} steps: {:#?}", steps, elapsed);
+        exec_time += elapsed;
+          *time_budget -= elapsed;
+
+          debug!("Elapsed time for the last {} steps: {:#?}", mid, elapsed);
+      } else if *time_budget < elapsed {
+          start = mid;
+
+          exec_n = mid;
+          exec_time = elapsed;
+        
+          debug!("Elapsed time for the last {} steps: {:#?}", mid, elapsed);
       }
+
+      // since we will not find a perfectly fitting time budget (as is the case
+      // in a traditional binary search), we need an additional termination
+      // criterion to avoid endless loops:
+      // We terminate once the pivot does not change anymore.
+      prev_mid = mid;
+      mid = start + (end - start)/2;
+
+      if prev_mid == mid {
+          break;
+      }
+
   }
 
-  (last_n, last_exec_time)
+  (exec_n, exec_time)
 }
 
 fn print_reasoning_horizon(model: &mut Model) {
