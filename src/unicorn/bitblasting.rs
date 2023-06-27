@@ -1125,6 +1125,16 @@ impl<'a> BitBlasting<'a> {
                 assert!(replacement.len() == 1);
                 self.record_mapping(node, replacement)
             }
+            Node::Good { cond, .. } => {
+                /*let bitvector = self.visit(cond);
+                let mut replacement: Vec<GateRef> = Vec::new();
+                for bit in &bitvector {
+                    replacement.push(not_gate(bit));
+                }
+                assert!(replacement.len() == bitvector.len());
+                self.record_mapping(node, replacement)*/
+                Vec::new()
+            }
             Node::And { left, right, .. } => {
                 let left_operand = self.visit(left);
                 let right_operand = self.visit(right);

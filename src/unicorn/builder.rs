@@ -45,6 +45,7 @@ struct ModelBuilder {
     lines: Vec<NodeRef>,
     sequentials: Vec<NodeRef>,
     bad_states: Vec<NodeRef>,
+    good_states: Vec<NodeRef>,
     pc_flags: HashMap<u64, NodeRef>,       // maps PC -> PC-Flag
     control_in: HashMap<u64, Vec<InEdge>>, // maps PC -> [InEdge]
     dynamic_flags: Vec<NodeRef>,           // maps Register -> Dispatch-Flag
@@ -95,6 +96,7 @@ impl ModelBuilder {
             lines: Vec::new(),
             sequentials: Vec::new(),
             bad_states: Vec::new(),
+            good_states: Vec::new(),
             pc_flags: HashMap::new(),
             control_in: HashMap::new(),
             dynamic_flags: Vec::with_capacity(NUMBER_OF_REGISTERS - 1),
@@ -129,6 +131,8 @@ impl ModelBuilder {
             sequentials: self.sequentials,
             bad_states_initial: Vec::new(),
             bad_states_sequential: self.bad_states,
+            good_states_initial: Vec::new(),
+            good_states_sequential: self.good_states,
             data_range: self.data_range,
             heap_range: self.heap_range,
             stack_range: self.stack_range,
@@ -444,6 +448,16 @@ impl ModelBuilder {
         });
         self.bad_states.push(bad_node.clone());
         bad_node
+    }
+
+    fn new_good(&mut self, cond: NodeRef, name: &str) -> NodeRef {
+        let good_node = self.add_node(Node::Good {
+            nid: self.current_nid,
+            cond,
+            name: Some(name.to_string()),
+        });
+        self.good_states.push(good_node.clone());
+        good_node
     }
 
     fn new_comment(&mut self, s: String) {
@@ -1592,8 +1606,11 @@ impl ModelBuilder {
 
         self.new_comment("checking exit code".to_string());
         let check_exit_code = self.new_neq(self.reg_node(Register::A0), self.zero_word.clone());
-        let check_exit = self.new_and_bit(active_exit, check_exit_code);
+        let check_exit = self.new_and_bit(active_exit.clone(), check_exit_code);
         self.new_bad(check_exit, "non-zero-exit-code");
+
+        self.new_comment("checking good exit state".to_string());
+        self.new_good(active_exit, "exit-state");
 
         Ok(())
     }

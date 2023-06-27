@@ -352,6 +352,10 @@ impl MemoryReplacer {
                 if let Some(n) = self.visit(cond) { *cond = n }
                 None
             }
+            Node::Good { ref mut cond, .. } => {
+                if let Some(n) = self.visit(cond) { *cond = n }
+                None
+            }
             Node::Comment(_) => panic!("cannot handle"),
         }
     }

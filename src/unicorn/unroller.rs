@@ -25,6 +25,10 @@ pub fn unroll_model(model: &mut Model, n: usize) {
         let bad_copy = model_unroller.unroll(bad_state);
         model.bad_states_initial.insert(0, bad_copy);
     }
+    for good_state in &model.good_states_sequential {
+        let good_copy = model_unroller.unroll(good_state);
+        model.good_states_initial.insert(0, good_copy);
+    }
     for (state, new_init) in replacements {
         if let Node::State { ref mut init, .. } = *state.borrow_mut() {
             *init = Some(new_init);
@@ -38,6 +42,7 @@ pub fn prune_model(model: &mut Model) {
     debug!("Pruning sequential portion of unrolled model ...");
     model.sequentials.clear();
     model.bad_states_sequential.clear();
+    model.good_states_sequential.clear();
 }
 
 pub fn renumber_model(model: &mut Model) {
@@ -54,6 +59,12 @@ pub fn renumber_model(model: &mut Model) {
     }
     for bad_state in &model.bad_states_sequential {
         model_renumberer.visit(bad_state)
+    }
+    for good_state in &model.good_states_initial {
+        model_renumberer.visit(good_state)
+    }
+    for good_state in &model.good_states_sequential {
+        model_renumberer.visit(good_state)
     }
     model.lines = model_renumberer.lines;
 }
@@ -203,6 +214,10 @@ impl ModelRenumberer {
                 self.next_nid(nid);
             }
             Node::Bad { ref mut nid, ref cond, .. } => {
+                self.visit(cond);
+                self.next_nid(nid);
+            }
+            Node::Good { ref mut nid, ref cond, .. } => {
                 self.visit(cond);
                 self.next_nid(nid);
             }
@@ -375,6 +390,15 @@ impl ModelUnroller {
                 let name = name.as_deref().unwrap_or("?");
                 let new_name = format!("{}[n={}]", name, self.current_iteration);
                 Rc::new(RefCell::new(Node::Bad {
+                    nid: 0,
+                    cond: self.unroll(cond),
+                    name: Some(new_name),
+                }))
+            }
+            Node::Good { cond, name, .. } => {
+                let name = name.as_deref().unwrap_or("?");
+                let new_name = format!("{}[n={}]", name, self.current_iteration);
+                Rc::new(RefCell::new(Node::Good {
                     nid: 0,
                     cond: self.unroll(cond),
                     name: Some(new_name),
