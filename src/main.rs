@@ -20,8 +20,10 @@ use crate::unicorn::optimize::{optimize_model_with_input, optimize_model_with_so
 use crate::unicorn::qubot::{InputEvaluator, Qubot};
 use crate::unicorn::sat_solver::solve_bad_states;
 use crate::unicorn::smt_solver::*;
+#[cfg(feature = "boolector")]
+use crate::unicorn::smt_solver::boolector_impl::*;
 use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
-use crate::unicorn::write_model;
+use crate::unicorn::{Model, NodeRef, write_model};
 
 use ::unicorn::disassemble::disassemble;
 use ::unicorn::emulate::EmulatorState;
@@ -157,6 +159,22 @@ fn main() -> Result<()> {
             } else {
                 None
             };
+
+            #[cfg(feature = "boolector")]
+            if true {
+                let mut smt_solver = BoolectorSolver::new(None);
+                match &model {
+                    Some(model) => {
+                        let good = &model.good_states_initial[0];
+                        if smt_solver.is_always_false(good) {
+                            println!("Exit is reached for all paths!");
+                        } else {
+                            println!("Exit is not reached for some paths!");
+                        }
+                    }
+                    None => {}
+                }
+            }
 
             if compile_model {
                 assert!(!input_is_btor2, "cannot compile arbitrary BTOR2");
