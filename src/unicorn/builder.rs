@@ -54,6 +54,7 @@ struct ModelBuilder {
     one_bit: NodeRef,
     zero_word: NodeRef,
     kernel_mode: NodeRef,
+    terminate_mode: NodeRef,
     kernel_not: NodeRef,
     register_nodes: Vec<NodeRef>,
     register_flow: Vec<NodeRef>,
@@ -105,6 +106,7 @@ impl ModelBuilder {
             one_bit: dummy_node.clone(),
             zero_word: dummy_node.clone(),
             kernel_mode: dummy_node.clone(),
+            terminate_mode: dummy_node.clone(),
             kernel_not: dummy_node.clone(),
             register_nodes: Vec::with_capacity(NUMBER_OF_REGISTERS),
             register_flow: Vec::with_capacity(NUMBER_OF_REGISTERS - 1),
@@ -1253,6 +1255,11 @@ impl ModelBuilder {
             "kernel-mode".to_string(),
             NodeType::Bit,
         );
+        self.terminate_mode = self.new_state(
+            Some(self.zero_bit.clone()),
+            "terminate-mode".to_string(),
+            NodeType::Bit,
+        );
         self.kernel_not = self.new_not_bit(self.kernel_mode.clone());
 
         self.new_comment("32 64-bit general-purpose registers".to_string());
@@ -1494,6 +1501,8 @@ impl ModelBuilder {
 
         self.current_nid = 46000000;
         self.new_next(self.kernel_mode.clone(), kernel_flow, NodeType::Bit);
+        let terminate = self.new_or(active_exit.clone(), self.terminate_mode.clone());
+        self.new_next(self.terminate_mode.clone(), terminate, NodeType::Bit);
 
         self.new_comment("control flow".to_string());
         self.pc = program.instruction_range.start;
@@ -1561,7 +1570,7 @@ impl ModelBuilder {
         let not_openat = self.new_not_bit(is_openat);
         let not_read = self.new_not_bit(is_read);
         let not_write = self.new_not_bit(is_write);
-        let not_exit = self.new_not_bit(is_exit);
+        let not_exit = self.new_not_bit(is_exit.clone());
         let not_brk = self.new_not_bit(is_brk);
         let check_syscall_and1 = self.new_and_bit(not_openat, not_read);
         let check_syscall_and2 = self.new_and_bit(check_syscall_and1, not_write);
@@ -1610,7 +1619,9 @@ impl ModelBuilder {
         self.new_bad(check_exit, "non-zero-exit-code");
 
         self.new_comment("checking good exit state".to_string());
-        self.new_good(active_exit, "exit-state");
+
+        let good_cond = self.new_and_bit(self.terminate_mode.clone(), is_exit);
+        self.new_good(good_cond, "exit-state");
 
         Ok(())
     }
