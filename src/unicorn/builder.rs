@@ -1,3 +1,4 @@
+use crate::cli::InputError;
 use crate::unicorn::{Model, Nid, Node, NodeRef, NodeType};
 use anyhow::{Context, Result};
 use byteorder::{ByteOrder, LittleEndian};
@@ -20,10 +21,18 @@ pub fn generate_model(
     memory_size: u64,
     max_heap: u32,
     max_stack: u32,
+    available_input: u64,
+    input_error: InputError,
     argv: &[String],
 ) -> Result<Model> {
     trace!("Program: {:?}", program);
-    let mut builder = ModelBuilder::new(memory_size, max_heap, max_stack);
+    let mut builder = ModelBuilder::new(
+        memory_size,
+        max_heap,
+        max_stack,
+        available_input,
+        input_error,
+    );
     builder.generate_model(program, argv)?;
     Ok(builder.finalize())
 }
@@ -70,6 +79,8 @@ struct ModelBuilder {
     stack_range: Range<u64>,
     current_nid: Nid,
     pc: u64,
+    available_input: u64,
+    input_error: InputError,
 }
 
 struct InEdge {
@@ -89,7 +100,13 @@ enum FromInstruction {
 }
 
 impl ModelBuilder {
-    fn new(memory_size: u64, max_heap: u32, max_stack: u32) -> Self {
+    fn new(
+        memory_size: u64,
+        max_heap: u32,
+        max_stack: u32,
+        available_input: u64,
+        input_error: InputError,
+    ) -> Self {
         let dummy_node = Rc::new(RefCell::new(Node::Comment("dummy".to_string())));
         Self {
             lines: Vec::new(),
@@ -120,6 +137,8 @@ impl ModelBuilder {
             stack_range: 0..0,
             current_nid: 0,
             pc: 0,
+            available_input,
+            input_error,
         }
     }
 
@@ -1350,17 +1369,23 @@ impl ModelBuilder {
             })
             .context("Failed to decode instructions of program")?;
 
+        // System calls
         self.new_comment("syscalls".to_string());
         self.current_nid = 40000000;
         let mut kernel_flow = self.kernel_mode.clone();
+
         let num_openat = self.new_const(SyscallId::Openat as u64);
         let is_openat = self.new_eq(self.reg_node(Register::A7), num_openat);
+
         let num_read = self.new_const(SyscallId::Read as u64);
         let is_read = self.new_eq(self.reg_node(Register::A7), num_read);
+
         let num_write = self.new_const(SyscallId::Write as u64);
         let is_write = self.new_eq(self.reg_node(Register::A7), num_write);
+
         let num_exit = self.new_const(SyscallId::Exit as u64);
         let is_exit = self.new_eq(self.reg_node(Register::A7), num_exit);
+
         let num_brk = self.new_const(SyscallId::Brk as u64);
         let is_brk = self.new_eq(self.reg_node(Register::A7), num_brk);
 
@@ -1373,7 +1398,22 @@ impl ModelBuilder {
             NodeType::Bit,
         );
 
+        // Read syscall
         self.current_nid = 42000000;
+
+        println!("Avaiable input: {}", self.available_input);
+        println!(
+            "Input error code: {:?} => {}",
+            self.input_error, self.input_error as u64
+        );
+
+        let constant = self.new_const(self.available_input);
+        let available_input =
+            self.new_state(Some(constant), "read-counter".to_string(), NodeType::Word);
+
+        let error_code = self.new_const(self.input_error as u64);
+        let should_return_error = self.new_neq(error_code.clone(), self.zero_word.clone());
+
         let active_read = self.new_and_bit(self.ecall_flow.clone(), is_read.clone());
         kernel_flow = self.new_ite(
             active_read.clone(),
@@ -1381,73 +1421,155 @@ impl ModelBuilder {
             kernel_flow,
             NodeType::Bit,
         );
-        let read_a0_zero = self.new_ite(
-            active_read,
+
+        let is_input_available = self.new_ugt(available_input.clone(), self.zero_word.clone());
+        let is_input_depleted = self.new_not_bit(is_input_available.clone());
+
+        // If the input limitation is not reached or read shouldn't error out initialize A0 with zeroes, else set -1 to a0 and error code to a1.
+        let should_error_out = self.new_and_bit(is_input_depleted, should_return_error.clone());
+        let minus_one = self.new_const((-1i64) as u64);
+        let init_a0_value = self.new_ite(
+            should_error_out.clone(),
+            minus_one,
             self.zero_word.clone(),
+            NodeType::Word,
+        );
+        let read_a0_zero = self.new_ite(
+            active_read.clone(),
+            init_a0_value,
             self.reg_flow(Register::A0),
             NodeType::Word,
         );
+
+        let init_a1_value = self.new_ite(
+            should_error_out,
+            error_code.clone(),
+            self.reg_flow(Register::A1),
+            NodeType::Word,
+        );
+        let a1_value = self.new_ite(
+            active_read,
+            init_a1_value,
+            self.reg_flow(Register::A1),
+            NodeType::Word,
+        );
+
         let read_remaining = self.new_sub(self.reg_node(Register::A2), self.reg_node(Register::A0));
         let read_const_8 = self.new_const(8);
         let read_full_word = self.new_ugte(read_remaining.clone(), read_const_8.clone());
         let read_bytes = self.new_ite(read_full_word, read_const_8, read_remaining, NodeType::Word);
+
+        let input_limit_reached_midway = self.new_ugt(read_bytes.clone(), available_input.clone());
+        let read_available_bytes = self.new_ite(
+            input_limit_reached_midway.clone(),
+            available_input.clone(),
+            read_bytes,
+            NodeType::Word,
+        );
+
         let read_input1 = self.new_input("1-byte-input".to_string(), NodeType::Input1Byte);
         let read_input2 = self.new_input("2-byte-input".to_string(), NodeType::Input2Byte);
-        let read_const_2 = self.new_const(2);
-        let read_bytes_eq_2 = self.new_eq(read_bytes.clone(), read_const_2);
-        let read_ite_2 = self.new_ite(read_bytes_eq_2, read_input2, read_input1, NodeType::Word);
         let read_input3 = self.new_input("3-byte-input".to_string(), NodeType::Input3Byte);
-        let read_const_3 = self.new_const(3);
-        let read_bytes_eq_3 = self.new_eq(read_bytes.clone(), read_const_3);
-        let read_ite_3 = self.new_ite(read_bytes_eq_3, read_input3, read_ite_2, NodeType::Word);
         let read_input4 = self.new_input("4-byte-input".to_string(), NodeType::Input4Byte);
-        let read_const_4 = self.new_const(4);
-        let read_bytes_eq_4 = self.new_eq(read_bytes.clone(), read_const_4);
-        let read_ite_4 = self.new_ite(read_bytes_eq_4, read_input4, read_ite_3, NodeType::Word);
         let read_input5 = self.new_input("5-byte-input".to_string(), NodeType::Input5Byte);
-        let read_const_5 = self.new_const(5);
-        let read_bytes_eq_5 = self.new_eq(read_bytes.clone(), read_const_5);
-        let read_ite_5 = self.new_ite(read_bytes_eq_5, read_input5, read_ite_4, NodeType::Word);
         let read_input6 = self.new_input("6-byte-input".to_string(), NodeType::Input6Byte);
-        let read_const_6 = self.new_const(6);
-        let read_bytes_eq_6 = self.new_eq(read_bytes.clone(), read_const_6);
-        let read_ite_6 = self.new_ite(read_bytes_eq_6, read_input6, read_ite_5, NodeType::Word);
         let read_input7 = self.new_input("7-byte-input".to_string(), NodeType::Input7Byte);
-        let read_const_7 = self.new_const(7);
-        let read_bytes_eq_7 = self.new_eq(read_bytes.clone(), read_const_7);
-        let read_ite_7 = self.new_ite(read_bytes_eq_7, read_input7, read_ite_6, NodeType::Word);
         let read_input8 = self.new_input("8-byte-input".to_string(), NodeType::Word);
+
+        let read_const_2 = self.new_const(2);
+        let read_const_3 = self.new_const(3);
+        let read_const_4 = self.new_const(4);
+        let read_const_5 = self.new_const(5);
+        let read_const_6 = self.new_const(6);
+        let read_const_7 = self.new_const(7);
         let read_const_8 = self.new_const(8);
-        let read_bytes_eq_8 = self.new_eq(read_bytes.clone(), read_const_8);
+
+        let read_bytes_eq_2 = self.new_eq(read_available_bytes.clone(), read_const_2);
+        let read_bytes_eq_3 = self.new_eq(read_available_bytes.clone(), read_const_3);
+        let read_bytes_eq_4 = self.new_eq(read_available_bytes.clone(), read_const_4);
+        let read_bytes_eq_5 = self.new_eq(read_available_bytes.clone(), read_const_5);
+        let read_bytes_eq_6 = self.new_eq(read_available_bytes.clone(), read_const_6);
+        let read_bytes_eq_7 = self.new_eq(read_available_bytes.clone(), read_const_7);
+        let read_bytes_eq_8 = self.new_eq(read_available_bytes.clone(), read_const_8);
+
+        let read_ite_2 = self.new_ite(read_bytes_eq_2, read_input2, read_input1, NodeType::Word);
+        let read_ite_3 = self.new_ite(read_bytes_eq_3, read_input3, read_ite_2, NodeType::Word);
+        let read_ite_4 = self.new_ite(read_bytes_eq_4, read_input4, read_ite_3, NodeType::Word);
+        let read_ite_5 = self.new_ite(read_bytes_eq_5, read_input5, read_ite_4, NodeType::Word);
+        let read_ite_6 = self.new_ite(read_bytes_eq_6, read_input6, read_ite_5, NodeType::Word);
+        let read_ite_7 = self.new_ite(read_bytes_eq_7, read_input7, read_ite_6, NodeType::Word);
         let read_ite_8 = self.new_ite(read_bytes_eq_8, read_input8, read_ite_7, NodeType::Word);
+
         let read_address = self.new_add(self.reg_node(Register::A1), self.reg_node(Register::A0));
         let read_store = self.new_write(read_address, read_ite_8);
+
         let read_more = self.new_ult(self.reg_node(Register::A0), self.reg_node(Register::A2));
-        let read_more = self.new_and_bit(is_read.clone(), read_more);
+        let can_read_and_read_more = self.new_and_bit(read_more, is_input_available);
+        let read_more = self.new_and_bit(is_read.clone(), can_read_and_read_more);
+
         let read_not_done = self.new_and_bit(self.kernel_mode.clone(), read_more);
-        let read_not_zero = self.new_ugt(read_bytes.clone(), self.zero_word.clone());
+        let read_not_zero = self.new_ugt(read_available_bytes.clone(), self.zero_word.clone());
+
         let read_do_store = self.new_and_bit(read_not_done.clone(), read_not_zero);
+
         let read_ite_mem = self.new_ite(
-            read_do_store,
+            read_do_store.clone(),
             read_store,
             self.memory_flow.clone(),
             NodeType::Memory,
         );
         self.memory_flow = read_ite_mem;
-        let read_new_a0 = self.new_add(self.reg_node(Register::A0), read_bytes);
+
+        let read_new_a0 = self.new_add(self.reg_node(Register::A0), read_available_bytes.clone());
+
+        let should_error_midway = self.new_and_bit(should_return_error, input_limit_reached_midway);
+
+        let minus_one = self.new_const((-1i64) as u64);
+        let fail_midway_or_read_a0 = self.new_ite(
+            should_error_midway.clone(),
+            minus_one,
+            read_new_a0,
+            NodeType::Word,
+        );
         let read_ite_a0 = self.new_ite(
             read_not_done.clone(),
-            read_new_a0,
+            fail_midway_or_read_a0,
             read_a0_zero,
             NodeType::Word,
         );
         self.reg_flow_update(Register::A0, read_ite_a0);
+
+        // Update A1
+        let fail_midway_or_stay_a1 = self.new_ite(
+            should_error_midway,
+            error_code,
+            self.reg_flow(Register::A1),
+            NodeType::Word,
+        );
+        let read_ite_a1 = self.new_ite(
+            read_not_done.clone(),
+            fail_midway_or_stay_a1,
+            a1_value,
+            NodeType::Word,
+        );
+        self.reg_flow_update(Register::A1, read_ite_a1);
+
         kernel_flow = self.new_ite(
             read_not_done,
             self.one_bit.clone(),
             kernel_flow,
             NodeType::Bit,
         );
+
+        let possible_available_input_value =
+            self.new_sub(available_input.clone(), read_available_bytes);
+        let next_counter_value = self.new_ite(
+            read_do_store,
+            possible_available_input_value,
+            available_input.clone(),
+            NodeType::Word,
+        );
+        self.new_next(available_input, next_counter_value, NodeType::Word);
 
         self.current_nid = 45000000;
         let active_brk = self.new_and_bit(self.ecall_flow.clone(), is_brk.clone());

@@ -38,6 +38,18 @@ pub enum SatType {
     Cadical,
 }
 
+#[derive(Copy, Clone, Debug, EnumString, EnumVariantNames, Eq, IntoStaticStr, PartialEq)]
+#[strum(serialize_all = "kebab_case")]
+pub enum InputError {
+    None = 0, // There is nothing to read
+    Eagain = 11,
+    Ebadf = 9,
+    Efault = 14,
+    Einval = 22,
+    Eio = 5,
+    Eisdir = 21,
+}
+
 const DEFAULT_MEMORY_SIZE: &str = "1"; // 1 MiB
 const DEFAULT_MAX_HEAP: &str = "8"; // 8 words
 const DEFAULT_MAX_STACK: &str = "32"; // 32 words
@@ -252,6 +264,21 @@ pub fn args() -> Command {
                         .num_args(0)
                 )
                 .arg(
+                    Arg::new("input-limit")
+                        .help("Limit for read system call")
+                        .long("input-limit")
+                        .num_args(1)
+                        .value_parser(value_parser!(u64))
+                )
+                .arg(
+                    Arg::new("input-error")
+                        .help("Error to raise after input is depleted")
+                        .long("input-error")
+                        .num_args(1)
+                        .value_parser(value_parser_input_error_type())
+                        .default_value(Into::<&str>::into(InputError::None))
+                )
+                .arg(
                     Arg::new("extras")
                         .help("Arguments passed to emulated program")
                         .value_name("ARGUMENTS")
@@ -456,6 +483,10 @@ fn value_parser_smt_type() -> clap::builder::PossibleValuesParser {
 
 fn value_parser_sat_type() -> clap::builder::PossibleValuesParser {
     clap::builder::PossibleValuesParser::new(SatType::VARIANTS)
+}
+
+fn value_parser_input_error_type() -> clap::builder::PossibleValuesParser {
+    clap::builder::PossibleValuesParser::new(InputError::VARIANTS)
 }
 
 #[cfg(test)]

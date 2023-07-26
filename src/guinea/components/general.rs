@@ -1,3 +1,4 @@
+use crate::cli::InputError;
 use crate::guinea::crash_prevention::try_catch;
 use crate::guinea::Guineacorn;
 use crate::unicorn::btor2file_parser::parse_btor2_file;
@@ -47,6 +48,8 @@ pub(crate) fn load(
                 ByteSize::mib(1).as_u64(),
                 8,
                 32,
+                u64::MAX,
+                InputError::None,
                 &argv,
             )
             .unwrap();
