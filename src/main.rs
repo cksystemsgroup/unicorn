@@ -1,7 +1,11 @@
 mod cli;
+#[cfg(feature = "gui")]
+mod guinea;
 mod quantum_annealing;
 mod unicorn;
 
+#[cfg(feature = "gui")]
+use crate::guinea::gui::gui;
 use crate::quantum_annealing::dwave_api::sample_quantum_annealer;
 use crate::unicorn::bitblasting::bitblast_model;
 use crate::unicorn::bitblasting_dimacs::write_dimacs_model;
@@ -18,9 +22,11 @@ use crate::unicorn::memory::replace_memory;
 // };
 use crate::unicorn::qubot::{InputEvaluator, Qubot};
 use crate::unicorn::sat_solver::solve_bad_states;
-// use crate::unicorn::smt_solver::*;
-use crate::unicorn::unroller::renumber_model;
-use crate::unicorn::write_model;
+use crate::unicorn::smt_solver::*;
+#[cfg(feature = "boolector")]
+use crate::unicorn::smt_solver::boolector_impl::*;
+use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
+use crate::unicorn::{Model, NodeRef, write_model};
 use crate::unicorn::horizon::compute_reasoning_horizon;
 
 use ::unicorn::disassemble::disassemble;
@@ -45,6 +51,7 @@ use std::{
     str::FromStr,
     time::Duration
 };
+use crate::unicorn::optimize::optimize_model_with_input;
 
 fn main() -> Result<()> {
     let matches = cli::args().get_matches();
@@ -103,7 +110,7 @@ fn main() -> Result<()> {
             let arg0 = expect_arg::<String>(args, "input-file")?;
             let extras = collect_arg_values(args, "extras");
 
-            let model = if !input_is_dimacs {
+            let mut model = if !input_is_dimacs {
                 let mut model = if !input_is_btor2 {
                     let program = load_object_file(&input)?;
                     let argv = [vec![arg0], extras].concat();
@@ -114,9 +121,6 @@ fn main() -> Result<()> {
 
                 if let Some(unroll_depth) = unroll {
                     model.lines.clear();
-                    if discretize {
-                        replace_memory(&mut model);
-                    }
                     let mut input_values: Vec<u64> = if has_concrete_inputs {
                         inputs
                             .as_ref()
@@ -127,6 +131,23 @@ fn main() -> Result<()> {
                     } else {
                         vec![]
                     };
+
+                    for n in 0..unroll_depth {
+                        unroll_model(&mut model, n);
+                        if has_concrete_inputs {
+                            optimize_model_with_input(&mut model, &mut input_values)
+                        }
+                    }
+                    if prune {
+                        prune_model(&mut model);
+                    }
+                    if discretize {
+                        // TODO: We perform a quick constant-folding pass before we discretize. This
+                        // introduces some overhead when no SMT solver is used, but helps otherwise.
+                        // It is not yet clear how to implement this in a cleaner way.
+                        optimize_model_with_input(&mut model, &mut vec![]);
+                        replace_memory(&mut model);
+                    }
 
                     let timeout = solver_timeout.map(|&ms| Duration::from_millis(ms));
                     
@@ -159,6 +180,22 @@ fn main() -> Result<()> {
             } else {
                 None
             };
+
+            #[cfg(feature = "boolector")]
+            if true {
+                let mut smt_solver = BoolectorSolver::new(None);
+                match &model {
+                    Some(model) => {
+                        let good = &model.good_states_initial[0];
+                        if smt_solver.is_always_false(good) {
+                            println!("Exit is reached for all paths!");
+                        } else {
+                            println!("Exit is not reached for some paths!");
+                        }
+                    }
+                    None => {}
+                }
+            }
 
             if compile_model {
                 assert!(!input_is_btor2, "cannot compile arbitrary BTOR2");
@@ -201,7 +238,9 @@ fn main() -> Result<()> {
                 assert!(bitblast || !dimacs, "printing DIMACS requires bitblasting");
 
                 if bitblast {
-                    assert!(discretize, "bit-blasting requires discretized memory");
+                    if !discretize {
+                        replace_memory(model.as_mut().unwrap());
+                    }
                     let gate_model = bitblast_model(&model.unwrap(), true, 64);
 
                     if sat_solver != SatType::None {
@@ -284,6 +323,11 @@ fn main() -> Result<()> {
             let chain_strength = *args.get_one::<f32>("chain-strength").unwrap();
 
             sample_quantum_annealer(input, runs, chain_strength)
+        }
+        #[cfg(feature = "gui")]
+        Some(("gui", _args)) => {
+            gui();
+            Ok(())
         }
         _ => unreachable!(),
     }

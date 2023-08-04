@@ -1,9 +1,12 @@
-use crate::unicorn::{get_nodetype, Model, Nid, Node, NodeRef, NodeType};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::ops::Range;
 use std::path::Path;
+
+#[cfg(feature = "gui")]
+use crate::guinea::MemoryData;
+use crate::unicorn::{get_nodetype, Model, Nid, Node, NodeRef, NodeType};
 
 //
 // Public Interface
@@ -22,10 +25,47 @@ pub fn parse_btor2_file(path: &Path) -> Model {
         sequentials: parser.get_sequentials(),
         bad_states_initial,
         bad_states_sequential,
+        good_states_initial: Vec::new(),
+        good_states_sequential: Vec::new(),
         data_range: Range { start: 0, end: 0 },
         heap_range: Range { start: 0, end: 0 },
         stack_range: Range { start: 0, end: 0 },
         memory_size: 0,
+    }
+}
+
+#[cfg(feature = "gui")]
+pub fn parse_btor2_string(string: &str, data: &MemoryData) -> Model {
+    use bytesize::ByteSize;
+    use std::mem::size_of;
+    use unicorn::engine::system::PAGE_SIZE;
+    use unicorn::util::next_multiple_of;
+
+    let mut parser = BTOR2Parser::new();
+    parser.parse_string(string);
+    parser.run_inits();
+    let (bad_states_initial, bad_states_sequential) = parser
+        .get_bad_states()
+        .into_iter()
+        .partition(has_depth_in_name);
+
+    let heap_start = next_multiple_of(data.data_end, PAGE_SIZE as u64);
+    let heap_end = heap_start + data.max_heap as u64 * size_of::<u64>() as u64;
+    let stack_start =
+        ByteSize::mib(data.memory_size).as_u64() - data.max_stack as u64 * size_of::<u64>() as u64;
+    let stack_end = ByteSize::mib(data.memory_size).as_u64();
+
+    Model {
+        lines: Vec::new(),
+        sequentials: parser.get_sequentials(),
+        bad_states_initial,
+        bad_states_sequential,
+        good_states_initial: Vec::new(),
+        good_states_sequential: Vec::new(),
+        data_range: data.data_start..data.data_end,
+        heap_range: heap_start..heap_end,
+        stack_range: stack_start..stack_end,
+        memory_size: ByteSize::mib(data.memory_size).as_u64(),
     }
 }
 
@@ -99,6 +139,12 @@ impl BTOR2Parser {
         } else {
             println!("Error reading file ({:?})", path);
         }
+    }
+
+    #[cfg(feature = "gui")]
+    fn parse_string(&mut self, string: &str) {
+        let lines: Vec<String> = string.lines().map(String::from).collect();
+        self.parse_lines(&lines);
     }
 
     fn get_sort(&self, nid: Nid) -> NodeType {
@@ -226,7 +272,8 @@ impl BTOR2Parser {
                     }
                 }
             }
-            "add" | "sub" | "mul" | "udiv" | "urem" | "ult" | "eq" | "and" | "next" => {
+            "add" | "sub" | "mul" | "udiv" | "urem" | "ult" | "eq" | "and" | "next" | "sll"
+            | "srl" => {
                 if let Ok(nid_left) = line[3].parse::<Nid>() {
                     if let Ok(nid_right) = line[4].parse::<Nid>() {
                         let left = self.process_node(nid_left);
@@ -236,7 +283,7 @@ impl BTOR2Parser {
                             "add" => Node::Add { nid, left, right },
                             "sub" => Node::Sub { nid, left, right },
                             "mul" => Node::Mul { nid, left, right },
-                            "udiv" => Node::Div { nid, left, right },
+                            "udiv" => Node::Divu { nid, left, right },
                             "urem" => Node::Rem { nid, left, right },
                             "ult" => Node::Ult { nid, left, right },
                             "eq" => Node::Eq { nid, left, right },
@@ -252,6 +299,8 @@ impl BTOR2Parser {
                                 state: left,
                                 next: right,
                             },
+                            "sll" => Node::Sll { nid, left, right },
+                            "srl" => Node::Srl { nid, left, right },
                             _ => {
                                 panic!("This piece of code should be unreacheable");
                             }
@@ -350,9 +399,10 @@ impl BTOR2Parser {
 
 #[cfg(test)]
 mod tests_btor2_parser {
-    use super::*;
     use crate::unicorn::bitblasting::bitblast_model;
     use crate::unicorn::qubot::{InputEvaluator, Qubot};
+
+    use super::*;
 
     fn get_model(file: &str) -> Model {
         let mut parser = BTOR2Parser::new();
@@ -364,6 +414,8 @@ mod tests_btor2_parser {
             sequentials: parser.get_sequentials(),
             bad_states_initial: parser.get_bad_states(),
             bad_states_sequential: Vec::new(),
+            good_states_initial: Vec::new(),
+            good_states_sequential: Vec::new(),
             data_range: Range { start: 0, end: 0 },
             heap_range: Range { start: 0, end: 0 },
             stack_range: Range { start: 0, end: 0 },

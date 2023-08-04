@@ -62,6 +62,11 @@ pub enum Node {
         left: NodeRef,
         right: NodeRef,
     },
+    Divu {
+        nid: Nid,
+        left: NodeRef,
+        right: NodeRef,
+    },
     Div {
         nid: Nid,
         left: NodeRef,
@@ -143,6 +148,11 @@ pub enum Node {
         cond: NodeRef,
         name: Option<String>,
     },
+    Good {
+        nid: Nid,
+        cond: NodeRef,
+        name: Option<String>,
+    },
     Comment(String),
 }
 
@@ -189,6 +199,8 @@ pub struct Model {
     pub sequentials: Vec<NodeRef>,
     pub bad_states_initial: Vec<NodeRef>,
     pub bad_states_sequential: Vec<NodeRef>,
+    pub good_states_initial: Vec<NodeRef>,
+    pub good_states_sequential: Vec<NodeRef>,
     pub data_range: Range<u64>,
     pub heap_range: Range<u64>,
     pub stack_range: Range<u64>,
@@ -237,8 +249,10 @@ where
                 writeln!(out, "{} sub 2 {} {}", nid, get_nid(left), get_nid(right))?,
             Node::Mul { nid, left, right } =>
                 writeln!(out, "{} mul 2 {} {}", nid, get_nid(left), get_nid(right))?,
-            Node::Div { nid, left, right } =>
+            Node::Divu { nid, left, right } =>
                 writeln!(out, "{} udiv 2 {} {}", nid, get_nid(left), get_nid(right))?,
+            Node::Div { nid, left, right } =>
+                writeln!(out, "{} sdiv 2 {} {}", nid, get_nid(left), get_nid(right))?,
             Node::Rem { nid, left, right } =>
                 writeln!(out, "{} urem 2 {} {}", nid, get_nid(left), get_nid(right))?,
             Node::Sll { nid, left, right } =>
@@ -271,6 +285,8 @@ where
                 writeln!(out, "{} input {} {}", nid, get_sort(sort), name)?,
             Node::Bad { nid, cond, name } =>
                 writeln!(out, "{} bad {} {}", nid, get_nid(cond), name.as_deref().unwrap_or("?"))?,
+            Node::Good { .. } =>
+                write!(out, "")?,
             Node::Comment(s) =>
                 writeln!(out, "\n; {}\n", s)?,
         }
@@ -291,6 +307,7 @@ pub fn get_nid(node: &NodeRef) -> Nid {
         Node::Add { nid, .. } => nid,
         Node::Sub { nid, .. } => nid,
         Node::Mul { nid, .. } => nid,
+        Node::Divu { nid, .. } => nid,
         Node::Div { nid, .. } => nid,
         Node::Rem { nid, .. } => nid,
         Node::Sll { nid, .. } => nid,
@@ -305,6 +322,7 @@ pub fn get_nid(node: &NodeRef) -> Nid {
         Node::Next { nid, .. } => nid,
         Node::Input { nid, .. } => nid,
         Node::Bad { nid, .. } => nid,
+        Node::Good { nid, .. } => nid,
         Node::Or { nid, .. } => nid,
         Node::Comment(_) => panic!("has no nid"),
     }

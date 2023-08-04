@@ -1,11 +1,12 @@
+use std::str::FromStr;
+
 use anyhow::{anyhow, Context, Result};
 use clap::{
     crate_authors, crate_description, crate_version, value_parser, Arg, ArgMatches, Command,
 };
-use std::str::FromStr;
 use strum::{EnumString, EnumVariantNames, IntoStaticStr, VariantNames};
 
-#[derive(Debug, PartialEq, Eq, EnumString, EnumVariantNames, IntoStaticStr)]
+#[derive(Clone, Debug, EnumString, EnumVariantNames, Eq, IntoStaticStr, PartialEq)]
 #[strum(serialize_all = "kebab_case")]
 pub enum LogLevel {
     Trace,
@@ -15,7 +16,7 @@ pub enum LogLevel {
     Error,
 }
 
-#[derive(Debug, EnumString, EnumVariantNames, IntoStaticStr)]
+#[derive(Clone, Debug, EnumString, EnumVariantNames, Eq, IntoStaticStr, PartialEq)]
 #[strum(serialize_all = "kebab_case")]
 pub enum SmtType {
     Generic,
@@ -25,7 +26,7 @@ pub enum SmtType {
     Z3,
 }
 
-#[derive(Debug, PartialEq, Eq, EnumString, EnumVariantNames, IntoStaticStr)]
+#[derive(Clone, Debug, EnumString, EnumVariantNames, Eq, IntoStaticStr, PartialEq)]
 #[strum(serialize_all = "kebab_case")]
 pub enum SatType {
     None,
@@ -42,7 +43,7 @@ const DEFAULT_MAX_HEAP: &str = "8"; // 8 words
 const DEFAULT_MAX_STACK: &str = "32"; // 32 words
 
 pub fn args() -> Command {
-    Command::new("Unicorn")
+    let command = Command::new("Unicorn")
         .version(crate_version!())
         .author(crate_authors!(", "))
         .about(crate_description!())
@@ -419,7 +420,13 @@ pub fn args() -> Command {
         )
         .subcommand_required(true)
         .arg_required_else_help(true)
-        .propagate_version(true)
+        .propagate_version(true);
+
+    #[cfg(feature = "gui")]
+    let command = command.subcommand(Command::new("gui").about("Start unicorn with a GUI"));
+
+    #[allow(clippy::let_and_return)]
+    command
 }
 
 pub fn expect_arg<T: FromStr>(m: &ArgMatches, arg: &str) -> Result<T>

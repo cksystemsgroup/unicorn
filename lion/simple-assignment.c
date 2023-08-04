@@ -1,20 +1,22 @@
 // cksystemsgroup.github.io/unicorn
-// @SOLUTIONS = 213
-// @UNROLL = 105
+// @SOLUTIONS = 255
+// @UNROLL_SELFIE = 122
+// @UNROLL = 703
+// @NAME = assignment
 
 uint64_t main() {
-  uint64_t* x;
+  uint64_t x;
 
   x = VERIFIER_nondet_uchar();
 
-  *x = *x - 6;
+  x = x - 6;
 
-  if (*x > 42)
-    // non-zero exit code if the input is > '0' (== 48 == b00110000)
-    return 1;
-  else if (*x < 42)
-    // non-zero exit code if the input is < '0' (== 48 == b00110000)
-    return 1;
+  if (x > 42)
+    // failure if the input is > '0' (== 48 == b00110000)
+    VERIFIER_error();
+  else if (x < 42)
+    // failure if the input is < '0' (== 48 == b00110000)
+    VERIFIER_error();
   else
     return 0;
 }

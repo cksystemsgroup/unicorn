@@ -13,9 +13,6 @@ pub enum SMTSolution {
     Timeout,
 }
 
-// TODO: Clippy in Rust 1.60.0 is overly pedantic. Revisit this on Rust
-// upgrades to an even higher version number.
-#[allow(clippy::wrong_self_convention)]
 pub trait SMTSolver {
     fn new(timeout: Option<Duration>) -> Self;
     fn name() -> &'static str;
@@ -205,18 +202,31 @@ pub mod boolector_impl {
                     let bv_right = self.visit(right).into_bv();
                     bv_left.mul(&bv_right).into()
                 }
-                Node::Div { left, right, .. } => {
+                Node::Divu { left, right, .. } => {
                     let bv_left = self.visit(left).into_bv();
                     let bv_right = self.visit(right).into_bv();
                     bv_left.udiv(&bv_right).into()
+                },
+                Node::Div { left, right, .. } => {
+                    let bv_left = self.visit(left).into_bv();
+                    let bv_right = self.visit(right).into_bv();
+                    bv_left.sdiv(&bv_right).into()
                 },
                 Node::Rem { left, right, .. } => {
                     let bv_left = self.visit(left).into_bv();
                     let bv_right = self.visit(right).into_bv();
                     bv_left.urem(&bv_right).into()
                 }
-                Node::Sll { .. } => todo!("implement SLL"),
-                Node::Srl { .. } => todo!("implement SRL"),
+                Node::Sll { left, right, .. } => {
+                    let bv_left = self.visit(left).into_bv();
+                    let bv_right = self.visit(right).into_bv();
+                    bv_left.sll(&bv_right).into()
+                },
+                Node::Srl { left, right, .. } => {
+                    let bv_left = self.visit(left).into_bv();
+                    let bv_right = self.visit(right).into_bv();
+                    bv_left.srl(&bv_right).into()
+                },
                 Node::Ult { left, right, .. } => {
                     let bv_left = self.visit(left).into_bv();
                     let bv_right = self.visit(right).into_bv();
@@ -276,6 +286,10 @@ pub mod boolector_impl {
                 Node::Next { .. } => panic!("should be unreachable"),
                 Node::Bad { cond, .. } => {
                     self.visit(cond)
+                },
+                Node::Good { cond, .. } => {
+                    let bv_value = self.visit(cond).into_bv();
+                    bv_value.not().into()
                 },
                 Node::Comment(_) => panic!("cannot translate"),
             }
@@ -443,18 +457,31 @@ pub mod z3solver_impl {
                     let z3_right = self.visit(right).as_bv().expect("bv");
                     z3_left.bvmul(&z3_right).into()
                 }
-                Node::Div { left, right, .. } => {
+                Node::Divu { left, right, .. } => {
                     let z3_left = self.visit(left).as_bv().expect("bv");
                     let z3_right = self.visit(right).as_bv().expect("bv");
                     z3_left.bvudiv(&z3_right).into()
+                }
+                Node::Div { left, right, .. } => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvsdiv(&z3_right).into()
                 }
                 Node::Rem { left, right, .. } => {
                     let z3_left = self.visit(left).as_bv().expect("bv");
                     let z3_right = self.visit(right).as_bv().expect("bv");
                     z3_left.bvurem(&z3_right).into()
                 }
-                Node::Sll { .. } => todo!("implement SLL"),
-                Node::Srl { .. } => todo!("implement SRL"),
+                Node::Sll { left, right , ..} => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvshl(&z3_right).into()
+                },
+                Node::Srl { left, right, ..} => {
+                    let z3_left = self.visit(left).as_bv().expect("bv");
+                    let z3_right = self.visit(right).as_bv().expect("bv");
+                    z3_left.bvlshr(&z3_right).into()
+                },
                 Node::Ult { left, right, .. } => {
                     let z3_left = self.visit(left).as_bv().expect("bv");
                     let z3_right = self.visit(right).as_bv().expect("bv");
@@ -500,9 +527,13 @@ pub mod z3solver_impl {
                     let z3_right = self.visit(right).as_bv().expect("bv");
                     z3_left.bvor(&z3_right).into()
                 }
-                Node::Not { value, .. } => {
+                Node::Not { sort: NodeType::Bit, value, .. } => {
                     let z3_value = self.visit(value).as_bool().expect("bool");
                     z3_value.not().into()
+                }
+                Node::Not { value, .. } => {
+                    let z3_value = self.visit(value).as_bv().expect("bv");
+                    z3_value.bvnot().into()
                 }
                 Node::State { sort: NodeType::Bit, name, .. } => {
                     let name = name.as_deref().expect("name");
@@ -526,6 +557,11 @@ pub mod z3solver_impl {
                 Node::Bad { cond, .. } => {
                     // TODO: It would be better if we would directly referece the condition instead of referencing the Bad node in the OR'ed graph. That way Bad conceptually remains as not producing any output and the graph that smt_solver.rs sees is still purely combinatorial. 
                     self.visit(cond).clone()
+                },
+                Node::Good { cond, .. } => {
+                    // TODO: It would be better if we would directly referece the condition instead of referencing the Good node in the OR'ed graph. That way Good conceptually remains as not producing any output and the graph that smt_solver.rs sees is still purely combinatorial.
+                    let z3_value = self.visit(cond).as_bv().expect("bv");
+                    z3_value.bvnot().into()
                 },
                 Node::Comment(_) => panic!("cannot translate"),
             }

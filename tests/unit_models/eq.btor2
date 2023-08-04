@@ -1,0 +1,31 @@
+1 sort bitvec 1 ; Boolean
+2 sort bitvec 64 ; 64-bit machine word
+3 sort array 2 2 ; 64-bit virtual memory
+11 sort bitvec 8 ; 1 byte
+12 sort bitvec 16 ; 2 bytes
+13 sort bitvec 24 ; 3 bytes
+14 sort bitvec 32 ; 4 bytes
+15 sort bitvec 40 ; 5 bytes
+16 sort bitvec 48 ; 6 bytes
+17 sort bitvec 56 ; 7 bytes
+
+18 constd 2 1
+19 constd 2 2
+20 constd 1 0
+21 constd 1 1
+22 state 2 1=1
+23 state 1 true=true
+24 state 2 1=2
+25 state 1 true=false
+26 init 1 22 20
+27 init 1 23 21
+28 init 1 24 20
+29 init 1 25 21
+30 eq 1 18 18
+31 eq 1 21 21
+32 eq 1 18 19
+33 eq 1 20 21
+34 next 2 22 30
+35 next 2 23 31
+36 next 2 24 32
+37 next 2 25 33
