@@ -166,10 +166,13 @@ fn main() -> Result<()> {
                 match &model {
                     Some(model) => {
                         let good = &model.good_states_initial[0];
-                        if smt_solver.is_always_false(good) {
+                        if smt_solver.solve(good) == SMTSolution::Sat {
+                            println!("Exit is reached for some paths!");
+                        }
+                        if smt_solver.is_always_true(good) {
                             println!("Exit is reached for all paths!");
                         } else {
-                            println!("Exit is not reached for some paths!");
+                            //println!("Exit is not reached for some paths!");
                         }
                     }
                     None => {}
