@@ -27,7 +27,7 @@ use crate::unicorn::smt_solver::*;
 use crate::unicorn::smt_solver::boolector_impl::*;
 use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
 use crate::unicorn::{Model, NodeRef, write_model};
-use crate::unicorn::horizon::compute_reasoning_horizon;
+use crate::unicorn::horizon::{compute_bounds, compute_reasoning_horizon};
 
 use ::unicorn::disassemble::disassemble;
 use ::unicorn::emulate::EmulatorState;
@@ -51,7 +51,9 @@ use std::{
     str::FromStr,
     time::Duration
 };
-use crate::unicorn::optimize::optimize_model_with_input;
+use crate::unicorn::optimize::{optimize_model_with_input};
+#[cfg(feature = "z3")]
+use crate::unicorn::smt_solver::z3solver_impl::Z3SolverWrapper;
 
 fn main() -> Result<()> {
     let matches = cli::args().get_matches();
@@ -106,6 +108,7 @@ fn main() -> Result<()> {
             let compile_model = is_beator && args.get_flag("compile");
             let emulate_model = is_beator && args.get_flag("emulate");
             let stride = args.get_flag("stride");
+            let find_bounds = args.get_flag("find-bounds");
             let solver_time_budget = args.get_one::<u64>("time-budget");
             let arg0 = expect_arg::<String>(args, "input-file")?;
             let extras = collect_arg_values(args, "extras");
@@ -113,7 +116,7 @@ fn main() -> Result<()> {
             let mut model = if !input_is_dimacs {
                 let mut model = if !input_is_btor2 {
                     let program = load_object_file(&input)?;
-                    let argv = [vec![arg0], extras].concat();
+                    let argv = [vec![arg0], extras.clone()].concat();
                     generate_model(&program, memory_size, max_heap, max_stack, &argv)?
                 } else {
                     parse_btor2_file(&input)
@@ -132,10 +135,28 @@ fn main() -> Result<()> {
                         vec![]
                     };
 
-                    for n in 0..unroll_depth {
-                        unroll_model(&mut model, n);
-                        if has_concrete_inputs {
-                            optimize_model_with_input(&mut model, &mut input_values)
+                    #[cfg(any(feature = "boolector", feature = "z3"))]
+                    if find_bounds {
+                        #[cfg(feature = "boolector")]
+                        let mut smt_solver = BoolectorSolver::new(None);
+                        #[cfg(feature = "z3")]
+                        let mut smt_solver = Z3SolverWrapper::new(None);
+                        compute_bounds(
+                            &mut model,
+                            has_concrete_inputs,
+                            &mut input_values,
+                            unroll_depth,
+                            prune,
+                            &mut smt_solver
+                        );
+                    }
+
+                    if !find_bounds {
+                        for n in 0..unroll_depth {
+                            unroll_model(&mut model, n);
+                            if has_concrete_inputs {
+                                optimize_model_with_input(&mut model, &mut input_values)
+                            }
                         }
                     }
                     if prune {
@@ -149,28 +170,6 @@ fn main() -> Result<()> {
                         replace_memory(&mut model);
                     }
 
-                    let timeout = solver_timeout.map(|&ms| Duration::from_millis(ms));
-                    
-                    let mut time_budget = solver_time_budget.map(
-                        |&ms| Duration::from_millis(ms)
-                    );
-
-                    // TODO: Refactor the subsequent loop (reasoning horizon)
-                    compute_reasoning_horizon(
-                        &mut model,
-                        has_concrete_inputs,
-                        &mut input_values,
-                        unroll_depth,
-                        prune,
-                        stride,
-                        &smt_solver,
-                        timeout,
-                        minimize,
-                        terminate_on_bad,
-                        one_query,
-                        &mut time_budget
-                    );
-
                     if renumber {
                         renumber_model(&mut model);
                     }
@@ -182,15 +181,18 @@ fn main() -> Result<()> {
             };
 
             #[cfg(feature = "boolector")]
-            if true {
+            if false {
                 let mut smt_solver = BoolectorSolver::new(None);
                 match &model {
                     Some(model) => {
                         let good = &model.good_states_initial[0];
-                        if smt_solver.is_always_false(good) {
+                        if smt_solver.solve(good) == SMTSolution::Sat {
+                            println!("Exit is reached for some paths!");
+                        }
+                        if smt_solver.is_always_true(good) {
                             println!("Exit is reached for all paths!");
                         } else {
-                            println!("Exit is not reached for some paths!");
+                            //println!("Exit is not reached for some paths!");
                         }
                     }
                     None => {}

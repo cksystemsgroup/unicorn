@@ -270,6 +270,12 @@ pub fn args() -> Command {
                         // .value_parser(value_parser!(u64)),
                 )
                 .arg(
+                    Arg::new("find-bounds")
+                        .help("Find the depths where the termination state is reached for some and all inputs")
+                        .long("find-bounds")
+                        .num_args(0)
+                )
+                .arg(
                     Arg::new("time-budget")
                         .help("Set an overall time budget in milliseconds")
                         .short('g')

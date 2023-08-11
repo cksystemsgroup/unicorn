@@ -288,8 +288,7 @@ pub mod boolector_impl {
                     self.visit(cond)
                 },
                 Node::Good { cond, .. } => {
-                    let bv_value = self.visit(cond).into_bv();
-                    bv_value.not().into()
+                    self.visit(cond)
                 },
                 Node::Comment(_) => panic!("cannot translate"),
             }
@@ -560,8 +559,7 @@ pub mod z3solver_impl {
                 },
                 Node::Good { cond, .. } => {
                     // TODO: It would be better if we would directly referece the condition instead of referencing the Good node in the OR'ed graph. That way Good conceptually remains as not producing any output and the graph that smt_solver.rs sees is still purely combinatorial.
-                    let z3_value = self.visit(cond).as_bv().expect("bv");
-                    z3_value.bvnot().into()
+                    self.visit(cond).clone()
                 },
                 Node::Comment(_) => panic!("cannot translate"),
             }
