@@ -33,68 +33,80 @@ pub fn compute_bounds<S: SMTSolver>(
     let mut prev_depth = 0;
     let mut depth = 1;
 
+    let mut lb_found = false;
+
+    let mut lower_bound = 0;
+    let mut upper_bound = 0;
+
     loop {
         for n in prev_depth..depth {
             unroll_model(model, n);
+
             if has_concrete_inputs {
                 optimize_model_with_input(model, input_values)
             }
         }
 
-        let good = &model.good_states_initial[0];
-        let n = model.good_states_initial.len();
-        let mut lb_found = false;
-        let mut lower_bound = 0;
+        let good_states_initial = maybe_prune_and_get_good_states(
+            &mut model.clone(),
+            prune
+        );
+
+        let good = &good_states_initial[0];
+        let n = good_states_initial.len();
+
         if !lb_found && (smt_solver.solve(good) == SMTSolution::Sat) {
             lb_found = true;
 
             let mut l = 0;
-            let mut r: isize = (n - 1) as isize;
+            let mut r: isize = (n - 1 - prev_depth) as isize;
             let mut m: usize = 0;
             while l <= r {
                 m = ((l + r) / 2) as usize;
-                if smt_solver.solve(&model.good_states_initial[m]) == SMTSolution::Unsat {
-                    r = (m as isize) - 1
-                } else {
+                if smt_solver.solve(&good_states_initial[m]) == SMTSolution::Sat {
                     lower_bound = n - m;
                     l = (m as isize) + 1
+                } else {
+                    r = (m as isize) - 1
                 }
             }
-        }
-        if lb_found {
             println!("Exit is reached for some paths: depth n={}", lower_bound);
-        } else {
-            debug!("Exit is not reached: depth n={}", n);
         }
 
-        let mut ub_found = false;
-        let mut upper_bound = 0;
-        if smt_solver.is_always_true(good) {
-            ub_found = true;
-
+        if lb_found && smt_solver.is_always_true(good) {
             let mut l = 0;
             let mut r: isize = (n - 1 - lower_bound) as isize;
             let mut m: usize = 0;
             while l <= r {
                 m = ((l + r) / 2) as usize;
-                if smt_solver.is_always_true(&model.good_states_initial[m]) {
+                if smt_solver.is_always_true(&good_states_initial[m]) {
                     upper_bound = n - m;
                     l = (m as isize) + 1
                 } else {
                     r = (m as isize) - 1
                 }
             }
-        }
-        if ub_found {
             println!("Exit is reached for all paths: depth n={}", upper_bound);
             break;
-        } else {
-            debug!("Exit is not reached: depth n={}", n);
         }
 
+        if depth == unroll_depth {
+            break;
+        }
         prev_depth = depth;
         depth = min(2*depth, unroll_depth);
     }
+}
+
+fn maybe_prune_and_get_good_states(
+    model: &mut Model,
+    prune: bool
+) -> Vec<NodeRef> {
+    if prune {
+        prune_model(model);
+    }
+
+    model.good_states_initial.clone()
 }
 
 pub fn compute_reasoning_horizon(
@@ -211,12 +223,6 @@ pub fn reason(
     }
 
     let bad_states_initial = model.bad_states_initial.clone();
-
-    /*let good = &model.good_states_initial[0];
-    let mut solver = BoolectorSolver::new(None);
-    if solver.solve(good) == SMTSolution::Sat {
-        println!("reason: Exit is reached for some paths: len={}", &model.good_states_initial.len());
-    }*/
 
     match smt_solver {
         #[rustfmt::skip]
