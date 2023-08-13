@@ -75,7 +75,7 @@ pub fn compute_bounds<S: SMTSolver>(
 
         if lb_found && smt_solver.is_always_true(good) {
             let mut l = 0;
-            let mut r: isize = (n - 1 - lower_bound) as isize;
+            let mut r: isize = (n - lower_bound) as isize;
             let mut m: usize = 0;
             while l <= r {
                 m = ((l + r) / 2) as usize;
