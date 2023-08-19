@@ -1,4 +1,4 @@
-use crate::unicorn::{Node, NodeRef, Model};
+use crate::unicorn::{Node, NodeRef, Model, NodeType};
 use crate::cli::{SmtType};
 use crate::unicorn::unroller::{prune_model, unroll_model};
 use crate::unicorn::optimize::{
@@ -13,6 +13,8 @@ use std::{
     cmp::min,
     time::{Duration,Instant}
 };
+use std::cell::RefCell;
+use std::rc::Rc;
 #[cfg(feature = "boolector")]
 use crate::unicorn::smt_solver::boolector_impl::BoolectorSolver;
 #[cfg(feature = "z3")]
@@ -55,39 +57,58 @@ pub fn compute_bounds<S: SMTSolver>(
         let good = &good_states_initial[0];
         let n = good_states_initial.len();
 
-        if !lb_found && (smt_solver.solve(good) == SMTSolution::Sat) {
-            lb_found = true;
+        if !lb_found {
+            let solution = smt_solver.solve(good);
+            if solution == SMTSolution::Sat {
+                lb_found = true;
 
-            let mut l = 0;
-            let mut r: isize = (n - 1 - prev_depth) as isize;
-            let mut m: usize = 0;
-            while l <= r {
-                m = ((l + r) / 2) as usize;
-                if smt_solver.solve(&good_states_initial[m]) == SMTSolution::Sat {
-                    lower_bound = n - m;
-                    l = (m as isize) + 1
-                } else {
-                    r = (m as isize) - 1
+                let mut l = 0;
+                let mut r: isize = (n - 1 - prev_depth) as isize;
+                let mut m: usize = 0;
+                while l <= r {
+                    m = ((l + r) / 2) as usize;
+                    if smt_solver.solve(&good_states_initial[m]) == SMTSolution::Sat {
+                        lower_bound = n - m;
+                        l = (m as isize) + 1
+                    } else {
+                        r = (m as isize) - 1
+                    }
                 }
+                println!("Exit is reached for some paths: depth n={}", lower_bound);
             }
-            println!("Exit is reached for some paths: depth n={}", lower_bound);
+            else if solution == SMTSolution::Timeout {
+                println!("Timeout! [n={}]", depth);
+                break;
+            }
         }
 
-        if lb_found && smt_solver.is_always_true(good) {
-            let mut l = 0;
-            let mut r: isize = (n - lower_bound) as isize;
-            let mut m: usize = 0;
-            while l <= r {
-                m = ((l + r) / 2) as usize;
-                if smt_solver.is_always_true(&good_states_initial[m]) {
-                    upper_bound = n - m;
-                    l = (m as isize) + 1
-                } else {
-                    r = (m as isize) - 1
+        if lb_found {
+            let solution = smt_solver.solve(&Rc::new(RefCell::new(
+                Node::Not {
+                    nid: 10,
+                    sort: NodeType::Word,
+                    value: good.clone(),
+                })));
+            if solution == SMTSolution::Unsat {
+                let mut l = 0;
+                let mut r: isize = (n - lower_bound) as isize;
+                let mut m: usize = 0;
+                while l <= r {
+                    m = ((l + r) / 2) as usize;
+                    if smt_solver.is_always_true(&good_states_initial[m]) {
+                        upper_bound = n - m;
+                        l = (m as isize) + 1
+                    } else {
+                        r = (m as isize) - 1
+                    }
                 }
+                println!("Exit is reached for all paths: depth n={}", upper_bound);
+                break;
             }
-            println!("Exit is reached for all paths: depth n={}", upper_bound);
-            break;
+            else if solution == SMTSolution::Timeout {
+                println!("Timeout! [n={}]", depth);
+                break;
+            }
         }
 
         if depth == unroll_depth {

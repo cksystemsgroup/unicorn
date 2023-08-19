@@ -137,10 +137,14 @@ fn main() -> Result<()> {
 
                     #[cfg(any(feature = "boolector", feature = "z3"))]
                     if find_bounds {
+                        let timeout = match solver_timeout {
+                            Some(&millis) => Some(Duration::from_millis(millis)),
+                            _ => None
+                        };
                         #[cfg(feature = "boolector")]
-                        let mut smt_solver = BoolectorSolver::new(None);
+                        let mut smt_solver = BoolectorSolver::new(timeout);
                         #[cfg(feature = "z3")]
-                        let mut smt_solver = Z3SolverWrapper::new(None);
+                        let mut smt_solver= Z3SolverWrapper::new(timeout);
                         compute_bounds(
                             &mut model,
                             has_concrete_inputs,

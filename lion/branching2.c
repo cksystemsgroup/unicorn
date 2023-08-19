@@ -11,6 +11,10 @@ uint64_t main() {
     exit(0);
   else {
     a = a - 1;
+    a = a - 1;
+    a = a - 1;
+    a = a - 1;
+    a = a - 1;
     exit(0);
   }
 }
