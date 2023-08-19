@@ -151,7 +151,8 @@ fn main() -> Result<()> {
                             &mut input_values,
                             unroll_depth,
                             prune,
-                            &mut smt_solver
+                            &mut smt_solver,
+                            0
                         );
                     }
 

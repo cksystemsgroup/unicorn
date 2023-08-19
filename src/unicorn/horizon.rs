@@ -14,6 +14,7 @@ use std::{
     time::{Duration,Instant}
 };
 use std::cell::RefCell;
+use std::cmp::max;
 use std::rc::Rc;
 #[cfg(feature = "boolector")]
 use crate::unicorn::smt_solver::boolector_impl::BoolectorSolver;
@@ -30,7 +31,8 @@ pub fn compute_bounds<S: SMTSolver>(
     input_values: &mut Vec<u64>,
     unroll_depth: usize,
     prune: bool,
-    smt_solver: &mut S
+    smt_solver: &mut S,
+    start: usize
 ) {
     let mut prev_depth = 0;
     let mut depth = 1;
@@ -57,13 +59,13 @@ pub fn compute_bounds<S: SMTSolver>(
         let good = &good_states_initial[0];
         let n = good_states_initial.len();
 
-        if !lb_found {
+        if (n >= start) && !lb_found {
             let solution = smt_solver.solve(good);
             if solution == SMTSolution::Sat {
                 lb_found = true;
 
                 let mut l = 0;
-                let mut r: isize = (n - 1 - prev_depth) as isize;
+                let mut r: isize = (n as isize) - (max(prev_depth, start) as isize);
                 let mut m: usize = 0;
                 while l <= r {
                     m = ((l + r) / 2) as usize;
