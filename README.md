@@ -1,4 +1,4 @@
-# Unicorn &#129412; [![Build Status](https://img.shields.io/github/actions/workflow/status/cksystemsgroup/unicorn/test.yml?branch=main)](https://github.com/cksystemsgroup/unicorn/actions) [![Rust Version](https://img.shields.io/badge/Rust-v1.64.0-yellow)](https://www.rust-lang.org/) [![](https://img.shields.io/tokei/lines/github/cksystemsgroup/unicorn)](https://github.com/cksystemsgroup/unicorn) [![License](https://img.shields.io/github/license/cksystemsgroup/unicorn)](https://github.com/cksystemsgroup/unicorn/blob/master/LICENSE) [![Unitary Fund](https://img.shields.io/badge/Supported%20By-UNITARY%20FUND-brightgreen.svg)](https://unitary.fund/)
+# Unicorn &#129412; [![Build Status](https://img.shields.io/github/actions/workflow/status/cksystemsgroup/unicorn/test.yml?branch=main)](https://github.com/cksystemsgroup/unicorn/actions) [![Rust Version](https://img.shields.io/badge/Rust-v1.72.0-yellow)](https://www.rust-lang.org/) [![](https://img.shields.io/tokei/lines/github/cksystemsgroup/unicorn)](https://github.com/cksystemsgroup/unicorn) [![License](https://img.shields.io/github/license/cksystemsgroup/unicorn)](https://github.com/cksystemsgroup/unicorn/blob/master/LICENSE) [![Unitary Fund](https://img.shields.io/badge/Supported%20By-UNITARY%20FUND-brightgreen.svg)](https://unitary.fund/)
 
 ***Symbolic Execution, Bounded Model Checking, and Code Optimization of RISC-V Code using Classical Solvers and Quantum Computers***
 
@@ -22,7 +22,7 @@ For more information on how Unicorn works check out our [paper](https://arxiv.or
 
 Unicorn is written in Rust and uses standard tools from the Rust toolchain whenever possible. The following steps will guide you through the process of building Unicorn on your machine from scratch.
 
-1. Install and bootstrap Rust: We recommend to use [https://rustup.rs](https://rustup.rs) for this because it is easiest to use, works on most systems, and helps to keep your toolchain up-to-date. Unicorn is tested against Rust v1.64.0 (or higher) and supports any of the following targets, just pick the appropriate one during bootstrapping:
+1. Install and bootstrap Rust: We recommend to use [https://rustup.rs](https://rustup.rs) for this because it is easiest to use, works on most systems, and helps to keep your toolchain up-to-date. Unicorn is tested against Rust v1.72.0 (or higher) and supports any of the following targets, just pick the appropriate one during bootstrapping:
    - x86_64-unknown-linux-gnu
    - x86_64-apple-darwin
    - x86_64-pc-windows-msvc
