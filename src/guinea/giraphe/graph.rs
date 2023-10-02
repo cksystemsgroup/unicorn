@@ -162,6 +162,15 @@ impl Giraphe {
                     roots.push(*nid);
                     node_lookup.insert(*nid, node);
                 }
+                Node::Good { nid, cond, .. } => {
+                    let child = noderef_to_nid(cond);
+                    node_to_children
+                        .entry(*nid)
+                        .or_insert_with(Vec::new)
+                        .append(&mut vec![child]);
+                    roots.push(*nid);
+                    node_lookup.insert(*nid, node);
+                }
                 Node::Comment(_) => unreachable!(),
             };
         }
@@ -489,6 +498,10 @@ impl Giraphe {
                 let spot = &noderef_to_nid(cond);
                 self.evaluate(spot)
             }
+            Node::Good { cond, .. } => {
+                let spot = &noderef_to_nid(cond);
+                self.evaluate(spot)
+            }
             Node::Comment(_) => unreachable!(),
         };
 
@@ -595,7 +608,8 @@ pub(crate) fn noderef_to_nid(n: &NodeRef) -> Nid {
         | Node::Input { nid, .. }
         | Node::Divu { nid, .. }
         | Node::Or { nid, .. }
-        | Node::Bad { nid, .. } => *nid,
+        | Node::Bad { nid, .. }
+        | Node::Good { nid, .. } => *nid,
         Node::Comment(_) => unreachable!(),
     }
 }

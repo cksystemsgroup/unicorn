@@ -67,6 +67,7 @@ impl Spot {
             Node::Next { .. } => "Next",
             Node::Input { .. } => "Input",
             Node::Bad { .. } => "Bad",
+            Node::Good { .. } => "Good",
             Node::Comment(_) => unreachable!(),
             Node::Divu { .. } => "Unsigned Division",
             Node::Or { .. } => "Or",
@@ -143,6 +144,7 @@ impl Spot {
             Node::Next { .. } => Color32::from_rgb(78, 121, 165),
             Node::Input { .. } => Color32::from_rgb(89, 161, 79),
             Node::Bad { .. } => Color32::from_rgb(225, 87, 89),
+            Node::Good { .. } => Color32::from_rgb(87, 225, 126),
             Node::Comment(_) => unreachable!(),
         }
     }

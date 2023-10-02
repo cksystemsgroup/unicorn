@@ -291,6 +291,7 @@ impl Giraphe {
             }
             Node::Input { .. } => None,
             Node::Bad { .. } => None,
+            Node::Good { .. } => None,
             Node::Comment(_) => unreachable!(),
             Node::Divu { left, right, .. } => {
                 let left = self.node_lookup.get(&noderef_to_nid(left)).unwrap();
