@@ -216,6 +216,7 @@ fn prune(ui: &mut Ui, data: &mut Guineacorn) {
                 data.cli2gui.minimize,
                 false,
                 false,
+                false
             ),
             #[cfg(feature = "boolector")]
             SmtType::Boolector => optimize_model_with_solver::<boolector_impl::BoolectorSolver>(
@@ -224,6 +225,7 @@ fn prune(ui: &mut Ui, data: &mut Guineacorn) {
                 data.cli2gui.minimize,
                 false,
                 false,
+                false
             ),
             #[cfg(feature = "z3")]
             SmtType::Z3 => optimize_model_with_solver::<z3solver_impl::Z3SolverWrapper>(
@@ -232,6 +234,7 @@ fn prune(ui: &mut Ui, data: &mut Guineacorn) {
                 data.cli2gui.minimize,
                 false,
                 false,
+                false
             ),
         }
         renumber_model(data.model.as_mut().unwrap());
@@ -302,6 +305,7 @@ fn do_unroll(data: &mut Guineacorn) {
                 parameters.minimize,
                 false,
                 false,
+                false
             ),
             #[cfg(feature = "boolector")]
             SmtType::Boolector => optimize_model_with_solver::<boolector_impl::BoolectorSolver>(
@@ -310,6 +314,7 @@ fn do_unroll(data: &mut Guineacorn) {
                 parameters.minimize,
                 false,
                 false,
+                false
             ),
             #[cfg(feature = "z3")]
             SmtType::Z3 => optimize_model_with_solver::<z3solver_impl::Z3SolverWrapper>(
@@ -318,6 +323,7 @@ fn do_unroll(data: &mut Guineacorn) {
                 parameters.minimize,
                 false,
                 false,
+                false
             ),
         }
 

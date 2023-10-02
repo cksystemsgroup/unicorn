@@ -4,6 +4,7 @@ mod guinea;
 mod quantum_annealing;
 mod unicorn;
 
+use crate::cli::InputError;
 #[cfg(feature = "gui")]
 use crate::guinea::gui::gui;
 use crate::quantum_annealing::dwave_api::sample_quantum_annealer;
@@ -28,7 +29,6 @@ use crate::unicorn::smt_solver::boolector_impl::*;
 use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
 use crate::unicorn::{Model, NodeRef, write_model};
 use crate::unicorn::horizon::{compute_bounds, compute_reasoning_horizon};
-
 use ::unicorn::disassemble::disassemble;
 use ::unicorn::emulate::EmulatorState;
 use anyhow::{Context, Result};
@@ -49,7 +49,8 @@ use std::{
     io::{stdout, Write},
     path::PathBuf,
     str::FromStr,
-    time::Duration
+    time::Duration,
+    usize
 };
 use crate::unicorn::optimize::{optimize_model_with_input};
 #[cfg(feature = "z3")]
@@ -112,12 +113,22 @@ fn main() -> Result<()> {
             let solver_time_budget = args.get_one::<u64>("time-budget");
             let arg0 = expect_arg::<String>(args, "input-file")?;
             let extras = collect_arg_values(args, "extras");
+            let input_limit = args.get_one::<u64>("input-limit").cloned();
+            let input_error = expect_arg::<InputError>(args, "input-error")?;
 
             let mut model = if !input_is_dimacs {
                 let mut model = if !input_is_btor2 {
                     let program = load_object_file(&input)?;
                     let argv = [vec![arg0], extras.clone()].concat();
-                    generate_model(&program, memory_size, max_heap, max_stack, &argv)?
+                    generate_model(
+                        &program,
+                        memory_size,
+                        max_heap,
+                        max_stack,
+                        input_limit.unwrap_or(u64::MAX),
+                        input_error,
+                        &argv,
+                    )?
                 } else {
                     parse_btor2_file(&input)
                 };
