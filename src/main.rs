@@ -110,6 +110,7 @@ fn main() -> Result<()> {
             let emulate_model = is_beator && args.get_flag("emulate");
             let stride = args.get_flag("stride");
             let find_bounds = args.get_flag("find-bounds");
+            let less_input = args.get_flag("less-input");
             let solver_time_budget = args.get_one::<u64>("time-budget");
             let arg0 = expect_arg::<String>(args, "input-file")?;
             let extras = collect_arg_values(args, "extras");
@@ -127,6 +128,7 @@ fn main() -> Result<()> {
                         max_stack,
                         input_limit.unwrap_or(u64::MAX),
                         input_error,
+                        less_input,
                         &argv,
                     )?
                 } else {
@@ -152,19 +154,29 @@ fn main() -> Result<()> {
                             Some(&millis) => Some(Duration::from_millis(millis)),
                             _ => None
                         };
-                        #[cfg(feature = "boolector")]
-                        let mut smt_solver = BoolectorSolver::new(timeout);
-                        #[cfg(feature = "z3")]
-                        let mut smt_solver= Z3SolverWrapper::new(timeout);
-                        compute_bounds(
-                            &mut model,
-                            has_concrete_inputs,
-                            &mut input_values,
-                            unroll_depth,
-                            prune,
-                            &mut smt_solver,
-                            0
-                        );
+                        match smt_solver {
+                            SmtType::Generic => {}
+                            #[cfg(feature = "boolector")]
+                            SmtType::Boolector => compute_bounds::<BoolectorSolver>(
+                                &mut model,
+                                has_concrete_inputs,
+                                &mut input_values,
+                                unroll_depth,
+                                prune,
+                                timeout,
+                                0
+                            ),
+                            #[cfg(feature = "z3")]
+                            SmtType::Z3 => compute_bounds::<Z3SolverWrapper>(
+                                &mut model,
+                                has_concrete_inputs,
+                                &mut input_values,
+                                unroll_depth,
+                                prune,
+                                timeout,
+                                0
+                            ),
+                        }
                     }
 
                     if !find_bounds {

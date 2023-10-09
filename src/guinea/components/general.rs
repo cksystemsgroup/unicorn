@@ -50,6 +50,7 @@ pub(crate) fn load(
                 32,
                 u64::MAX,
                 InputError::None,
+                false,
                 &argv,
             )
             .unwrap();

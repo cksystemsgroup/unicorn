@@ -31,7 +31,7 @@ pub fn compute_bounds<S: SMTSolver>(
     input_values: &mut Vec<u64>,
     unroll_depth: usize,
     prune: bool,
-    smt_solver: &mut S,
+    timeout: Option<Duration>,
     start: usize
 ) {
     let mut prev_depth = 0;
@@ -41,6 +41,8 @@ pub fn compute_bounds<S: SMTSolver>(
 
     let mut lower_bound = 0;
     let mut upper_bound = 0;
+
+    let mut smt_solver = S::new(timeout);
 
     loop {
         for n in prev_depth..depth {
@@ -88,7 +90,7 @@ pub fn compute_bounds<S: SMTSolver>(
             let solution = smt_solver.solve(&Rc::new(RefCell::new(
                 Node::Not {
                     nid: 10,
-                    sort: NodeType::Word,
+                    sort: NodeType::Bit,
                     value: good.clone(),
                 })));
             if solution == SMTSolution::Unsat {

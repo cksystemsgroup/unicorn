@@ -303,6 +303,12 @@ pub fn args() -> Command {
                         .num_args(0)
                 )
                 .arg(
+                    Arg::new("less-input")
+                        .help("Exclude inputs of lesser size than available")
+                        .long("less-input")
+                        .num_args(0)
+                )
+                .arg(
                     Arg::new("time-budget")
                         .help("Set an overall time budget in milliseconds")
                         .short('g')

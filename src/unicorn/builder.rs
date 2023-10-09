@@ -23,6 +23,7 @@ pub fn generate_model(
     max_stack: u32,
     available_input: u64,
     input_error: InputError,
+    less_input: bool,
     argv: &[String],
 ) -> Result<Model> {
     trace!("Program: {:?}", program);
@@ -33,7 +34,7 @@ pub fn generate_model(
         available_input,
         input_error,
     );
-    builder.generate_model(program, argv)?;
+    builder.generate_model(program, less_input, argv)?;
     Ok(builder.finalize())
 }
 
@@ -372,6 +373,13 @@ impl ModelBuilder {
         let not_right_node = self.new_not_word(right);
         let and_node = self.new_and_word(not_left_node, not_right_node);
         self.new_not_word(and_node)
+    }
+
+    fn new_or_bit(&mut self, left: NodeRef, right: NodeRef) -> NodeRef {
+        let not_left_node = self.new_not_bit(left);
+        let not_right_node = self.new_not_bit(right);
+        let and_node = self.new_and_bit(not_left_node, not_right_node);
+        self.new_not_bit(and_node)
     }
 
     // We represent `xor(a, b)` as `sub(or(a, b), and(a, b))` instead.
@@ -1219,7 +1227,7 @@ impl ModelBuilder {
         self.new_ite(activate, self.one_bit.clone(), flow, NodeType::Bit)
     }
 
-    fn generate_model(&mut self, program: &Program, argv: &[String]) -> Result<()> {
+    fn generate_model(&mut self, program: &Program, less_input: bool, argv: &[String]) -> Result<()> {
         let data_section_start = program.data.address;
         let data_section_end = program.data.address + program.data.content.len() as u64;
         let data_start = data_section_start & !(size_of::<u64>() as u64 - 1);
@@ -1447,7 +1455,7 @@ impl ModelBuilder {
         let is_input_depleted = self.new_not_bit(is_input_available.clone());
 
         // If the input limitation is not reached or read shouldn't error out initialize A0 with zeroes, else set -1 to a0 and error code to a1.
-        let should_error_out = self.new_and_bit(is_input_depleted, should_return_error.clone());
+        let should_error_out = self.new_and_bit(is_input_depleted.clone(), should_return_error.clone());
         let minus_one = self.new_const((-1i64) as u64);
         let init_a0_value = self.new_ite(
             should_error_out.clone(),
@@ -1590,7 +1598,7 @@ impl ModelBuilder {
             available_input.clone(),
             NodeType::Word,
         );
-        self.new_next(available_input, next_counter_value, NodeType::Word);
+        self.new_next(available_input.clone(), next_counter_value, NodeType::Word);
 
         self.current_nid = 45000000;
         let active_brk = self.new_and_bit(self.ecall_flow.clone(), is_brk.clone());
@@ -1623,7 +1631,7 @@ impl ModelBuilder {
 
         self.current_nid = 46000000;
         self.new_next(self.kernel_mode.clone(), kernel_flow, NodeType::Bit);
-        let terminate = self.new_or(active_exit.clone(), self.terminate_mode.clone());
+        let terminate = self.new_or_bit(active_exit.clone(), self.terminate_mode.clone());
         self.new_next(self.terminate_mode.clone(), terminate, NodeType::Bit);
 
         self.new_comment("control flow".to_string());
@@ -1742,8 +1750,10 @@ impl ModelBuilder {
 
         self.new_comment("checking good exit state".to_string());
 
-        let good_cond = self.new_and_bit(self.terminate_mode.clone(), is_exit);
-        self.new_good(good_cond, "exit-state");
+        let term_cond = self.new_and_bit(self.terminate_mode.clone(), is_exit);
+        let check_available_input = self.new_ult(self.zero_word.clone(), available_input);
+        let term_cond_depleted_input = self.new_and_bit(term_cond.clone(), is_input_depleted);
+        self.new_good(if less_input { term_cond_depleted_input } else { term_cond }, "exit-state");
 
         Ok(())
     }
