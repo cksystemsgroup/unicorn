@@ -43,12 +43,12 @@ uint64_t* VERIFIER_nondet_p_uchar() {
 uint64_t VERIFIER_nondet_ushort() {
   uint64_t x = 0;
   read(0, &x, SIZEOFUINT16);
-  return x;
+  return atoi((uint8_t*)&x);
 }
 
 // Returns a zero-extended `unsigned int` (aka. `uint32_t`) value.
 uint64_t VERIFIER_nondet_uint() {
   uint64_t x = 0;
   read(0, &x, SIZEOFUINT32);
-  return x;
+  return atoi((uint8_t*)&x);
 }

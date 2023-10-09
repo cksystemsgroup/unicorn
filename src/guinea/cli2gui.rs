@@ -348,7 +348,7 @@ fn is_concurrent(data: &mut Guineacorn) -> bool {
             if !thread.is_finished() {
                 return true;
             }
-            let thread = std::mem::replace(&mut data.loading_data.processing_thread, None).unwrap();
+            let thread = data.loading_data.processing_thread.take().unwrap();
             let serial_model = thread.join();
             match serial_model {
                 Ok(model) => {

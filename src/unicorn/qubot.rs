@@ -877,17 +877,13 @@ impl InputEvaluator {
                         if !value_x1 {
                             if !value_x2 {
                                 aux = false;
-                            } else if !value_x3 {
-                                aux = true;
                             } else {
-                                aux = false;
+                                aux = !value_x3;
                             }
                         } else if value_x2 {
                             aux = true;
-                        } else if value_x3 {
-                            aux = false;
                         } else {
-                            aux = true;
+                            aux = !value_x3;
                         }
 
                         self.fixed_qubits.insert(z, aux);

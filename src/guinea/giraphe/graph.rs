@@ -296,7 +296,7 @@ impl Giraphe {
     }
 
     pub(crate) fn evaluate(&mut self, nid: &Nid) -> Value {
-        let mut spot = self.node_lookup.get_mut(nid).unwrap();
+        let spot = self.node_lookup.get_mut(nid).unwrap();
         spot.old_value = spot.current_value.clone();
 
         if self.tick == spot.tick {
@@ -505,7 +505,7 @@ impl Giraphe {
             Node::Comment(_) => unreachable!(),
         };
 
-        let mut spot = self.node_lookup.get_mut(nid).unwrap();
+        let spot = self.node_lookup.get_mut(nid).unwrap();
         spot.current_value = new_value.clone();
         new_value
     }
