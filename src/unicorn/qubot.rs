@@ -767,6 +767,12 @@ pub struct InputEvaluator {
     pub fixed_qubits: HashMap<Qubit, bool>,
 }
 
+impl Default for InputEvaluator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InputEvaluator {
     pub fn new() -> Self {
         Self {

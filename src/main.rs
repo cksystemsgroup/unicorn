@@ -2,26 +2,31 @@ mod cli;
 #[cfg(feature = "gui")]
 mod guinea;
 mod quantum_annealing;
-mod unicorn;
 
 #[cfg(feature = "gui")]
 use crate::guinea::gui::gui;
 use crate::quantum_annealing::dwave_api::sample_quantum_annealer;
-use crate::unicorn::bitblasting::bitblast_model;
-use crate::unicorn::bitblasting_dimacs::write_dimacs_model;
-use crate::unicorn::bitblasting_printer::write_btor2_model;
-use crate::unicorn::btor2file_parser::parse_btor2_file;
-use crate::unicorn::builder::generate_model;
-use crate::unicorn::codegen::compile_model_into_program;
-use crate::unicorn::dimacs_parser::load_dimacs_as_gatemodel;
-use crate::unicorn::emulate_loader::load_model_into_emulator;
-use crate::unicorn::memory::replace_memory;
-use crate::unicorn::optimize::{optimize_model_with_input, optimize_model_with_solver};
-use crate::unicorn::qubot::{InputEvaluator, Qubot};
-use crate::unicorn::sat_solver::solve_bad_states;
-use crate::unicorn::smt_solver::*;
-use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
-use crate::unicorn::write_model;
+use unicorn::unicorn::bitblasting::bitblast_model;
+use unicorn::unicorn::bitblasting_dimacs::write_dimacs_model;
+use unicorn::unicorn::bitblasting_printer::write_btor2_model;
+use unicorn::unicorn::btor2file_parser::parse_btor2_file;
+use unicorn::unicorn::builder::generate_model;
+use unicorn::unicorn::codegen::compile_model_into_program;
+use unicorn::unicorn::dimacs_parser::load_dimacs_as_gatemodel;
+use unicorn::unicorn::emulate_loader::load_model_into_emulator;
+use unicorn::unicorn::memory::replace_memory;
+use unicorn::unicorn::optimize::{optimize_model_with_input, optimize_model_with_solver};
+use unicorn::unicorn::qubot::{InputEvaluator, Qubot};
+#[cfg(any(feature = "kissat", feature = "cadical", feature = "varisat"))]
+use unicorn::unicorn::sat_solver::*;
+use unicorn::unicorn::smt_solver::*;
+
+#[cfg(feature = "boolector")]
+use unicorn::unicorn::boolector_impl;
+use unicorn::unicorn::unroller::{prune_model, renumber_model, unroll_model};
+use unicorn::unicorn::write_model;
+#[cfg(feature = "z3")]
+use unicorn::unicorn::z3solver_impl;
 
 use ::unicorn::disassemble::disassemble;
 use ::unicorn::emulate::EmulatorState;
@@ -38,6 +43,7 @@ use std::{
     str::FromStr,
     time::Duration,
 };
+use unicorn::unicorn::quarc::{evaluate_input, QuantumCircuit};
 
 fn main() -> Result<()> {
     let matches = cli::args().get_matches();
@@ -68,9 +74,9 @@ fn main() -> Result<()> {
 
             Ok(())
         }
-        Some(("beator", args)) | Some(("qubot", args)) => {
+        Some(("beator", args)) | Some(("qubot", args)) | Some(("quarc", args)) => {
             let is_beator = matches.subcommand().unwrap().0 == "beator";
-
+            let is_quarc = matches.subcommand().unwrap().0 == "quarc";
             let input = expect_arg::<PathBuf>(args, "input-file")?;
             let output = expect_optional_arg::<PathBuf>(args, "output-file")?;
             let unroll = args.get_one::<usize>("unroll-model").cloned();
@@ -205,7 +211,33 @@ fn main() -> Result<()> {
                     let gate_model = bitblast_model(&model.unwrap(), true, 64);
 
                     if sat_solver != SatType::None {
-                        solve_bad_states(&gate_model, sat_solver, terminate_on_bad, one_query)?
+                        match sat_solver {
+                            SatType::None => unreachable!(),
+                            #[cfg(feature = "kissat")]
+                            SatType::Kissat => {
+                                let _ = process_all_bad_states::<kissat_impl::KissatSolver>(
+                                    &gate_model,
+                                    terminate_on_bad,
+                                    one_query,
+                                );
+                            }
+                            #[cfg(feature = "varisat")]
+                            SatType::Varisat => {
+                                let _ = process_all_bad_states::<varisat_impl::VarisatSolver>(
+                                    &gate_model,
+                                    terminate_on_bad,
+                                    one_query,
+                                );
+                            }
+                            #[cfg(feature = "cadical")]
+                            SatType::Cadical => {
+                                let _ = process_all_bad_states::<cadical_impl::CadicalSolver>(
+                                    &gate_model,
+                                    terminate_on_bad,
+                                    one_query,
+                                );
+                            }
+                        }
                     }
 
                     if output_to_stdout {
@@ -227,6 +259,42 @@ fn main() -> Result<()> {
                 } else if let Some(ref output_path) = output {
                     let file = File::create(output_path)?;
                     write_model(&model.unwrap(), file)?;
+                }
+            } else if is_quarc {
+                let m = model.unwrap();
+                let mut qc = QuantumCircuit::new(&m, 64); // 64 is a paramater describing wordsize
+                                                          // TODO: make wordsize parameter customizable from command line
+                let _ = qc.process_model(1);
+                if has_concrete_inputs {
+                    let inputs = expect_optional_arg::<String>(args, "inputs")?;
+                    let total_variables = qc.input_qubits.len();
+
+                    if let Some(all_inputs) = inputs {
+                        let instances: Vec<&str> = all_inputs.split('-').collect();
+
+                        for instance in instances {
+                            let mut values: Vec<i64> = instance
+                                .split(',')
+                                .map(|x| i64::from_str(x).unwrap())
+                                .collect();
+                            while values.len() < total_variables {
+                                values.push(0);
+                            }
+                            println!(
+                                "{}\n",
+                                evaluate_input(
+                                    &values,
+                                    &qc.output_oracle,
+                                    &qc.input_qubits,
+                                    &qc.circuit_stack,
+                                    &qc.dependencies
+                                )
+                                .0
+                            );
+                        }
+                    } else {
+                        panic!("This part of the code should be unreachable.");
+                    }
                 }
             } else {
                 let is_ising = args.get_flag("ising");
@@ -278,6 +346,7 @@ fn main() -> Result<()> {
 
             Ok(())
         }
+
         Some(("dwave", args)) => {
             let input = args.get_one::<String>("input-file").unwrap();
             let runs = *args.get_one::<u32>("num-runs").unwrap();

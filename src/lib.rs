@@ -4,6 +4,7 @@ pub mod util;
 pub mod disassemble;
 pub mod emulate;
 pub mod engine;
+pub mod unicorn;
 
 use riscu::{load_object_file, Program};
 use std::path::Path;

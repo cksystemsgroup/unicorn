@@ -1,0 +1,7 @@
+1 sort bitvec 8
+2 input 1
+4 state 1
+9 constd 1 255
+10 init 1 4 9
+5 sub 1 4 2
+6 next 1 4 5

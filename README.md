@@ -57,8 +57,16 @@ selfie -c <SOURCE_CODE_FILE> -o <BINARY_FILE>
 
 To display the available subcommands that Unicorn has you can type `./target/debug/unicorn --help`, or to display subcommand options `./target/debug/unicorn <SUBCOMMAND> --help`.
 
-Currently, there are 3 main commands:
-### 1. Generate a BTOR2 file from a binary
+We give a short tutorial for 3 commands in the following sections:
+
+<ol>
+    <li><a href="#beator">beator</a> to generate BTOR2 files.</li>
+    <li><a href="#quarc">quarc</a> to generate quantum circuits.</li>
+    <li><a href="#qubot">qubot</a> to generate QUBO/ISING models.</li>
+</ol>
+
+<h4 id="beator">1. Generate a BTOR2 file from a binary</h3>
+
 ```sh
 ./target/debug/unicorn beator <BINARY_FILE> --unroll <NUM_STATE_TRANSITIONS> --solver boolector --out <BTOR2_FILE>
 ```
@@ -66,8 +74,42 @@ The above command generates a BTOR2 file, while the unroll option specifies how 
 
 There are more options. For example, you can add `--bitblast` to the command, and the BTOR2 file will represent a logic (combinatorial) circuit.
 
+<h4 id="quarc"> 2. Quantum Circuits with QUARC </h4>
+QUARC builds quantum circuits, more concretely it builds oracles for Grover's algorithm. You can build and test a quantum circuit:
 
-### 2. Generate and/or test a QUBO of the binary
+```sh
+target/debug/unicorn quarc <INPUT_FILE> --unroll <NUM_STATE_TRANSITIONS> --solver <SMT_SOLVER> --inputs <TEST_THESE_INPUTS>
+```
+
+Which for example can be
+
+```sh
+target/debug/unicorn quarc examples/selfie/d.m --unroll 84 --inputs 42-49-0
+```
+
+The above command will unroll the finite state machine of the program `d.m` 84 times, and it will execute inputs 42, 49 and 0 in the oracle. The output is the following:
+
+```
+******* QUANTUM CIRCUIT STATS ********
+Qubits required: 384
+Total gates: 2968
+Single-qubit gates: 343
+MCX gates: 2625
+Max. controls in MCX: 18
+**************************************
+[42] evaluates to true
+
+[49] evaluates to true
+
+[0] evaluates to false
+```
+Meaning that inputs `42` and `49` makes the oracle evaluate to `true`, while input `0` makes de oracle evaluate to `false`.
+
+A Python binding is coming soon!
+
+<h4 id="qubot"> 3. QUBOT </h4>
+Similarly, QUBOT can also build and test its models.
+
 ```sh
 ./target/debug/unicorn qubot <BINARY_FILE> --unroll <NUM_STATE_TRANSITIONS> --solver <SMT_SOLVER> --out <QUBO_FILE> --inputs 42,32;34
 ```

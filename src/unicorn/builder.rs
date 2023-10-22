@@ -1,6 +1,11 @@
-use crate::unicorn::{Model, Nid, Node, NodeRef, NodeType};
+use crate::{
+    engine,
+    unicorn::{Model, Nid, Node, NodeRef, NodeType},
+    util,
+};
 use anyhow::{Context, Result};
 use byteorder::{ByteOrder, LittleEndian};
+use engine::system::{prepare_unix_stack, SyscallId, NUMBER_OF_REGISTERS};
 use log::{debug, trace, warn};
 use riscu::{decode, types::*, Instruction, Program, Register};
 use std::cell::RefCell;
@@ -8,8 +13,7 @@ use std::collections::HashMap;
 use std::mem::size_of;
 use std::ops::Range;
 use std::rc::Rc;
-use unicorn::engine::system::{prepare_unix_stack, SyscallId, NUMBER_OF_REGISTERS};
-use unicorn::util::next_multiple_of;
+use util::next_multiple_of;
 
 //
 // Public Interface
@@ -33,7 +37,7 @@ pub fn generate_model(
 //
 
 const INSTRUCTION_SIZE: u64 = riscu::INSTRUCTION_SIZE as u64;
-const PAGE_SIZE: u64 = unicorn::engine::system::PAGE_SIZE as u64;
+const PAGE_SIZE: u64 = engine::system::PAGE_SIZE as u64;
 const WORD_SIZE_MASK: u64 = riscu::WORD_SIZE as u64 - 1;
 const BITS_PER_BYTE: u64 = 8;
 

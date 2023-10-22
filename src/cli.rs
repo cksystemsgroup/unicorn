@@ -261,6 +261,111 @@ pub fn args() -> Command {
                 )
         )
         .subcommand(
+            Command::new("quarc")
+            .about("Generate quantum circuits from a RISC-U ELF binary file ")
+            .arg(
+                Arg::new("input-file")
+                    .help("If --from-btor2 flag is not passed, then RISC-V ELF binary to be converted, else a BTOR2 file.")
+                    .num_args(1)
+                    .value_name("FILE")
+                    .required(true),
+            )
+            .arg(
+                Arg::new("sat-solver")
+                    .help("SAT solver used for bad-state reasoning")
+                    .long("sat-solver")
+                    .num_args(1)
+                    .value_name("SOLVER")
+                    .value_parser(value_parser_sat_type())
+                    .default_value(Into::<&str>::into(SatType::None)),
+            )
+            .arg(
+                Arg::new("dynamic-memory")
+                    .help("Pass this flag to compile a program with dynamic quantum memory")
+                    .short('d')
+                    .long("dynamic-memory")
+            )
+            .arg(
+                Arg::new("from-btor2")
+                    .help("Pass this flag if the input file is a BTOR2 file.")
+                    .short('f')
+                    .long("from-btor2")
+            )
+            .arg(
+                Arg::new("output-file")
+                    .help("Output path for the generated QUBO model")
+                    .short('o')
+                    .long("out")
+                    .num_args(1)
+            )
+            .arg(
+                Arg::new("max-heap")
+                    .help("Number of machine-words usable as heap")
+                    .long("max-heap")
+                    .num_args(1)
+                    .value_name("NUMBER")
+                    .default_value(DEFAULT_MAX_HEAP)
+                    .value_parser(value_parser!(u32)),
+            )
+            .arg(
+                Arg::new("max-stack")
+                    .help("Number of machine-words usable as stack")
+                    .long("max-stack")
+                    .num_args(1)
+                    .value_name("NUMBER")
+                    .default_value(DEFAULT_MAX_STACK)
+                    .value_parser(value_parser!(u32)),
+            )
+            .arg(
+                Arg::new("memory")
+                    .help("Total size of memory in MiB [possible: 1 .. 1024]")
+                    .long("memory")
+                    .num_args(1)
+                    .value_name("NUMBER")
+                    .default_value(DEFAULT_MEMORY_SIZE)
+                    .value_parser(value_parser_memory_size()),
+            )
+            .arg(
+                Arg::new("inputs")
+                    .help("Provide inputs to evaluate the model, separate by commas the values for a single instance, and with semicolon for various instances.")
+                    .short('i')
+                    .long("inputs")
+                    .num_args(1)
+            )
+            .arg(
+                Arg::new("smt-solver")
+                    .help("SMT solver used for optimization")
+                    .short('s')
+                    .long("solver")
+                    .num_args(1)
+                    .value_name("SOLVER")
+                    .value_parser(value_parser_smt_type())
+                    .default_value(Into::<&str>::into(SmtType::Generic)),
+            )
+            .arg(
+                Arg::new("unroll-model")
+                    .help("Number of instructions to unroll from model")
+                    .short('u')
+                    .long("unroll")
+                    .num_args(1)
+                    .value_name("NUMBER")
+                    .value_parser(value_parser!(usize)),
+            )
+            .arg(
+                Arg::new("from-dimacs")
+                    .help("Consume DIMACS instead of RISC-U inputs")
+                    .long("from-dimacs")
+            )
+            .arg(
+                Arg::new("extras")
+                    .help("Arguments passed to emulated program")
+                    .value_name("ARGUMENTS")
+                    .last(true)
+                    .allow_hyphen_values(true)
+                    .num_args(1..)
+            ),
+        )
+        .subcommand(
             Command::new("qubot")
                 .about("Create a QUBO model for a RISC-V ELF binary")
                 .arg(

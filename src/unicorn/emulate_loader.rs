@@ -1,8 +1,11 @@
-use crate::unicorn::{Model, Node, NodeRef, NodeType};
+use crate::{
+    emulate, engine,
+    unicorn::{Model, Node, NodeRef, NodeType},
+};
+use emulate::{EmulatorState, EmulatorValue};
+use engine::system::NUMBER_OF_REGISTERS;
 use log::{debug, trace, warn};
 use riscu::Register;
-use unicorn::emulate::{EmulatorState, EmulatorValue};
-use unicorn::engine::system::NUMBER_OF_REGISTERS;
 
 //
 // Public Interface

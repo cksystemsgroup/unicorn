@@ -1,0 +1,9 @@
+1 sort bitvec 8
+2 input 1
+4 state 1
+9 constd 1 50
+10 init 1 4 9
+5 udiv 1 2 4
+6 next 1 4 5
+7 eq 1 4 4
+8 bad 7
