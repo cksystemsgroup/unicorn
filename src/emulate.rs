@@ -242,11 +242,13 @@ fn execute(state: &mut EmulatorState, instr: Instruction) {
         Instruction::Ld(itype) => exec_ld(state, itype),
         Instruction::Lbu(itype) => exec_lbu(state, itype),
         Instruction::Lhu(itype) => exec_lhu(state, itype),
+        Instruction::Lwu(itype) => exec_lwu(state, itype),
         Instruction::Sb(stype) => exec_sb(state, stype),
         Instruction::Sh(stype) => exec_sh(state, stype),
         Instruction::Sw(stype) => exec_sw(state, stype),
         Instruction::Sd(stype) => exec_sd(state, stype),
         Instruction::Addi(itype) => exec_addi(state, itype),
+        Instruction::Slti(itype) => exec_slti(state, itype),
         Instruction::Sltiu(itype) => exec_sltiu(state, itype),
         Instruction::Xori(itype) => exec_xori(state, itype),
         Instruction::Ori(itype) => exec_ori(state, itype),
@@ -263,6 +265,7 @@ fn execute(state: &mut EmulatorState, instr: Instruction) {
         Instruction::Sll(rtype) => exec_sll(state, rtype),
         Instruction::Slt(rtype) => exec_slt(state, rtype),
         Instruction::Sltu(rtype) => exec_sltu(state, rtype),
+        Instruction::Xor(rtype) => exec_xor(state, rtype),
         Instruction::Srl(rtype) => exec_srl(state, rtype),
         Instruction::Sra(rtype) => exec_sra(state, rtype),
         Instruction::Or(rtype) => exec_or(state, rtype),
@@ -275,9 +278,13 @@ fn execute(state: &mut EmulatorState, instr: Instruction) {
         Instruction::Addw(rtype) => exec_addw(state, rtype),
         Instruction::Subw(rtype) => exec_subw(state, rtype),
         Instruction::Sllw(rtype) => exec_sllw(state, rtype),
+        Instruction::Srlw(rtype) => exec_srlw(state, rtype),
+        Instruction::Sraw(rtype) => exec_sraw(state, rtype),
         Instruction::Mulw(rtype) => exec_mulw(state, rtype),
         Instruction::Divw(rtype) => exec_divw(state, rtype),
+        Instruction::Divuw(rtype) => exec_divuw(state, rtype),
         Instruction::Remw(rtype) => exec_remw(state, rtype),
+        Instruction::Remuw(rtype) => exec_remuw(state, rtype),
         Instruction::Ecall(_itype) => exec_ecall(state),
         // TODO: Cover all needed instructions here.
         _ => unimplemented!("not implemented: {:?}", instr),
@@ -481,6 +488,17 @@ fn exec_lw(state: &mut EmulatorState, itype: IType) {
     state.pc_next();
 }
 
+// rd = z64(mem32[rs1 + u64(imm{12})])
+// pc = pc + 4
+fn exec_lwu(state: &mut EmulatorState, itype: IType) {
+    let rs1_value = state.get_reg(itype.rs1());
+    let address = rs1_value.wrapping_add(itype.imm() as u64);
+    let rd_value = state.get_mem_typed::<u32>(address) as u64;
+    trace_itype(state, "lwu", itype, rd_value);
+    state.set_reg(itype.rd(), rd_value);
+    state.pc_next();
+}
+
 // rd = mem[rs1 + s64(imm{12})]
 // pc = pc + instruction_length
 fn exec_ld(state: &mut EmulatorState, itype: IType) {
@@ -556,6 +574,18 @@ fn exec_addiw(state: &mut EmulatorState, itype: IType) {
     state.pc_next();
 }
 
+// rd = 1                     ||| if (rs1 <s s64(imm{12}))
+// rd = 0                     ||| otherwise
+// pc = pc + 4
+fn exec_slti(state: &mut EmulatorState, itype: IType) {
+    let rs1_value = state.get_reg(itype.rs1());
+    let condition = (rs1_value as i64) < itype.imm();
+    let rd_value = EmulatorValue::from(condition);
+    trace_itype(state, "slti", itype, rd_value);
+    state.set_reg(itype.rd(), rd_value);
+    state.pc_next();
+}
+
 // rd = 1                     ||| if (rs1 <u s64(imm{12}))
 // rd = 0                     ||| otherwise
 // pc = pc + instruction_length
@@ -565,6 +595,17 @@ fn exec_sltiu(state: &mut EmulatorState, itype: IType) {
     let rd_value = EmulatorValue::from(condition);
     trace_itype(state, "sltiu", itype, rd_value);
     state.set_reg(itype.rd(), rd_value);
+    state.pc_next();
+}
+
+// rd = rs1 ^ rs2
+// pc = pc + 4
+fn exec_xor(state: &mut EmulatorState, rtype: RType) {
+    let rs1_value = state.get_reg(rtype.rs1());
+    let rs2_value = state.get_reg(rtype.rs2());
+    let rd_value = rs1_value ^ rs2_value;
+    trace_rtype(state, "xor", rtype, rd_value);
+    state.set_reg(rtype.rd(), rd_value);
     state.pc_next();
 }
 
@@ -724,6 +765,28 @@ fn exec_sllw(state: &mut EmulatorState, rtype: RType) {
     state.pc_next();
 }
 
+// rd = s64(rs1{32} >>u z32(rs2{6}))
+// pc = pc + 4
+fn exec_srlw(state: &mut EmulatorState, rtype: RType) {
+    let rs1_value = state.get_reg(rtype.rs1());
+    let rs2_value = state.get_reg(rtype.rs2());
+    let rd_value = (rs1_value as u32).wrapping_shr(rs2_value as u32) as u64;
+    trace_rtype(state, "srlw", rtype, rd_value);
+    state.set_reg(rtype.rd(), rd_value);
+    state.pc_next();
+}
+
+// rd = s64(rs1{32} >>s z32(rs2{6}))
+// pc = pc + 4
+fn exec_sraw(state: &mut EmulatorState, rtype: RType) {
+    let rs1_value = state.get_reg(rtype.rs1());
+    let rs2_value = state.get_reg(rtype.rs2());
+    let rd_value = (rs1_value as i32).wrapping_shr(rs2_value as u32) as u64;
+    trace_rtype(state, "sraw", rtype, rd_value);
+    state.set_reg(rtype.rd(), rd_value);
+    state.pc_next();
+}
+
 // rd = rs1 >>u z32(rs2{6})
 // pc = pc + instruction_length
 fn exec_srl(state: &mut EmulatorState, rtype: RType) {
@@ -852,6 +915,18 @@ fn exec_divu(state: &mut EmulatorState, rtype: RType) {
     state.pc_next();
 }
 
+// rd = s64(rs1{32} /u rs2{32})
+// pc = pc + 4
+fn exec_divuw(state: &mut EmulatorState, rtype: RType) {
+    let rs1_value = state.get_reg(rtype.rs1());
+    let rs2_value = state.get_reg(rtype.rs2());
+    assert!((rs2_value as u32) != 0, "check for non-zero divisor");
+    let rd_value = (rs1_value as u32).wrapping_div(rs2_value as u32) as u64;
+    trace_rtype(state, "divuw", rtype, rd_value);
+    state.set_reg(rtype.rd(), rd_value);
+    state.pc_next();
+}
+
 // rd = rs1 %s rs2
 // pc = pc + 4
 fn exec_rem(state: &mut EmulatorState, rtype: RType) {
@@ -884,6 +959,18 @@ fn exec_remu(state: &mut EmulatorState, rtype: RType) {
     assert!(rs2_value != 0, "check for non-zero divisor");
     let rd_value = rs1_value.wrapping_rem(rs2_value);
     trace_rtype(state, "remu", rtype, rd_value);
+    state.set_reg(rtype.rd(), rd_value);
+    state.pc_next();
+}
+
+// rd = s64(rs1{32} %u rs2{32})
+// pc = pc + 4
+fn exec_remuw(state: &mut EmulatorState, rtype: RType) {
+    let rs1_value = state.get_reg(rtype.rs1());
+    let rs2_value = state.get_reg(rtype.rs2());
+    assert!((rs2_value as u32) != 0, "check for non-zero divisor");
+    let rd_value = (rs1_value as u32).wrapping_rem(rs2_value as u32) as u64;
+    trace_rtype(state, "remuw", rtype, rd_value);
     state.set_reg(rtype.rd(), rd_value);
     state.pc_next();
 }

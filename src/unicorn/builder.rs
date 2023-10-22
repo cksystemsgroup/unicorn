@@ -498,10 +498,9 @@ impl ModelBuilder {
     fn model_addiw(&mut self, itype: IType) {
         let imm_node = self.new_const(itype.imm() as u64);
         let add_node = self.new_add(self.reg_node(itype.rs1()), imm_node);
-        let thirtytwo = self.new_const(32); // for (val << 32) >>s 32
-        let sll_node = self.new_sll(add_node, thirtytwo.clone());
-        let sra_node = self.new_sra(sll_node, thirtytwo);
-        self.reg_flow_ite(itype.rd(), sra_node);
+        let mask32 = self.new_const(u32::MAX as u64);
+        let and_node = self.new_and_bit(add_node, mask32);
+        self.reg_flow_ite(itype.rd(), and_node);
     }
 
     fn model_xori(&mut self, itype: IType) {
@@ -532,11 +531,11 @@ impl ModelBuilder {
     // We represent `slliw(a, n)` as `(a << (n + 32)) >>s 32` instead.
     fn model_slliw(&mut self, itype: IType) {
         assert!(itype.imm() < 32, "immediate within bounds");
-        let imm_node = self.new_const(itype.imm() as u64 + 32);
-        let thirtytwo = self.new_const(32); // for val >>s 32
+        let imm_node = self.new_const(itype.imm() as u64);
         let sll_node = self.new_sll(self.reg_node(itype.rs1()), imm_node);
-        let sra_node = self.new_sra(sll_node, thirtytwo);
-        self.reg_flow_ite(itype.rd(), sra_node);
+        let mask32 = self.new_const(u32::MAX as u64);
+        let and_node = self.new_and_bit(sll_node, mask32);
+        self.reg_flow_ite(itype.rd(), and_node);
     }
 
     fn model_sllw(&mut self, rtype: RType) {
@@ -567,11 +566,11 @@ impl ModelBuilder {
     fn model_srliw(&mut self, itype: IType) {
         assert!(itype.imm() < 32, "immediate within bounds");
         assert!(itype.imm() != 0, "modeling broken for zero-shift");
-        let imm_node = self.new_const(itype.imm() as u64 + 32);
-        let thirtytwo = self.new_const(32); // for val << 32
-        let sll_node = self.new_sll(self.reg_node(itype.rs1()), thirtytwo);
-        let srl_node = self.new_srl(sll_node, imm_node);
-        self.reg_flow_ite(itype.rd(), srl_node);
+        let imm_node = self.new_const(itype.imm() as u64);
+        let srl_node = self.new_srl(self.reg_node(itype.rs1()), imm_node);
+        let mask32 = self.new_const(u32::MAX as u64);
+        let and_node = self.new_and_bit(srl_node, mask32);
+        self.reg_flow_ite(itype.rd(), and_node);
     }
 
     fn model_srai(&mut self, itype: IType) {
@@ -586,11 +585,11 @@ impl ModelBuilder {
     fn model_sraiw(&mut self, itype: IType) {
         let imm_truncated = (itype.imm() & 0x3f) as u32;
         assert!(imm_truncated < 32, "immediate within bounds");
-        let imm_node = self.new_const(imm_truncated as u64 + 32);
-        let thirtytwo = self.new_const(32); // for val << 32
-        let sll_node = self.new_sll(self.reg_node(itype.rs1()), thirtytwo);
-        let sra_node = self.new_sra(sll_node, imm_node);
-        self.reg_flow_ite(itype.rd(), sra_node);
+        let imm_node = self.new_const(imm_truncated as u64);
+        let sra_node = self.new_sra(self.reg_node(itype.rs1()), imm_node);
+        let mask32 = self.new_const(u32::MAX as u64);
+        let and_node = self.new_and_bit(sra_node, mask32);
+        self.reg_flow_ite(itype.rd(), and_node);
     }
 
     fn model_lui(&mut self, utype: UType) {
@@ -675,6 +674,12 @@ impl ModelBuilder {
     fn model_lw(&mut self, itype: IType) {
         let address_node = self.model_address(itype.rs1(), itype.imm() as u64);
         let load_node = self.model_l(32, address_node, true);
+        self.reg_flow_ite(itype.rd(), load_node);
+    }
+
+    fn model_lwu(&mut self, itype: IType) {
+        let address_node = self.model_address(itype.rs1(), itype.imm() as u64);
+        let load_node = self.model_l(32, address_node, false);
         self.reg_flow_ite(itype.rd(), load_node);
     }
 
@@ -772,10 +777,9 @@ impl ModelBuilder {
 
     fn model_addw(&mut self, rtype: RType) {
         let add_node = self.new_add(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
-        let thirtytwo = self.new_const(32);
-        let sll_node = self.new_sll(add_node, thirtytwo.clone());
-        let sra_node = self.new_sra(sll_node, thirtytwo);
-        self.reg_flow_ite(rtype.rd(), sra_node);
+        let mask32 = self.new_const(u32::MAX as u64);
+        let and_node = self.new_and_bit(add_node, mask32);
+        self.reg_flow_ite(rtype.rd(), and_node);
     }
 
     fn model_sub(&mut self, rtype: RType) {
@@ -785,10 +789,9 @@ impl ModelBuilder {
 
     fn model_subw(&mut self, rtype: RType) {
         let sub_node = self.new_sub(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
-        let thirtytwo = self.new_const(32);
-        let sll_node = self.new_sll(sub_node, thirtytwo.clone());
-        let sra_node = self.new_sra(sll_node, thirtytwo);
-        self.reg_flow_ite(rtype.rd(), sra_node);
+        let mask32 = self.new_const(u32::MAX as u64);
+        let and_node = self.new_and_bit(sub_node, mask32);
+        self.reg_flow_ite(rtype.rd(), and_node);
     }
 
     fn model_or(&mut self, rtype: RType) {
@@ -990,17 +993,27 @@ impl ModelBuilder {
         match inst {
             Instruction::Lui(utype) => self.model_lui(utype),
             Instruction::Auipc(utype) => self.model_auipc(utype),
+            Instruction::Jal(jtype) => self.model_jal(jtype),
+            Instruction::Jalr(itype) => self.model_jalr(itype),
+            Instruction::Beq(btype) => self.model_beq(btype, &mut branch_true, &mut branch_false),
+            Instruction::Bne(btype) => self.model_bne(btype, &mut branch_true, &mut branch_false),
+            Instruction::Blt(btype) => self.model_blt(btype, &mut branch_true, &mut branch_false),
+            Instruction::Bge(btype) => self.model_bge(btype, &mut branch_true, &mut branch_false),
+            Instruction::Bltu(btype) => self.model_bltu(btype, &mut branch_true, &mut branch_false),
+            Instruction::Bgeu(btype) => self.model_bgeu(btype, &mut branch_true, &mut branch_false),
             Instruction::Lb(itype) => self.model_lb(itype),
             Instruction::Lh(itype) => self.model_lh(itype),
             Instruction::Lw(itype) => self.model_lw(itype),
             Instruction::Ld(itype) => self.model_ld(itype),
             Instruction::Lbu(itype) => self.model_lbu(itype),
             Instruction::Lhu(itype) => self.model_lhu(itype),
+            Instruction::Lwu(itype) => self.model_lwu(itype),
             Instruction::Sb(stype) => self.model_sb(stype),
             Instruction::Sh(stype) => self.model_sh(stype),
             Instruction::Sw(stype) => self.model_sw(stype),
             Instruction::Sd(stype) => self.model_sd(stype),
             Instruction::Addi(itype) => self.model_addi(itype),
+            Instruction::Slti(_itype) => self.model_unimplemented(inst),
             Instruction::Sltiu(itype) => self.model_sltiu(itype),
             Instruction::Xori(itype) => self.model_xori(itype),
             Instruction::Ori(itype) => self.model_ori(itype),
@@ -1015,7 +1028,9 @@ impl ModelBuilder {
             Instruction::Add(rtype) => self.model_add(rtype),
             Instruction::Sub(rtype) => self.model_sub(rtype),
             Instruction::Sll(rtype) => self.model_sll(rtype),
+            Instruction::Slt(_rtype) => self.model_unimplemented(inst),
             Instruction::Sltu(rtype) => self.model_sltu(rtype),
+            Instruction::Xor(_rtype) => self.model_unimplemented(inst),
             Instruction::Srl(rtype) => self.model_srl(rtype),
             Instruction::Sra(rtype) => self.model_sra(rtype),
             Instruction::Or(rtype) => self.model_or(rtype),
@@ -1023,20 +1038,16 @@ impl ModelBuilder {
             Instruction::Mul(rtype) => self.model_mul(rtype),
             Instruction::Div(rtype) => self.model_div(rtype),
             Instruction::Divu(rtype) => self.model_divu(rtype),
+            Instruction::Rem(_rtype) => self.model_unimplemented(inst),
             Instruction::Remu(rtype) => self.model_remu(rtype),
             Instruction::Addw(rtype) => self.model_addw(rtype),
-            Instruction::Divw(rtype) => self.model_divw(rtype),
             Instruction::Subw(rtype) => self.model_subw(rtype),
             Instruction::Sllw(rtype) => self.model_sllw(rtype),
             Instruction::Mulw(rtype) => self.model_mulw(rtype),
-            Instruction::Beq(btype) => self.model_beq(btype, &mut branch_true, &mut branch_false),
-            Instruction::Bne(btype) => self.model_bne(btype, &mut branch_true, &mut branch_false),
-            Instruction::Blt(btype) => self.model_blt(btype, &mut branch_true, &mut branch_false),
-            Instruction::Bge(btype) => self.model_bge(btype, &mut branch_true, &mut branch_false),
-            Instruction::Bltu(btype) => self.model_bltu(btype, &mut branch_true, &mut branch_false),
-            Instruction::Bgeu(btype) => self.model_bgeu(btype, &mut branch_true, &mut branch_false),
-            Instruction::Jal(jtype) => self.model_jal(jtype),
-            Instruction::Jalr(itype) => self.model_jalr(itype),
+            Instruction::Divw(rtype) => self.model_divw(rtype),
+            Instruction::Divuw(rtype) => self.model_divuw(rtype),
+            Instruction::Remw(_rtype) => self.model_unimplemented(inst),
+            Instruction::Remuw(_rtype) => self.model_unimplemented(inst),
             Instruction::Ecall(_) => self.model_ecall(),
             _ => todo!("{:?}", inst),
         }
@@ -1056,6 +1067,7 @@ impl ModelBuilder {
             | Instruction::Sw(_)
             | Instruction::Sd(_)
             | Instruction::Addi(_)
+            | Instruction::Slti(_)
             | Instruction::Sltiu(_)
             | Instruction::Xori(_)
             | Instruction::Ori(_)
@@ -1071,6 +1083,7 @@ impl ModelBuilder {
             | Instruction::Sub(_)
             | Instruction::Sll(_)
             | Instruction::Sltu(_)
+            | Instruction::Xor(_)
             | Instruction::Srl(_)
             | Instruction::Sra(_)
             | Instruction::Or(_)
@@ -1078,18 +1091,42 @@ impl ModelBuilder {
             | Instruction::Mul(_)
             | Instruction::Div(_)
             | Instruction::Divu(_)
+            | Instruction::Rem(_)
             | Instruction::Remu(_)
             | Instruction::Addw(_)
             | Instruction::Subw(_)
             | Instruction::Sllw(_)
+            | Instruction::Srlw(_)
+            | Instruction::Sraw(_)
             | Instruction::Mulw(_)
-            | Instruction::Divw(_) => {
+            | Instruction::Divw(_)
+            | Instruction::Divuw(_)
+            | Instruction::Remw(_)
+            | Instruction::Remuw(_) => {
                 self.go_to_instruction(
                     FromInstruction::Regular,
                     self.pc,
                     self.pc_add(INSTRUCTION_SIZE),
                     None,
                 );
+            }
+            Instruction::Jal(jtype) => {
+                self.go_to_instruction(
+                    FromInstruction::Regular,
+                    self.pc,
+                    self.pc_add(jtype.imm() as u64),
+                    None,
+                );
+            }
+            Instruction::Jalr(itype) => {
+                if itype.rs1() == Register::Zero {
+                    // TODO: Find a proper modeling for this.
+                    warn!("Detected JALR dispatch on zero: {:#x}: {:?}", self.pc, inst);
+                    self.model_unimplemented(inst);
+                    return;
+                }
+                assert_eq!(itype.imm(), 0, "dispatch with offset");
+                self.go_to_anywhere(self.pc, itype.rs1());
             }
             Instruction::Beq(btype)
             | Instruction::Bne(btype)
@@ -1111,24 +1148,6 @@ impl ModelBuilder {
                     self.pc_add(INSTRUCTION_SIZE),
                     branch_false,
                 );
-            }
-            Instruction::Jal(jtype) => {
-                self.go_to_instruction(
-                    FromInstruction::Regular,
-                    self.pc,
-                    self.pc_add(jtype.imm() as u64),
-                    None,
-                );
-            }
-            Instruction::Jalr(itype) => {
-                if itype.rs1() == Register::Zero {
-                    // TODO: Find a proper modeling for this.
-                    warn!("Detected JALR dispatch on zero: {:#x}: {:?}", self.pc, inst);
-                    self.model_unimplemented(inst);
-                    return;
-                }
-                assert_eq!(itype.imm(), 0, "dispatch with offset");
-                self.go_to_anywhere(self.pc, itype.rs1());
             }
             Instruction::Ecall(_) => {
                 self.go_to_instruction(
