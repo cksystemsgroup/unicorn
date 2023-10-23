@@ -84,7 +84,7 @@ uint64_t main() {
 
 
     // replace a "random" element
-    index = round % entry_count;
+    index = VERIFIER_nondet_uchar();
     // debug
     //printf("reservoir[%ld] = %ld", index, *(reservoir + index));
 

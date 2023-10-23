@@ -1751,7 +1751,6 @@ impl ModelBuilder {
         self.new_comment("checking good exit state".to_string());
 
         let term_cond = self.new_and_bit(self.terminate_mode.clone(), is_exit);
-        let check_available_input = self.new_ult(self.zero_word.clone(), available_input);
         let term_cond_depleted_input = self.new_and_bit(term_cond.clone(), is_input_depleted);
         self.new_good(if less_input { term_cond_depleted_input } else { term_cond }, "exit-state");
 

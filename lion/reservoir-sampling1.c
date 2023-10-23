@@ -71,14 +71,14 @@ uint64_t main() {
 
     // do some work with constant complexity
     // build sum of current reservoir
-    /*n = 0;
+    n = 0;
     sum = 0;
     while (n < entry_count) {
       sum = sum + *(reservoir + n);
       n = n + 1;
     }
     // compute avg of current reservoir
-    avg = sum / entry_count;*/
+    avg = sum / entry_count;
     // debug 
     //printf("sum: %ld, avg: %ld\n", sum, avg);
 
