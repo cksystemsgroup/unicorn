@@ -44,6 +44,8 @@ pub fn compute_bounds<S: SMTSolver>(
 
     let mut smt_solver = S::new(timeout);
 
+    let mut start_upper = start;
+
     loop {
         for n in prev_depth..depth {
             unroll_model(model, n);
@@ -69,6 +71,7 @@ pub fn compute_bounds<S: SMTSolver>(
                 let mut l = 0;
                 let mut r: isize = (n as isize) - (max(prev_depth, start) as isize);
                 let mut m: usize = 0;
+                lower_bound = n;
                 while l <= r {
                     m = ((l + r) / 2) as usize;
                     if smt_solver.solve(&good_states_initial[m]) == SMTSolution::Sat {
@@ -79,6 +82,7 @@ pub fn compute_bounds<S: SMTSolver>(
                     }
                 }
                 println!("Exit is reached for some paths: depth n={}", lower_bound);
+                start_upper = lower_bound;
             }
             else if solution == SMTSolution::Timeout {
                 println!("Timeout! [n={}]", depth);
@@ -95,11 +99,29 @@ pub fn compute_bounds<S: SMTSolver>(
                 })));
             if solution == SMTSolution::Unsat {
                 let mut l = 0;
-                let mut r: isize = (n - lower_bound) as isize;
+                let mut r: isize = (n - start_upper) as isize;
                 let mut m: usize = 0;
+                upper_bound = n;
+                let mut tried_opt = false;
                 while l <= r {
                     m = ((l + r) / 2) as usize;
-                    if smt_solver.is_always_true(&good_states_initial[m]) {
+                    let new_solution = smt_solver.solve(&Rc::new(RefCell::new(
+                        Node::Not {
+                            nid: 10,
+                            sort: NodeType::Bit,
+                            value: (&good_states_initial[m]).clone(),
+                        })));
+                    if new_solution == SMTSolution::Timeout {
+                        if !tried_opt {
+                            smt_solver = S::new(timeout);
+                            tried_opt = true;
+                        }
+                        else {
+                            println!("Timeout! [n={}]", n - m);
+                            break;
+                        }
+                    }
+                    else if new_solution == SMTSolution::Unsat {
                         upper_bound = n - m;
                         l = (m as isize) + 1
                     } else {
@@ -119,6 +141,7 @@ pub fn compute_bounds<S: SMTSolver>(
             break;
         }
         prev_depth = depth;
+        start_upper = depth;
         depth = min(2*depth, unroll_depth);
     }
 }
