@@ -315,14 +315,14 @@ echo "insertion-sort n=10000 boolector input-limit 12"
 time (gtimeout --foreground -v 35m ../target/release/unicorn beator insertion-sort.m --unroll 10000 -p --solver boolector --find-bounds --input-limit 12 -t 200000)
 '
 
- : '
-i=8
+: '
+i=4
 
-while [ $i -le 64 ]
+while [ $i -le 32 ]
 do
   echo "insertion-sort1 n=10000 boolector input-limit $i"
   time (gtimeout --foreground -v 35m ../target/release/unicorn beator insertion-sort1.m --unroll 10000 -p --solver boolector --find-bounds --input-limit $i -t 200000 --fast-minimize)
-  ((i += 8))
+  ((i += 4))
 done
 '
 
@@ -353,16 +353,18 @@ do
 time (gtimeout --foreground -v 35m ../target/release/unicorn beator microbenchmark.m --unroll 10000 -p --solver z3 --find-bounds --input-limit $i -t 200000 --fast-minimize)
   ((i += 1))
 done
+'
+
 
 i=0
 
-while [ $i -le 3 ]
+while [ $i -le 5 ]
 do
   echo "microbenchmark n=256 boolector input-limit $i"
 time (gtimeout --foreground -v 35m ../target/release/unicorn beator microbenchmark.m --unroll 256 -p --solver boolector --find-bounds --input-limit $i -t 200000 --fast-minimize)
   ((i += 1))
 done
-'
+
 
 : '
 i=0
@@ -388,7 +390,7 @@ i=0
 while [ $i -le 3 ]
 do
   echo "microbenchmark n=256 boolector input-limit $i"
-  time (gtimeout --foreground -v 35m ../target/release/unicorn beator microbenchmark.m --unroll 256 -p --solver boolector --input-limit $i -t200000 --fast-minimize --out biere/microbenchmark-il${i}.btor2)
+  time (gtimeout --foreground -v 35m ../target/release/unicorn beator microbenchmark.m --unroll 256 -p --solver boolector --input-limit $i -t 200000 --fast-minimize --out biere/microbenchmark-il${i}.btor2)
   ((i += 1))
 done
 
@@ -400,7 +402,6 @@ do
   time (gtimeout --foreground -v 35m ../target/release/unicorn beator insertion-sort1.m --unroll 10000 -p --solver boolector --input-limit $i -t 200000 --fast-minimize --out biere/insertion-sort-il${i}.btor2)
   ((i += 8))
 done
-'
 
 echo "insertion-sort1 n=10000 boolector input-limit 2"
 time (gtimeout --foreground -v 35m ../target/release/unicorn beator insertion-sort1.m --unroll 10000 -p --solver boolector --input-limit 2 -t 200000 --fast-minimize --out biere/insertion-sort-il2.btor2)
@@ -410,3 +411,4 @@ time (gtimeout --foreground -v 35m ../target/release/unicorn beator insertion-so
 
 echo "insertion-sort1 n=10000 boolector input-limit 12"
 time (gtimeout --foreground -v 35m ../target/release/unicorn beator insertion-sort1.m --unroll 10000 -p --solver boolector --input-limit 12 -t 200000 --fast-minimize --out biere/insertion-sort-il12.btor2)
+'

@@ -164,6 +164,7 @@ fn main() -> Result<()> {
                                 unroll_depth,
                                 prune,
                                 timeout,
+                                one_query,
                                 0
                             ),
                             #[cfg(feature = "z3")]
@@ -174,6 +175,7 @@ fn main() -> Result<()> {
                                 unroll_depth,
                                 prune,
                                 timeout,
+                                one_query,
                                 0
                             ),
                         }

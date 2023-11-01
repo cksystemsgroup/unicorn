@@ -221,6 +221,15 @@ impl ModelBuilder {
         })
     }
 
+    fn new_const_bit(&mut self, imm: u64) -> NodeRef {
+        assert!(imm == 0 || imm == 1, "const bit must be 0 or 1!");
+        self.add_node(Node::Const {
+            nid: self.current_nid,
+            sort: NodeType::Bit,
+            imm,
+        })
+    }
+
     fn new_read(&mut self, address: NodeRef) -> NodeRef {
         self.add_node(Node::Read {
             nid: self.current_nid,
@@ -380,6 +389,14 @@ impl ModelBuilder {
         let not_right_node = self.new_not_bit(right);
         let and_node = self.new_and_bit(not_left_node, not_right_node);
         self.new_not_bit(and_node)
+    }
+
+    fn new_or_bits(&mut self, nodes: &[&NodeRef]) -> NodeRef {
+        let mut result = self.new_const_bit(0);
+        for &node in nodes {
+            result = self.new_or_bit(result, node.clone());
+        }
+        result
     }
 
     // We represent `xor(a, b)` as `sub(or(a, b), and(a, b))` instead.
@@ -1752,6 +1769,7 @@ impl ModelBuilder {
 
         let term_cond = self.new_and_bit(self.terminate_mode.clone(), is_exit);
         let term_cond_depleted_input = self.new_and_bit(term_cond.clone(), is_input_depleted);
+
         self.new_good(if less_input { term_cond_depleted_input } else { term_cond }, "exit-state");
 
         Ok(())

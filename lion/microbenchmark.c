@@ -13,7 +13,7 @@ uint64_t main() {
   x = malloc(8);
   *x = 0;
 
-  b = read(0, x, SIZEOFUINT32);
+  b = read(0, x, SIZEOFUINT64);
   d = *x;
 
   c = b;

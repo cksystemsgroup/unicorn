@@ -32,6 +32,7 @@ pub fn compute_bounds<S: SMTSolver>(
     unroll_depth: usize,
     prune: bool,
     timeout: Option<Duration>,
+    one_query: bool,
     start: usize
 ) {
     let mut prev_depth = 0;
@@ -55,9 +56,11 @@ pub fn compute_bounds<S: SMTSolver>(
             }
         }
 
-        let good_states_initial = maybe_prune_and_get_good_states(
+        let good_states_initial = optimize_and_get_good_states::<S>(
             &mut model.clone(),
-            prune
+            prune,
+            timeout,
+            one_query
         );
 
         let good = &good_states_initial[0];
@@ -146,12 +149,16 @@ pub fn compute_bounds<S: SMTSolver>(
     }
 }
 
-fn maybe_prune_and_get_good_states(
+fn optimize_and_get_good_states<S: SMTSolver>(
     model: &mut Model,
-    prune: bool
+    prune: bool,
+    timeout: Option<Duration>,
+    one_query: bool,
 ) -> Vec<NodeRef> {
     if prune {
         prune_model(model);
+
+        optimize_model_with_solver::<S>(model, timeout, true, false, one_query, false);
     }
 
     model.good_states_initial.clone()
