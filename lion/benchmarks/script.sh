@@ -1,17 +1,30 @@
 #!/bin/bash
 
-selfie -c ../../tools/cstar-lib.c tiny-program-good-performance.c -o tiny-program-good-performance.m
+selfie -c tiny-program-good-performance.c -o tiny-program-good-performance.m
 
-selfie -c ../../tools/cstar-lib.c tiny-program-bad-performance.c -o tiny-program-bad-performance.m
+echo ""
 
-selfie -c ../../tools/cstar-lib.c microbenchmark.c -o microbenchmark.m
+selfie -c tiny-program-bad-performance.c -o tiny-program-bad-performance.m
+
+echo ""
+
+selfie -c microbenchmark.c -o microbenchmark.m
+
+echo ""
 
 selfie -c insertion-sort.c -o insertion-sort.m
 
-selfie -c ../../tools/cstar-lib.c reservoir-sampling.c -o reservoir-sampling.m
+echo ""
 
-selfie -c ../../tools/cstar-lib.c reservoir-sampling-constant-workload.c -o reservoir-sampling-constant-workload.m
+selfie -c reservoir-sampling.c -o reservoir-sampling.m
 
+echo ""
+
+selfie -c reservoir-sampling-constant-workload.c -o reservoir-sampling-constant-workload.m
+
+echo ""
+
+: '
 time (gtimeout --foreground -v 35m ../../target/release/unicorn beator tiny-program-good-performance.m --unroll 256 -p --solver z3 --find-bounds --input-limit 2 -t 200000 --one-query -v error)
 
 time (gtimeout --foreground -v 35m ../../target/release/unicorn beator tiny-program-bad-performance.m --unroll 256 -p --solver z3 --find-bounds --input-limit 2 -t 200000 --one-query -v error)
@@ -44,3 +57,4 @@ do
 time (gtimeout --foreground -v 35m ../../target/release/unicorn beator reservoir-sampling-constant-workload.m --unroll 10000 -p --solver z3 --find-bounds --input-limit $i -t 200000 --one-query -v error)
   ((i += 1))
 done
+'

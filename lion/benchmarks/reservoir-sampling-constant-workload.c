@@ -34,7 +34,7 @@ uint64_t main() {
   // 42424242 = 00000010 10000111 01010111 10110010 (4 bytes; 26 bits)
   // offset = 256; 
 
-  entry_size = SIZEOFUINT64; // one spot has 64 bits = 8 bytes
+  entry_size = 8; // one spot has 64 bits = 8 bytes
   entry_count = 8; // 8 spots
 
   // allocate (8 x 8) bytes = 64 bytes
@@ -91,14 +91,14 @@ uint64_t main() {
     reservoir_at_int_prev = *(reservoir + index);
 
     // determine new value by user input
-    read_bytes = read(0, (reservoir + index), SIZEOFUINT8);
+    read_bytes = read(0, (reservoir + index), 1);
     //printf(", new bytes = %lx", *(reservoir + index));
 
     // check if the expected amount of bytes has been read
-    if (read_bytes < SIZEOFUINT8) {
+    if (read_bytes < 1) {
     //if (reservoir_at_int_prev == *(reservoir + index)) {
       //*(reservoir + index) = 1 / 0; // (offset - sum);
-      //write(0, (reservoir + index), SIZEOFUINT8);
+      //write(0, (reservoir + index), 1);
       return 0;
     }
 
