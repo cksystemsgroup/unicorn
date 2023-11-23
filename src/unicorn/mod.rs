@@ -264,8 +264,8 @@ where
                 writeln!(out, "{} input {} {}", nid, get_sort(sort), name)?,
             Node::Bad { nid, cond, name } =>
                 writeln!(out, "{} bad {} {}", nid, get_nid(cond), name.as_deref().unwrap_or("?"))?,
-            Node::Good { .. } =>
-                write!(out, "")?,
+            Node::Good { nid, cond, name } =>
+                writeln!(out, "{} bad {} {}", nid, get_nid(cond), name.as_deref().unwrap_or("?"))?,
             Node::Comment(s) =>
                 writeln!(out, "\n; {}\n", s)?,
         }
