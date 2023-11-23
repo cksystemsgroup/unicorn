@@ -4,6 +4,8 @@ selfie -c ../../tools/cstar-lib.c tiny-program-good-performance.c -o tiny-progra
 
 selfie -c ../../tools/cstar-lib.c tiny-program-bad-performance.c -o tiny-program-bad-performance.m
 
+selfie -c ../../tools/cstar-lib.c microbenchmark.c -o microbenchmark.m
+
 selfie -c insertion-sort.c -o insertion-sort.m
 
 selfie -c ../../tools/cstar-lib.c reservoir-sampling.c -o reservoir-sampling.m
