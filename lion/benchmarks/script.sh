@@ -24,7 +24,6 @@ selfie -c reservoir-sampling-constant-workload.c -o reservoir-sampling-constant-
 
 echo ""
 
-: '
 time (gtimeout --foreground -v 35m ../../target/release/unicorn beator tiny-program-good-performance.m --unroll 256 -p --solver z3 --find-bounds --input-limit 2 -t 200000 --one-query -v error)
 
 time (gtimeout --foreground -v 35m ../../target/release/unicorn beator tiny-program-bad-performance.m --unroll 256 -p --solver z3 --find-bounds --input-limit 2 -t 200000 --one-query -v error)
@@ -57,4 +56,3 @@ do
 time (gtimeout --foreground -v 35m ../../target/release/unicorn beator reservoir-sampling-constant-workload.m --unroll 10000 -p --solver z3 --find-bounds --input-limit $i -t 200000 --one-query -v error)
   ((i += 1))
 done
-'
