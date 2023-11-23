@@ -8,11 +8,8 @@ pub enum SyscallId {
     Exit = 93,
     Read = 63,
     Write = 64,
-    Open = 1024,
     Openat = 56,
     Brk = 214,
-    Close = 57,
-    Newfstat = 80,
 }
 
 // Prepares arguments on the stack like a UNIX system. Note that we

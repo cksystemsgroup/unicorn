@@ -40,7 +40,7 @@ function print_error() {
 
   echo -e "\n${RED}[Invalid Commit Message]"
   echo -e "------------------------${NC}"
-  echo -e "Valid types: ${CYAN}${types[*]}${NC}"
+  echo -e "Valid types: ${CYAN}${types[@]}${NC}"
   echo -e "Max length (first line): ${CYAN}$max_length${NC}"
   echo -e "Min length (first line): ${CYAN}$min_length${NC}\n"
   echo -e "Commit message structure should be:"
@@ -52,7 +52,7 @@ function print_error() {
 
 # get the first line of the commit message
 INPUT_FILE=$1
-START_LINE=$(head -n1 "$INPUT_FILE")
+START_LINE=`head -n1 $INPUT_FILE`
 
 if [[ ! $START_LINE =~ $regexp ]]; then
   # commit message is invalid according to config - block commit

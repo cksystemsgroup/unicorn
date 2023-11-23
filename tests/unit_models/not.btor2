@@ -1,8 +1,0 @@
-1 sort bitvec 1 ; Boolean
-
-20 constd 1 1
-
-100 state 1 booler
-101 init 1 100 20
-102 not 1 100
-103 next 1 100 102

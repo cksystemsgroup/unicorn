@@ -1,11 +1,8 @@
 mod cli;
-#[cfg(feature = "gui")]
-mod guinea;
 mod quantum_annealing;
 mod unicorn;
 
-#[cfg(feature = "gui")]
-use crate::guinea::gui::gui;
+use crate::cli::InputError;
 use crate::quantum_annealing::dwave_api::sample_quantum_annealer;
 use crate::unicorn::bitblasting::bitblast_model;
 use crate::unicorn::bitblasting_dimacs::write_dimacs_model;
@@ -16,18 +13,18 @@ use crate::unicorn::codegen::compile_model_into_program;
 use crate::unicorn::dimacs_parser::load_dimacs_as_gatemodel;
 use crate::unicorn::emulate_loader::load_model_into_emulator;
 use crate::unicorn::memory::replace_memory;
-use crate::unicorn::optimize::{optimize_model_with_input, optimize_model_with_solver};
+use crate::unicorn::optimize::{optimize_model_with_solver, optimize_model_with_input};
 use crate::unicorn::qubot::{InputEvaluator, Qubot};
-use crate::unicorn::sat_solver::solve_bad_states;
 use crate::unicorn::smt_solver::*;
 use crate::unicorn::unroller::{prune_model, renumber_model, unroll_model};
 use crate::unicorn::write_model;
 
+use self::unicorn::quarc::QuantumCircuit;
 use ::unicorn::disassemble::disassemble;
 use ::unicorn::emulate::EmulatorState;
 use anyhow::{Context, Result};
 use bytesize::ByteSize;
-use cli::{collect_arg_values, expect_arg, expect_optional_arg, LogLevel, SatType, SmtType};
+use cli::{collect_arg_values, expect_arg, expect_optional_arg, LogLevel, SmtType};
 use env_logger::{Env, TimestampPrecision};
 use riscu::load_object_file;
 use std::{
@@ -36,8 +33,12 @@ use std::{
     io::{stdout, Write},
     path::PathBuf,
     str::FromStr,
-    time::Duration,
+    usize,
 };
+use std::time::Duration;
+use crate::unicorn::horizon::compute_bounds;
+use crate::unicorn::smt_solver::boolector_impl::BoolectorSolver;
+use crate::unicorn::smt_solver::z3solver_impl::Z3SolverWrapper;
 
 fn main() -> Result<()> {
     let matches = cli::args().get_matches();
@@ -61,16 +62,16 @@ fn main() -> Result<()> {
             let extras = collect_arg_values(args, "extras");
 
             let argv = [vec![arg0], extras].concat();
-            let program = load_object_file(input)?;
+            let program = load_object_file(&input)?;
             let mut emulator = EmulatorState::new(memory_size as usize);
             emulator.bootstrap(&program, &argv);
             emulator.run();
 
             Ok(())
         }
-        Some(("beator", args)) | Some(("qubot", args)) => {
+        Some(("beator", args)) | Some(("qubot", args)) | Some(("quarc", args)) => {
             let is_beator = matches.subcommand().unwrap().0 == "beator";
-
+            let is_quarc = matches.subcommand().unwrap().0 == "quarc";
             let input = expect_arg::<PathBuf>(args, "input-file")?;
             let output = expect_optional_arg::<PathBuf>(args, "output-file")?;
             let unroll = args.get_one::<usize>("unroll-model").cloned();
@@ -81,30 +82,42 @@ fn main() -> Result<()> {
             let memory_size = ByteSize::mib(*args.get_one("memory").unwrap()).as_u64();
             let has_concrete_inputs = is_beator && args.contains_id("inputs");
             let inputs = expect_optional_arg::<String>(args, "inputs")?;
-            let prune = !is_beator || args.get_flag("prune-model");
-            let minimize = is_beator && !args.get_flag("fast-minimize");
-            let discretize = !is_beator || args.get_flag("discretize-memory");
-            let terminate_on_bad = is_beator && args.get_flag("terminate-on-bad");
-            let one_query = is_beator && args.get_flag("one-query");
-            let renumber = !is_beator || output.is_some();
-            let input_is_btor2 = args.get_flag("from-btor2");
-            let input_is_dimacs = !is_beator && args.get_flag("from-dimacs");
-            let compile_model = is_beator && args.get_flag("compile");
-            let emulate_model = is_beator && args.get_flag("emulate");
+            let one_query = is_beator && args.contains_id("one-query");
+            let input_is_btor2 = args.contains_id("from-btor2");
+            let prune = !is_beator || args.contains_id("prune-model");
+            let input_is_dimacs = !is_beator && args.contains_id("from-dimacs");
+            let compile_model = is_beator && args.contains_id("compile");
+            let emulate_model = is_beator && args.contains_id("emulate");
+            let find_bounds = args.contains_id("find-bounds");
             let arg0 = expect_arg::<String>(args, "input-file")?;
             let extras = collect_arg_values(args, "extras");
+            let input_limit = args.get_one::<u64>("input-limit").cloned();
+            let input_error = expect_arg::<InputError>(args, "input-error")?;
 
-            let mut model = if !input_is_dimacs {
+            let model = if !input_is_dimacs {
                 let mut model = if !input_is_btor2 {
                     let program = load_object_file(&input)?;
                     let argv = [vec![arg0], extras].concat();
-                    generate_model(&program, memory_size, max_heap, max_stack, &argv)?
+                    generate_model(
+                        &program,
+                        memory_size,
+                        max_heap,
+                        max_stack,
+                        input_limit.unwrap_or(u64::MAX),
+                        input_error,
+                        &argv,
+                    )?
                 } else {
                     parse_btor2_file(&input)
                 };
 
                 if let Some(unroll_depth) = unroll {
                     model.lines.clear();
+                    // TODO: Check if memory discretization is requested.
+                    // TODO: Make emulate-loader work with discretized memory.
+                    if !emulate_model && !compile_model {
+                        replace_memory(&mut model);
+                    }
                     let mut input_values: Vec<u64> = if has_concrete_inputs {
                         inputs
                             .as_ref()
@@ -115,42 +128,61 @@ fn main() -> Result<()> {
                     } else {
                         vec![]
                     };
-                    for n in 0..unroll_depth {
-                        unroll_model(&mut model, n);
-                        if has_concrete_inputs {
-                            optimize_model_with_input(&mut model, &mut input_values)
+
+                    #[cfg(any(feature = "boolector", feature = "z3"))]
+                    if find_bounds {
+                        let timeout = match solver_timeout {
+                            Some(&millis) => Some(Duration::from_millis(millis)),
+                            _ => None
+                        };
+                        match smt_solver {
+                            SmtType::Generic => {}
+                            #[cfg(feature = "boolector")]
+                            SmtType::Boolector => compute_bounds::<BoolectorSolver>(
+                                &mut model,
+                                has_concrete_inputs,
+                                &mut input_values,
+                                unroll_depth,
+                                prune,
+                                timeout,
+                                one_query,
+                                0
+                            ),
+                            #[cfg(feature = "z3")]
+                            SmtType::Z3 => compute_bounds::<Z3SolverWrapper>(
+                                &mut model,
+                                has_concrete_inputs,
+                                &mut input_values,
+                                unroll_depth,
+                                prune,
+                                timeout,
+                                one_query,
+                                0
+                            ),
+                        }
+                    }
+
+                    if !find_bounds {
+                        for n in 0..unroll_depth {
+                            unroll_model(&mut model, n);
+                            if has_concrete_inputs {
+                                optimize_model_with_input(&mut model, &mut input_values)
+                            }
                         }
                     }
                     if prune {
                         prune_model(&mut model);
                     }
-                    if discretize {
-                        // TODO: We perform a quick constant-folding pass before we discretize. This
-                        // introduces some overhead when no SMT solver is used, but helps otherwise.
-                        // It is not yet clear how to implement this in a cleaner way.
-                        optimize_model_with_input(&mut model, &mut vec![]);
-                        replace_memory(&mut model);
-                    }
-                    let timeout = solver_timeout.map(|&ms| Duration::from_millis(ms));
-                    match smt_solver {
-                        #[rustfmt::skip]
-                        SmtType::Generic => {
-                            optimize_model_with_solver::<none_impl::NoneSolver>(&mut model, timeout, minimize, terminate_on_bad, one_query)
-                        },
-                        #[rustfmt::skip]
+                    /*match solver {
+                        SmtType::Generic => optimize_model::<none_impl::NoneSolver>(&mut model),
                         #[cfg(feature = "boolector")]
                         SmtType::Boolector => {
-                            optimize_model_with_solver::<boolector_impl::BoolectorSolver>(&mut model, timeout, minimize, terminate_on_bad, one_query)
-                        },
-                        #[rustfmt::skip]
+                            optimize_model::<boolector_impl::BoolectorSolver>(&mut model)
+                        }
                         #[cfg(feature = "z3")]
-                        SmtType::Z3 => {
-                            optimize_model_with_solver::<z3solver_impl::Z3SolverWrapper>(&mut model, timeout, minimize, terminate_on_bad, one_query)
-                        },
-                    }
-                    if renumber {
-                        renumber_model(&mut model);
-                    }
+                        SmtType::Z3 => optimize_model::<z3solver_impl::Z3SolverWrapper>(&mut model),
+                    }*/
+                    renumber_model(&mut model);
                 }
 
                 Some(model)
@@ -161,7 +193,6 @@ fn main() -> Result<()> {
             if compile_model {
                 assert!(!input_is_btor2, "cannot compile arbitrary BTOR2");
                 assert!(!input_is_dimacs, "cannot compile arbitrary DIMACS");
-                assert!(!discretize, "cannot compile with discretized memory");
 
                 // TODO: Just a workaround to get `argv` again.
                 let arg0 = expect_arg::<String>(args, "input-file")?;
@@ -180,7 +211,6 @@ fn main() -> Result<()> {
             if emulate_model {
                 assert!(!input_is_btor2, "cannot emulate arbitrary BTOR2");
                 assert!(!input_is_dimacs, "cannot emulate arbitrary DIMACS");
-                assert!(!discretize, "cannot emulate with discretized memory");
 
                 let program = load_object_file(&input)?;
                 let mut emulator = EmulatorState::new(memory_size as usize);
@@ -191,45 +221,57 @@ fn main() -> Result<()> {
             }
 
             if is_beator {
-                let sat_solver = expect_arg::<SatType>(args, "sat-solver")?;
-                let bitblast = args.get_flag("bitblast") || (sat_solver != SatType::None);
-                let dimacs = args.get_flag("dimacs");
-                let output_to_stdout =
-                    output == Some(PathBuf::from("")) || output == Some(PathBuf::from("-"));
-                assert!(bitblast || !dimacs, "printing DIMACS requires bitblasting");
+                let bitblast = args.contains_id("bitblast");
+                let dimacs = args.contains_id("dimacs");
 
                 if bitblast {
-                    if !discretize {
-                        replace_memory(model.as_mut().unwrap());
-                    }
                     let gate_model = bitblast_model(&model.unwrap(), true, 64);
-
-                    if sat_solver != SatType::None {
-                        solve_bad_states(&gate_model, sat_solver, terminate_on_bad, one_query)?
-                    }
-
-                    if output_to_stdout {
-                        if dimacs {
-                            write_dimacs_model(&gate_model, stdout())?;
-                        } else {
-                            write_btor2_model(&gate_model, stdout())?;
-                        }
-                    } else if let Some(ref output_path) = output {
+                    if let Some(ref output_path) = output {
                         let file = File::create(output_path)?;
                         if dimacs {
                             write_dimacs_model(&gate_model, file)?;
                         } else {
                             write_btor2_model(&gate_model, file)?;
                         }
+                    } else if dimacs {
+                        //write_dimacs_model(&gate_model, stdout())?;
+                    } else {
+                        //write_btor2_model(&gate_model, stdout())?;
                     }
-                } else if output_to_stdout {
-                    write_model(&model.unwrap(), stdout())?;
                 } else if let Some(ref output_path) = output {
                     let file = File::create(output_path)?;
                     write_model(&model.unwrap(), file)?;
+                } else {
+                    //write_model(&model.unwrap(), stdout())?;
+                }
+            } else if is_quarc {
+                let m = model.unwrap();
+                let mut qc = QuantumCircuit::new(&m, 64); // 64 is a paramater describing wordsize
+                                                          // TODO: make wordsize parameter customizable from command line
+                let _ = qc.process_model(1);
+                if has_concrete_inputs {
+                    let inputs = expect_optional_arg::<String>(args, "inputs")?;
+                    let total_variables = qc.input_qubits.len();
+
+                    if let Some(all_inputs) = inputs {
+                        let instances: Vec<&str> = all_inputs.split('-').collect();
+
+                        for instance in instances {
+                            let mut values: Vec<i64> = instance
+                                .split(',')
+                                .map(|x| i64::from_str(x).unwrap())
+                                .collect();
+                            while values.len() < total_variables {
+                                values.push(0);
+                            }
+                            println!("{}\n", qc.evaluate_input(&values).0);
+                        }
+                    } else {
+                        panic!("This part of the code should be unreachable.");
+                    }
                 }
             } else {
-                let is_ising = args.get_flag("ising");
+                let is_ising = args.contains_id("ising");
 
                 let gate_model = if !input_is_dimacs {
                     bitblast_model(&model.unwrap(), true, 64)
@@ -278,17 +320,13 @@ fn main() -> Result<()> {
 
             Ok(())
         }
+
         Some(("dwave", args)) => {
             let input = args.get_one::<String>("input-file").unwrap();
             let runs = *args.get_one::<u32>("num-runs").unwrap();
             let chain_strength = *args.get_one::<f32>("chain-strength").unwrap();
 
             sample_quantum_annealer(input, runs, chain_strength)
-        }
-        #[cfg(feature = "gui")]
-        Some(("gui", _args)) => {
-            gui();
-            Ok(())
         }
         _ => unreachable!(),
     }

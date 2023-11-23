@@ -269,7 +269,7 @@ impl<'a> Qubot<'a> {
         info!(
             "quadratic coefficients: avg={:.2}, avg_abs={:.2}, min={}, max={}, #={}",
             coeffs.iter().sum::<f64>() / coeffs.len() as f64,
-            coeffs.iter().map(|x| f64::abs(*x)).sum::<f64>() / coeffs.len() as f64,
+            coeffs.iter().map(|x| f64::abs(*x)).sum::<f64>() as f64 / coeffs.len() as f64,
             coeffs.clone().into_iter().reduce(f64::min).unwrap_or(0.0),
             coeffs.clone().into_iter().reduce(f64::max).unwrap_or(0.0),
             coeffs.len()
@@ -812,13 +812,19 @@ impl InputEvaluator {
                 let dividend_value = self.get_numeric_value(dividend, qubo);
                 let divisor_value = self.get_numeric_value(divisor, qubo);
 
-                let mut result: u64 = match current_rule {
-                    Rule::Quotient { .. } => dividend_value / divisor_value,
-                    Rule::Remainder { .. } => dividend_value % divisor_value,
+                let mut result: u64;
+
+                match current_rule {
+                    Rule::Quotient { .. } => {
+                        result = dividend_value / divisor_value;
+                    }
+                    Rule::Remainder { .. } => {
+                        result = dividend_value % divisor_value;
+                    }
                     _ => {
                         panic!("[RULE DIVISION/REMAINDER]this should not happen!");
                     }
-                };
+                }
 
                 for _ in 0..*index {
                     result /= 2
@@ -877,13 +883,17 @@ impl InputEvaluator {
                         if !value_x1 {
                             if !value_x2 {
                                 aux = false;
+                            } else if !value_x3 {
+                                aux = true;
                             } else {
-                                aux = !value_x3;
+                                aux = false;
                             }
                         } else if value_x2 {
                             aux = true;
+                        } else if value_x3 {
+                            aux = false;
                         } else {
-                            aux = !value_x3;
+                            aux = true;
                         }
 
                         self.fixed_qubits.insert(z, aux);

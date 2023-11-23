@@ -181,7 +181,7 @@ impl MemoryReplacer {
         addresses
             .iter()
             .zip(mem.iter())
-            .rfold(dead, |acc, (a, x)| new_ite_cmp(address, *a, x, &acc))
+            .rfold(dead, |acc, (a, x)| new_ite_cmp(address, *a as u64, x, &acc))
     }
 
     fn handle_store(&self, mem: &MemorySlice, address: &NodeRef, value: &NodeRef) -> MemoryState {
@@ -190,7 +190,7 @@ impl MemoryReplacer {
         addresses
             .iter()
             .zip(mem.iter())
-            .map(|(a, x)| new_ite_cmp(address, *a, value, x))
+            .map(|(a, x)| new_ite_cmp(address, *a as u64, value, x))
             .collect()
     }
 
@@ -245,27 +245,12 @@ impl MemoryReplacer {
                 if let Some(n) = self.visit(right) { *right = n }
                 None
             }
-            Node::Divu { ref mut left, ref mut right, .. } => {
-                if let Some(n) = self.visit(left) { *left = n }
-                if let Some(n) = self.visit(right) { *right = n }
-                None
-            }
             Node::Div { ref mut left, ref mut right, .. } => {
                 if let Some(n) = self.visit(left) { *left = n }
                 if let Some(n) = self.visit(right) { *right = n }
                 None
             }
             Node::Rem { ref mut left, ref mut right, .. } => {
-                if let Some(n) = self.visit(left) { *left = n }
-                if let Some(n) = self.visit(right) { *right = n }
-                None
-            }
-            Node::Sll { ref mut left, ref mut right, .. } => {
-                if let Some(n) = self.visit(left) { *left = n }
-                if let Some(n) = self.visit(right) { *right = n }
-                None
-            }
-            Node::Srl { ref mut left, ref mut right, .. } => {
                 if let Some(n) = self.visit(left) { *left = n }
                 if let Some(n) = self.visit(right) { *right = n }
                 None
@@ -349,6 +334,10 @@ impl MemoryReplacer {
             }
             Node::Input { .. } => None,
             Node::Bad { ref mut cond, .. } => {
+                if let Some(n) = self.visit(cond) { *cond = n }
+                None
+            }
+            Node::Good { ref mut cond, .. } => {
                 if let Some(n) = self.visit(cond) { *cond = n }
                 None
             }

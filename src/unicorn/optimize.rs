@@ -7,6 +7,8 @@ use std::collections::HashSet;
 use std::convert::TryInto;
 use std::rc::Rc;
 use std::time::Duration;
+use pyo3::exceptions::socket::timeout;
+use crate::unicorn::smt_solver::none_impl::NoneSolver;
 
 //
 // Public Interface
@@ -14,27 +16,31 @@ use std::time::Duration;
 
 pub fn optimize_model_with_solver<S: SMTSolver>(
     model: &mut Model,
+    smt_solver: &mut S,
     timeout: Option<Duration>,
     minimize: bool,
     terminate_on_bad: bool,
     one_query: bool,
+    stride: bool
 ) {
     debug!("Optimizing model using '{}' SMT solver ...", S::name());
     debug!("Setting SMT solver timeout to {:?} per query ...", timeout);
     debug!("Using SMT solver to minimize graph: {} ...", minimize);
     optimize_model_impl::<S>(
         model,
+        smt_solver,
         &mut vec![],
         timeout,
         minimize,
         terminate_on_bad,
         one_query,
+        stride
     )
 }
 
 pub fn optimize_model_with_input(model: &mut Model, inputs: &mut Vec<u64>) {
     debug!("Optimizing model with {} concrete inputs ...", inputs.len());
-    optimize_model_impl::<none_impl::NoneSolver>(model, inputs, None, false, false, false);
+    optimize_model_impl::<none_impl::NoneSolver>(model, &mut NoneSolver::new(None), inputs, None, false, false, false, false);
 }
 
 //
@@ -43,13 +49,15 @@ pub fn optimize_model_with_input(model: &mut Model, inputs: &mut Vec<u64>) {
 
 fn optimize_model_impl<S: SMTSolver>(
     model: &mut Model,
+    smt_solver: &mut S,
     inputs: &mut Vec<u64>,
     timeout: Option<Duration>,
     minimize: bool,
     terminate_on_bad: bool,
     one_query: bool,
+    stride: bool
 ) {
-    let mut constant_folder = ConstantFolder::<S>::new(inputs, timeout, minimize);
+    let mut constant_folder = ConstantFolder::<S>::new(smt_solver, inputs, timeout, minimize);
     model
         .sequentials
         .retain(|s| constant_folder.should_retain_sequential(s));
@@ -66,7 +74,7 @@ fn optimize_model_impl<S: SMTSolver>(
     } else {
         model
             .bad_states_initial
-            .retain(|s| constant_folder.should_retain_bad_state(s, false, true));
+            .retain(|s| constant_folder.should_retain_bad_state(s, true, terminate_on_bad));
 
         if model.bad_states_initial.is_empty() {
             warn!("Plain constant-folding already removed all bad states.");
@@ -103,7 +111,7 @@ fn optimize_model_impl<S: SMTSolver>(
 }
 
 pub struct ConstantFolder<'a, S> {
-    smt_solver: S,
+    smt_solver: &'a mut S,
     marks: HashSet<HashableNodeRef>,
     mapping: HashMap<HashableNodeRef, NodeRef>,
     const_false: NodeRef,
@@ -149,14 +157,15 @@ fn new_const(imm: u64) -> NodeRef {
     new_const_with_type(imm, NodeType::Word)
 }
 
-impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
+impl<'a, S: SMTSolver + 'a> ConstantFolder<'a, S> {
     fn new(
+        smt_solver: &'a mut S,
         concrete_inputs: &'a mut Vec<u64>,
         timeout: Option<Duration>,
         minimize_with_solver: bool,
     ) -> Self {
         Self {
-            smt_solver: S::new(timeout),
+            smt_solver,
             marks: HashSet::new(),
             mapping: HashMap::new(),
             const_false: new_const_with_type(0, NodeType::Bit),
@@ -582,11 +591,6 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
                 if let Some(n) = self.visit(right) { *right = n }
                 self.fold_mul(left, right)
             }
-            Node::Divu { ref mut left, ref mut right, .. } => {
-                if let Some(n) = self.visit(left) { *left = n }
-                if let Some(n) = self.visit(right) { *right = n }
-                self.fold_divu(left, right)
-            }
             Node::Div { ref mut left, ref mut right, .. } => {
                 if let Some(n) = self.visit(left) { *left = n }
                 if let Some(n) = self.visit(right) { *right = n }
@@ -596,16 +600,6 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
                 if let Some(n) = self.visit(left) { *left = n }
                 if let Some(n) = self.visit(right) { *right = n }
                 self.fold_rem(left, right)
-            }
-            Node::Sll { ref mut left, ref mut right, .. } => {
-                if let Some(n) = self.visit(left) { *left = n }
-                if let Some(n) = self.visit(right) { *right = n }
-                self.fold_sll(left, right)
-            }
-            Node::Srl { ref mut left, ref mut right, .. } => {
-                if let Some(n) = self.visit(left) { *left = n }
-                if let Some(n) = self.visit(right) { *right = n }
-                self.fold_srl(left, right)
             }
             Node::Ult { ref mut left, ref mut right, .. } => {
                 if let Some(n) = self.visit(left) { *left = n }
@@ -669,6 +663,10 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
                 if let Some(n) = self.visit(cond) { *cond = n }
                 None
             }
+            Node::Good { ref mut cond, .. } => {
+                if let Some(n) = self.visit(cond) { *cond = n }
+                None
+            }
             Node::Comment(_) => panic!("cannot fold"),
         }
     }
@@ -717,7 +715,7 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
         if let Node::Bad { cond, name, .. } = &*bad_state.borrow() {
             if is_const_false(cond) {
                 debug!(
-                    "Bad state '{}' became unreachable, removing",
+                    "Bad state '{}' became statically unreachable, removing",
                     name.as_deref().unwrap_or("?")
                 );
                 return false;
@@ -736,10 +734,10 @@ impl<'a, S: SMTSolver> ConstantFolder<'a, S> {
             if use_smt {
                 match self.smt_solver.solve(cond) {
                     SMTSolution::Sat => {
-                        warn!(
+                        /*warn!(
                             "Bad state '{}' is satisfiable!",
                             name.as_deref().unwrap_or("?")
-                        );
+                        );*/
                         if terminate_on_bad {
                             // TODO: Change this to use return Result<> instead of panic!
                             panic!("Bad state satisfiable");

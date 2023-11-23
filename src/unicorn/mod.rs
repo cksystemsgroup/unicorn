@@ -14,16 +14,17 @@ pub mod bitblasting_dimacs;
 pub mod bitblasting_printer;
 pub mod btor2file_parser;
 pub mod builder;
-pub mod cnf;
 pub mod codegen;
 pub mod dimacs_parser;
 pub mod emulate_loader;
 pub mod memory;
 pub mod optimize;
+pub mod quarc;
 pub mod qubot;
-pub mod sat_solver;
 pub mod smt_solver;
 pub mod unroller;
+pub mod horizon;
+pub mod profiling;
 
 pub type Nid = u64;
 pub type NodeRef = Rc<RefCell<Node>>;
@@ -61,27 +62,12 @@ pub enum Node {
         left: NodeRef,
         right: NodeRef,
     },
-    Divu {
-        nid: Nid,
-        left: NodeRef,
-        right: NodeRef,
-    },
     Div {
         nid: Nid,
         left: NodeRef,
         right: NodeRef,
     },
     Rem {
-        nid: Nid,
-        left: NodeRef,
-        right: NodeRef,
-    },
-    Sll {
-        nid: Nid,
-        left: NodeRef,
-        right: NodeRef,
-    },
-    Srl {
         nid: Nid,
         left: NodeRef,
         right: NodeRef,
@@ -147,6 +133,11 @@ pub enum Node {
         cond: NodeRef,
         name: Option<String>,
     },
+    Good {
+        nid: Nid,
+        cond: NodeRef,
+        name: Option<String>,
+    },
     Comment(String),
 }
 
@@ -187,12 +178,14 @@ pub fn get_nodetype(n: usize) -> NodeType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Model {
     pub lines: Vec<NodeRef>,
     pub sequentials: Vec<NodeRef>,
     pub bad_states_initial: Vec<NodeRef>,
     pub bad_states_sequential: Vec<NodeRef>,
+    pub good_states_initial: Vec<NodeRef>,
+    pub good_states_sequential: Vec<NodeRef>,
     pub data_range: Range<u64>,
     pub heap_range: Range<u64>,
     pub stack_range: Range<u64>,
@@ -241,16 +234,10 @@ where
                 writeln!(out, "{} sub 2 {} {}", nid, get_nid(left), get_nid(right))?,
             Node::Mul { nid, left, right } =>
                 writeln!(out, "{} mul 2 {} {}", nid, get_nid(left), get_nid(right))?,
-            Node::Divu { nid, left, right } =>
-                writeln!(out, "{} udiv 2 {} {}", nid, get_nid(left), get_nid(right))?,
             Node::Div { nid, left, right } =>
-                writeln!(out, "{} sdiv 2 {} {}", nid, get_nid(left), get_nid(right))?,
+                writeln!(out, "{} udiv 2 {} {}", nid, get_nid(left), get_nid(right))?,
             Node::Rem { nid, left, right } =>
                 writeln!(out, "{} urem 2 {} {}", nid, get_nid(left), get_nid(right))?,
-            Node::Sll { nid, left, right } =>
-                writeln!(out, "{} sll 2 {} {}", nid, get_nid(left), get_nid(right))?,
-            Node::Srl { nid, left, right } =>
-                writeln!(out, "{} srl 2 {} {}", nid, get_nid(left), get_nid(right))?,
             Node::Ult { nid, left, right } =>
                 writeln!(out, "{} ult 1 {} {}", nid, get_nid(left), get_nid(right))?,
             Node::Ext { nid, from, value } =>
@@ -260,11 +247,11 @@ where
             Node::Eq { nid, left, right } =>
                 writeln!(out, "{} eq 1 {} {}", nid, get_nid(left), get_nid(right))?,
             Node::And { nid, sort, left, right } =>
-                writeln!(out, "{} and {} {} {}", nid, get_sort(sort), get_nid(left), get_nid(right))?,
+                writeln!(out, "{} and 1 {} {} {}", nid, get_sort(sort), get_nid(left), get_nid(right))?,
             Node::Or { nid, sort, left, right } =>
-                writeln!(out, "{} or {} {} {}", nid, get_sort(sort), get_nid(left), get_nid(right))?,
+                writeln!(out, "{} or 1 {} {} {}", nid, get_sort(sort), get_nid(left), get_nid(right))?,
             Node::Not { nid, sort, value } =>
-                writeln!(out, "{} not {} {}", nid, get_sort(sort), get_nid(value))?,
+                writeln!(out, "{} not 1 {} {}", nid, get_sort(sort), get_nid(value))?,
             Node::State { nid, sort, init, name } => {
                 writeln!(out, "{} state {} {}", nid, get_sort(sort), name.as_deref().unwrap_or("?"))?;
                 if let Some(value) = init {
@@ -277,6 +264,8 @@ where
                 writeln!(out, "{} input {} {}", nid, get_sort(sort), name)?,
             Node::Bad { nid, cond, name } =>
                 writeln!(out, "{} bad {} {}", nid, get_nid(cond), name.as_deref().unwrap_or("?"))?,
+            Node::Good { .. } =>
+                write!(out, "")?,
             Node::Comment(s) =>
                 writeln!(out, "\n; {}\n", s)?,
         }
@@ -297,22 +286,20 @@ pub fn get_nid(node: &NodeRef) -> Nid {
         Node::Add { nid, .. } => nid,
         Node::Sub { nid, .. } => nid,
         Node::Mul { nid, .. } => nid,
-        Node::Divu { nid, .. } => nid,
         Node::Div { nid, .. } => nid,
         Node::Rem { nid, .. } => nid,
-        Node::Sll { nid, .. } => nid,
-        Node::Srl { nid, .. } => nid,
         Node::Ult { nid, .. } => nid,
         Node::Ext { nid, .. } => nid,
         Node::Ite { nid, .. } => nid,
         Node::Eq { nid, .. } => nid,
         Node::And { nid, .. } => nid,
+        Node::Or { nid, .. } => nid,
         Node::Not { nid, .. } => nid,
         Node::State { nid, .. } => nid,
         Node::Next { nid, .. } => nid,
         Node::Input { nid, .. } => nid,
         Node::Bad { nid, .. } => nid,
-        Node::Or { nid, .. } => nid,
+        Node::Good { nid, .. } => nid,
         Node::Comment(_) => panic!("has no nid"),
     }
 }
