@@ -734,10 +734,10 @@ impl<'a, S: SMTSolver + 'a> ConstantFolder<'a, S> {
             if use_smt {
                 match self.smt_solver.solve(cond) {
                     SMTSolution::Sat => {
-                        /*warn!(
+                        warn!(
                             "Bad state '{}' is satisfiable!",
                             name.as_deref().unwrap_or("?")
-                        );*/
+                        );
                         if terminate_on_bad {
                             // TODO: Change this to use return Result<> instead of panic!
                             panic!("Bad state satisfiable");

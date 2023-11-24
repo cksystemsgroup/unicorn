@@ -247,11 +247,11 @@ where
             Node::Eq { nid, left, right } =>
                 writeln!(out, "{} eq 1 {} {}", nid, get_nid(left), get_nid(right))?,
             Node::And { nid, sort, left, right } =>
-                writeln!(out, "{} and 1 {} {} {}", nid, get_sort(sort), get_nid(left), get_nid(right))?,
+                writeln!(out, "{} and {} {} {}", nid, get_sort(sort), get_nid(left), get_nid(right))?,
             Node::Or { nid, sort, left, right } =>
-                writeln!(out, "{} or 1 {} {} {}", nid, get_sort(sort), get_nid(left), get_nid(right))?,
+                writeln!(out, "{} or {} {} {}", nid, get_sort(sort), get_nid(left), get_nid(right))?,
             Node::Not { nid, sort, value } =>
-                writeln!(out, "{} not 1 {} {}", nid, get_sort(sort), get_nid(value))?,
+                writeln!(out, "{} not {} {}", nid, get_sort(sort), get_nid(value))?,
             Node::State { nid, sort, init, name } => {
                 writeln!(out, "{} state {} {}", nid, get_sort(sort), name.as_deref().unwrap_or("?"))?;
                 if let Some(value) = init {

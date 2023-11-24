@@ -7,6 +7,7 @@ uint64_t main() {
   uint64_t b;
   uint64_t* buffer;
 
+  buffer = malloc(8);
   *buffer = 0;
 
   read(0, buffer, 1);
