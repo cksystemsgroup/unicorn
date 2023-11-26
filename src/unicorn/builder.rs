@@ -23,7 +23,7 @@ pub fn generate_model(
     argv: &[String],
 ) -> Result<Model> {
     trace!("Program: {:?}", program);
-    let mut builder = ModelBuilder::new(memory_size, max_heap, max_stack);
+    let mut builder = ModelBuilder::new(memory_size, max_heap, max_stack,program.is64);
     builder.generate_model(program, argv)?;
     Ok(builder.finalize())
 }
@@ -35,7 +35,10 @@ pub fn generate_model(
 const INSTRUCTION_SIZE: u64 = riscu::INSTRUCTION_SIZE as u64;
 const PAGE_SIZE: u64 = unicorn::engine::system::PAGE_SIZE as u64;
 const WORD_SIZE_MASK: u64 = riscu::WORD_SIZE as u64 - 1;
+const WORD_SIZE_MASK_32BIT: u64 = riscu::WORD_SIZE32BIT as u64 - 1;
+
 const BITS_PER_BYTE: u64 = 8;
+const BITS_PER_BYTE_32BIT: u64 = 4;
 
 // TODO: Add implementation of all syscalls.
 // TODO: Fix initialization of `current_nid` based on binary size.
@@ -70,6 +73,7 @@ struct ModelBuilder {
     stack_range: Range<u64>,
     current_nid: Nid,
     pc: u64,
+    is_64bit: bool,
 }
 
 struct InEdge {
@@ -113,13 +117,14 @@ impl ModelBuilder {
             access_flow: dummy_node.clone(),
             ecall_flow: dummy_node,
             memory_size,
-            max_heap_size: if  is_64bit{ (max_heap as u32 * size_of::<u32>() as u32) as u64 } else { max_heap as u64 * size_of::<u64>() as u64 };
-            max_stack_size: if is_64bit { (max_stack as u32 * size_of::<u32>() as u32) as u64 } else { max_stack as u64 * size_of::<u64>() as u64 };
+            max_heap_size: if  is_64bit { (max_heap as u32 * size_of::<u32>() as u32) as u64 } else { max_heap as u64 * size_of::<u64>() as u64 },
+            max_stack_size: if is_64bit { (max_stack as u32 * size_of::<u32>() as u32) as u64 } else { max_stack as u64 * size_of::<u64>() as u64 },
             data_range: 0..0,
             heap_range: 0..0,
             stack_range: 0..0,
             current_nid: 0,
             pc: 0,
+            is_64bit,
         }
     }
 
@@ -625,7 +630,7 @@ impl ModelBuilder {
     // long as the load does not cross word-boundaries.
     fn model_l(&mut self, bits: u32, address: NodeRef, signed: bool) -> NodeRef {
         assert!(bits > 0 && bits < 64, "bit-width within range");
-        let address_mask_node = self.new_const(!WORD_SIZE_MASK);
+        let address_mask_node = self.new_const(if self.is_64bit {!WORD_SIZE_MASK} else {!WORD_SIZE_MASK_32BIT});
         let address_word_node = self.new_and_word(address.clone(), address_mask_node);
         self.access_flow = self.new_ite(
             self.pc_flag(),
@@ -634,8 +639,8 @@ impl ModelBuilder {
             NodeType::Word,
         );
         let read_node = self.new_read(address_word_node);
-        let eight_node = self.new_const(BITS_PER_BYTE);
-        let address_mask_node = self.new_const(WORD_SIZE_MASK);
+        let eight_node = self.new_const(if self.is_64bit { BITS_PER_BYTE } else { BITS_PER_BYTE_32BIT });
+        let address_mask_node = self.new_const(if self.is_64bit {WORD_SIZE_MASK} else {WORD_SIZE_MASK_32BIT});
         let address_offset_node = self.new_and_word(address, address_mask_node);
         let shift_amount_node = self.new_mul(eight_node, address_offset_node);
         let shift_const_node = self.new_const(64 - bits as u64);
@@ -702,7 +707,7 @@ impl ModelBuilder {
     // long as the store does not cross word-boundaries.
     fn model_s(&mut self, bits: u32, address: NodeRef, value: NodeRef) {
         assert!(bits > 0 && bits < 64, "bit-width within range");
-        let address_mask_node = self.new_const(!WORD_SIZE_MASK);
+        let address_mask_node = self.new_const(if self.is_64bit {!WORD_SIZE_MASK} else {!WORD_SIZE_MASK_32BIT});
         let address_word_node = self.new_and_word(address.clone(), address_mask_node);
         self.access_flow = self.new_ite(
             self.pc_flag(),
@@ -712,8 +717,8 @@ impl ModelBuilder {
         );
         let read_node = self.new_read(address_word_node.clone());
         let ones_node = self.new_const((1 << bits) - 1);
-        let eight_node = self.new_const(BITS_PER_BYTE);
-        let address_mask_node = self.new_const(WORD_SIZE_MASK);
+        let eight_node = self.new_const(if self.is_64bit { BITS_PER_BYTE } else { BITS_PER_BYTE_32BIT });
+        let address_mask_node = self.new_const(if self.is_64bit {WORD_SIZE_MASK} else {WORD_SIZE_MASK_32BIT});
         let address_offset_node = self.new_and_word(address, address_mask_node);
         let shift_amount_node = self.new_mul(eight_node, address_offset_node);
         let mask_node = self.new_sll(ones_node, shift_amount_node.clone());
@@ -1184,11 +1189,11 @@ impl ModelBuilder {
         self.new_ite(activate, self.one_bit.clone(), flow, NodeType::Bit)
     }
 
-    fn generate_model(&mut self, program: &Program, argv: &[String], is_64bit: bool) -> Result<()> {
+    fn generate_model(&mut self, program: &Program, argv: &[String]) -> Result<()> {
         let data_section_start = program.data.address;
         let data_section_end = program.data.address + program.data.content.len() as u64;
-        let data_start = data_section_start & !(if is_64bit { size_of::<u64>() } else {size_of::<u32>()} as u64 - 1);
-        let data_end = next_multiple_of(data_section_end, if is_64bit { size_of::<u64>() } else { size_of::<u32>() } as u64);
+        let data_start = data_section_start & !(if self.is_64bit { size_of::<u64>() } else {size_of::<u32>()} as u64 - 1);
+        let data_end = next_multiple_of(data_section_end, if self.is_64bit { size_of::<u64>() } else { size_of::<u32>() } as u64);
         self.data_range = data_start..data_end;
         let heap_start = next_multiple_of(data_end, PAGE_SIZE);
         let heap_end = heap_start + self.max_heap_size;
@@ -1198,9 +1203,9 @@ impl ModelBuilder {
         self.stack_range = stack_start..stack_end;
 
         debug!("argc: {}, argv: {:?}", argv.len(), argv);
-        let initial_stack = if is_64bit {prepare_unix_stack(argv, stack_end)} else {prepare_unix_stack32bit(argv, stack_end);};
-        let initial_stack_size = initial_stack.len() * if is_64bit { size_of::<u64>() } else { size_of::<u32>() };
-        let initial_sp_value = stack_end - initial_stack_size as u64;
+        let initial_stack = if self.is_64bit {prepare_unix_stack(argv, stack_end)} else {prepare_unix_stack32bit(argv, stack_end as u32)};
+        let initial_stack_size = initial_stack.len() * if self.is_64bit { size_of::<u64>() } else { size_of::<u32>() };
+        let initial_sp_value = if self.is_64bit { stack_end - initial_stack_size as u64 } else { (stack_end as u32 - initial_stack_size as u32).into() };
         assert!(initial_sp_value >= stack_start, "initial stack fits");
 
         self.new_comment("common constants".to_string());
@@ -1294,7 +1299,7 @@ impl ModelBuilder {
             self.pc = self.pc_add(INSTRUCTION_SIZE);
         }
 
-        if is_64bit {
+        if self.is_64bit {
             self.new_comment("64-bit virtual memory".to_string());
         } else {
             self.new_comment("32-bit virtual memory".to_string());
@@ -1312,7 +1317,11 @@ impl ModelBuilder {
             debug!("Aligning data end: {:#010x}-{}", data_end, padding);
             dump_buffer.extend(vec![0; padding]);
         }
-        assert!(dump_buffer.len() % size_of::<u64>() == 0, "has been padded");
+        if self.is_64bit {
+            assert!(dump_buffer.len() % size_of::<u64>() == 0, "has been padded");
+        } else {
+            assert!(dump_buffer.len() % size_of::<u32>() == 0, "has been padded");
+        }
         fn write_value_to_memory(this: &mut ModelBuilder, val: u64, adr: u64) {
             let address = this.new_const(adr);
             let value = if val == 0 {
@@ -1408,24 +1417,29 @@ impl ModelBuilder {
         let read_const_4 = self.new_const(4);
         let read_bytes_eq_4 = self.new_eq(read_bytes.clone(), read_const_4);
         let read_ite_4 = self.new_ite(read_bytes_eq_4, read_input4, read_ite_3, NodeType::Word);
-        let read_input5 = self.new_input("5-byte-input".to_string(), NodeType::Input5Byte);
-        let read_const_5 = self.new_const(5);
-        let read_bytes_eq_5 = self.new_eq(read_bytes.clone(), read_const_5);
-        let read_ite_5 = self.new_ite(read_bytes_eq_5, read_input5, read_ite_4, NodeType::Word);
-        let read_input6 = self.new_input("6-byte-input".to_string(), NodeType::Input6Byte);
-        let read_const_6 = self.new_const(6);
-        let read_bytes_eq_6 = self.new_eq(read_bytes.clone(), read_const_6);
-        let read_ite_6 = self.new_ite(read_bytes_eq_6, read_input6, read_ite_5, NodeType::Word);
-        let read_input7 = self.new_input("7-byte-input".to_string(), NodeType::Input7Byte);
-        let read_const_7 = self.new_const(7);
-        let read_bytes_eq_7 = self.new_eq(read_bytes.clone(), read_const_7);
-        let read_ite_7 = self.new_ite(read_bytes_eq_7, read_input7, read_ite_6, NodeType::Word);
-        let read_input8 = self.new_input("8-byte-input".to_string(), NodeType::Word);
-        let read_const_8 = self.new_const(8);
-        let read_bytes_eq_8 = self.new_eq(read_bytes.clone(), read_const_8);
-        let read_ite_8 = self.new_ite(read_bytes_eq_8, read_input8, read_ite_7, NodeType::Word);
+
+        let _last_node_8_or_4_byte = read_ite_4.clone();
+
+        if self.is_64bit {
+            let read_input5 = self.new_input("5-byte-input".to_string(), NodeType::Input5Byte);
+            let read_const_5 = self.new_const(5);
+            let read_bytes_eq_5 = self.new_eq(read_bytes.clone(), read_const_5);
+            let read_ite_5 = self.new_ite(read_bytes_eq_5, read_input5, read_ite_4, NodeType::Word);
+            let read_input6 = self.new_input("6-byte-input".to_string(), NodeType::Input6Byte);
+            let read_const_6 = self.new_const(6);
+            let read_bytes_eq_6 = self.new_eq(read_bytes.clone(), read_const_6);
+            let read_ite_6 = self.new_ite(read_bytes_eq_6, read_input6, read_ite_5, NodeType::Word);
+            let read_input7 = self.new_input("7-byte-input".to_string(), NodeType::Input7Byte);
+            let read_const_7 = self.new_const(7);
+            let read_bytes_eq_7 = self.new_eq(read_bytes.clone(), read_const_7);
+            let read_ite_7 = self.new_ite(read_bytes_eq_7, read_input7, read_ite_6, NodeType::Word);
+            let read_input8 = self.new_input("8-byte-input".to_string(), NodeType::Word);
+            let read_const_8 = self.new_const(8);
+            let read_bytes_eq_8 = self.new_eq(read_bytes.clone(), read_const_8);
+            let _last_node_8_or_4_byte = self.new_ite(read_bytes_eq_8, read_input8, read_ite_7, NodeType::Word);
+        }
         let read_address = self.new_add(self.reg_node(Register::A1), self.reg_node(Register::A0));
-        let read_store = self.new_write(read_address, read_ite_8);
+        let read_store = self.new_write(read_address, _last_node_8_or_4_byte);
         let read_more = self.new_ult(self.reg_node(Register::A0), self.reg_node(Register::A2));
         let read_more = self.new_and_bit(is_read.clone(), read_more);
         let read_not_done = self.new_and_bit(self.kernel_mode.clone(), read_more);

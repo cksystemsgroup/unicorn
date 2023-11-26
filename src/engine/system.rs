@@ -44,7 +44,7 @@ pub fn prepare_unix_stack(argv: &[String], sp: u64) -> Vec<u64> {
     stack
 }
 
-pub fn prepare_unix_stack32bit(argv: &[String], sp: u32) -> Vec<u32> {
+pub fn prepare_unix_stack32bit(argv: &[String], sp: u32) -> Vec<u64> {
     let mut stack32 = vec![];
     let argc32 = argv.len() as u32;
     let argv_ptrs32: Vec<u32> = argv
@@ -63,6 +63,8 @@ pub fn prepare_unix_stack32bit(argv: &[String], sp: u32) -> Vec<u32> {
     for argv_ptr in argv_ptrs32 {
         stack32.push(argv_ptr);
     }
+    // Casting the 32 bit values to 64bit
     stack32.push(argc32);
-    stack32
+    let stack: Vec<u64> = stack32.iter().map(|&x| x as u64).collect();
+    stack
 }

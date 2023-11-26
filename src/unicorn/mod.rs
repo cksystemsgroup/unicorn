@@ -196,6 +196,7 @@ pub fn get_nodetype64bit(n: usize) -> NodeType {
 }
 
 pub fn get_nodetype32bit(n: usize) -> NodeType {
+    println!("32bit");
     match n {
         1 => NodeType::Bit,
         32 => NodeType::Word,
@@ -260,7 +261,11 @@ where
     for node in model.lines.iter() {
         match &*node.borrow() {
             Node::Const { nid, sort, imm } =>
-                writeln!(out, "{} constd {} {}", nid, get_sort(sort), imm)?,
+                if is_64bit {
+                    writeln!(out, "{} constd {} {}", nid, get_sort(sort), *imm)?
+                } else {
+                    writeln!(out, "{} constd {} {}", nid, get_sort(sort), *imm as u32)?
+                },
             Node::Read { nid, memory, address } =>
                 writeln!(out, "{} read 2 {} {}", nid, get_nid(memory), get_nid(address))?,
             Node::Write { nid, memory, address, value } =>
@@ -284,7 +289,7 @@ where
             Node::Ult { nid, left, right } =>
                 writeln!(out, "{} ult 1 {} {}", nid, get_nid(left), get_nid(right))?,
             Node::Ext { nid, from, value } =>
-                writeln!(out, "{} uext 2 {} {}", nid, get_nid(value), 64 - from.bitsize())?,
+                writeln!(out, "{} uext 2 {} {}", nid, get_nid(value) as u32,if is_64bit { (64 - from.bitsize()) as u32} else { (((32) as u32).checked_sub(from.bitsize() as u32).unwrap_or(0)) as u32})?,
             Node::Ite { nid, sort, cond, left, right } =>
                 writeln!(out, "{} ite {} {} {} {}", nid, get_sort(sort), get_nid(cond), get_nid(left), get_nid(right))?,
             Node::Eq { nid, left, right } =>
