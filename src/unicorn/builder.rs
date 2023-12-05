@@ -1322,7 +1322,7 @@ impl ModelBuilder {
             self.pc = self.pc_add(INSTRUCTION_SIZE);
         }
 
-        self.new_comment(format!("{:?}-bit virtual memory",self.model_values.bits));
+        self.new_comment(format!("{:?}-bit virtual memory ss",self.model_values.bits));
 
         self.current_nid = 20000000;
         self.memory_node = self.new_state(None, "memory-dump".to_string(), NodeType::Memory);
@@ -1347,15 +1347,22 @@ impl ModelBuilder {
             };
             this.memory_node = this.new_write(address, value);
         }
-        dump_buffer
-            .chunks(size_of::<u32>())
-            .map(LittleEndian::read_u32)
-            .zip((data_start..data_end).step_by(size_of::<u32>()))
-            .for_each(|(val, adr)| write_value_to_memory(self, val as u64, adr));
+        if self.model_values.is_64bit { dump_buffer
+            .chunks(size_of::<u64>())
+            .map(LittleEndian::read_u64)
+            .zip((data_start..data_end).step_by(size_of::<u64>()))
+            .for_each(|(val, adr)| write_value_to_memory(self, val, adr));
+        } else {
+            dump_buffer
+                .chunks(size_of::<u32>())
+                .map(LittleEndian::read_u32)
+                .zip((data_start..data_end).step_by(size_of::<u32>()))
+                .for_each(|(val, adr)| write_value_to_memory(self, val as u64, adr));
+        }
         initial_stack
             .into_iter()
             .rev()
-            .zip((initial_sp_value..stack_end).step_by(size_of::<u32>()))
+            .zip((initial_sp_value..stack_end).step_by(self.model_values.size_of))
             .for_each(|(val, adr)| write_value_to_memory(self, val , adr));
         self.memory_node = self.new_state(
             Some(self.memory_node.clone()),
