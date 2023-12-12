@@ -86,6 +86,7 @@ struct ModelBuilder {
     memory_flow: NodeRef,
     division_flow: NodeRef,
     remainder_flow: NodeRef,
+    overflow_flow: NodeRef,
     access_flow: NodeRef,
     ecall_flow: NodeRef,
     memory_size: u64,
@@ -137,6 +138,7 @@ impl ModelBuilder {
             memory_flow: dummy_node.clone(),
             division_flow: dummy_node.clone(),
             remainder_flow: dummy_node.clone(),
+            overflow_flow: dummy_node.clone(),
             access_flow: dummy_node.clone(),
             ecall_flow: dummy_node,
             memory_size,
@@ -520,6 +522,12 @@ impl ModelBuilder {
             let imm_node = self.new_const(imm);
             self.new_add(self.reg_node(itype.rs1()), imm_node)
         };
+        self.overflow_flow = self.new_ite(
+            self.pc_flag(),
+            result_node.clone(),
+            self.overflow_flow.clone(),
+            NodeType::Word,
+        );
         self.reg_flow_ite(itype.rd(), result_node);
     }
 
@@ -795,11 +803,23 @@ impl ModelBuilder {
 
     fn model_add(&mut self, rtype: RType) {
         let add_node = self.new_add(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
+        self.overflow_flow = self.new_ite(
+            self.pc_flag(),
+            add_node.clone(),
+            self.overflow_flow.clone(),
+            NodeType::Word,
+        );
         self.reg_flow_ite(rtype.rd(), add_node);
     }
 
     fn model_addw(&mut self, rtype: RType) {
         let add_node = self.new_add(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
+        self.overflow_flow = self.new_ite(
+            self.pc_flag(),
+            add_node.clone(),
+            self.overflow_flow.clone(),
+            NodeType::Word,
+        );
         let thirtytwo = self.new_const(32);
         let sll_node = self.new_sll(add_node, thirtytwo.clone());
         let sra_node = self.new_sra(sll_node, thirtytwo);
@@ -855,6 +875,12 @@ impl ModelBuilder {
 
     fn model_mul(&mut self, rtype: RType) {
         let mul_node = self.new_mul(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
+        self.overflow_flow = self.new_ite(
+            self.pc_flag(),
+            mul_node.clone(),
+            self.overflow_flow.clone(),
+            NodeType::Word,
+        );
         self.reg_flow_ite(rtype.rd(), mul_node);
     }
 
@@ -868,6 +894,12 @@ impl ModelBuilder {
         right_sext = self.new_sra(right_sext, thirtytwo.clone());
 
         let mul_node = self.new_mul(left_sext, right_sext);
+        self.overflow_flow = self.new_ite(
+            self.pc_flag(),
+            mul_node.clone(),
+            self.overflow_flow.clone(),
+            NodeType::Word,
+        );
 
         let mut sext_mul_node = self.new_sll(mul_node, thirtytwo.clone());
         sext_mul_node = self.new_sra(sext_mul_node, thirtytwo);
@@ -1258,6 +1290,11 @@ impl ModelBuilder {
             sort: NodeType::Word,
             imm: self.data_range.start,
         });
+        self.overflow_flow = self.add_node(Node::Const {
+            nid: 41,
+            sort: NodeType::Word,
+            imm: 0,
+        });
         self.ecall_flow = self.zero_bit.clone();
 
         self.new_comment("kernel-mode flag".to_string());
@@ -1604,6 +1641,7 @@ impl ModelBuilder {
         let heap_max_end = self.new_const(self.heap_range.end);
         let stack_max_start = self.new_const(self.stack_range.start);
         let stack_end_inclusive = self.new_const(self.stack_range.end - 1);
+        let max32bit_unsigned_integer = self.new_const(2147483647);
         let below_data = self.new_ult(self.access_flow.clone(), data_start);
         self.new_bad(below_data, "memory-access-below-data");
         let above_data = self.new_ugte(self.access_flow.clone(), data_end);
@@ -1635,6 +1673,10 @@ impl ModelBuilder {
         let check_exit_code = self.new_neq(self.reg_node(Register::A0), self.zero_word.clone());
         let check_exit = self.new_and_bit(active_exit, check_exit_code);
         self.new_bad(check_exit, "non-zero-exit-code");
+
+        self.new_comment("checking 32bit overflow".to_string());
+        let check_overflow = self.new_ugte(self.overflow_flow.clone(), max32bit_unsigned_integer);
+        self.new_bad(check_overflow, "32bit-overflow");
 
         Ok(())
     }
