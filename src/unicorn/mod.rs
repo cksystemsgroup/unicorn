@@ -170,11 +170,11 @@ pub enum NodeType {
     Input7Byte,
 }
 
-pub fn get_nodetype(n: usize, is_64bit: bool) -> NodeType{
+pub fn get_nodetype(n: usize, is_64bit: bool) -> NodeType {
     if is_64bit {
-        return get_nodetype64bit(n);
+        get_nodetype64bit(n)
     } else {
-        return get_nodetype32bit(n);
+        get_nodetype32bit(n)
     }
 }
 
@@ -289,7 +289,7 @@ where
             Node::Ult { nid, left, right } =>
                 writeln!(out, "{} ult 1 {} {}", nid, get_nid(left), get_nid(right))?,
             Node::Ext { nid, from, value } =>
-                writeln!(out, "{} uext 2 {} {}", nid, get_nid(value) as u32,if is_64bit { (64 - from.bitsize()) as u32} else { (((32) as u32).checked_sub(from.bitsize() as u32).unwrap_or(0)) as u32})?,
+                writeln!(out, "{} uext 2 {} {}", nid, get_nid(value) as u32,if is_64bit { (64 - from.bitsize()) as u32} else { (32_u32).saturating_sub(from.bitsize() as u32)})?,
             Node::Ite { nid, sort, cond, left, right } =>
                 writeln!(out, "{} ite {} {} {} {}", nid, get_sort(sort), get_nid(cond), get_nid(left), get_nid(right))?,
             Node::Eq { nid, left, right } =>

@@ -10,6 +10,7 @@ use std::ops::Range;
 use std::rc::Rc;
 use unicorn::engine::system::{prepare_unix_stack, prepare_unix_stack32bit, SyscallId, NUMBER_OF_REGISTERS};
 use unicorn::util::next_multiple_of;
+use crate::cli::args;
 
 //
 // Public Interface
@@ -17,6 +18,7 @@ use unicorn::util::next_multiple_of;
 
 struct ModelValues {
     is_64bit: bool,
+    run_32bit: bool,
     word_size_mask: u64,
     bits_per_byte: u64,
     size_of: usize,
@@ -30,25 +32,25 @@ pub fn generate_model(
     max_stack: u32,
     argv: &[String],
 ) -> Result<Model> {
-    let model_values:ModelValues;
-
-    if program.is64 {
-        model_values = ModelValues {
+    let model_values:ModelValues = if program.is64 {
+        ModelValues {
             is_64bit: true,
+            run_32bit: Some(("32-bit", args)).is_some(),
             word_size_mask: riscu::WORD_SIZE as u64 - 1,
             bits_per_byte: 8,
             size_of: size_of::<u64>(),
             bits: 64,
         }
     } else {
-        model_values = ModelValues {
+        ModelValues {
             is_64bit: false,
+            run_32bit: Some(("32-bit", args)).is_some(),
             word_size_mask: riscu::WORD_SIZE32BIT as u64 - 1,
             bits_per_byte: 4,
             size_of: size_of::<u32>(),
             bits: 32,
         }
-    }
+    };
 
     trace!("Program: {:?}", program);
     let mut builder = ModelBuilder::new(memory_size, max_heap, max_stack, model_values);
@@ -1384,7 +1386,8 @@ impl ModelBuilder {
             };
             this.memory_node = this.new_write(address, value);
         }
-        if self.model_values.is_64bit { dump_buffer
+        if self.model_values.is_64bit && !self.model_values.run_32bit {
+            dump_buffer
             .chunks(size_of::<u64>())
             .map(LittleEndian::read_u64)
             .zip((data_start..data_end).step_by(size_of::<u64>()))
