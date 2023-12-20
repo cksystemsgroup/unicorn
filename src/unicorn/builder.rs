@@ -32,10 +32,12 @@ pub fn generate_model(
     max_stack: u32,
     argv: &[String],
 ) -> Result<Model> {
-    let model_values:ModelValues = if program.is64 {
+    let flag_32bit = Some(("32-bit", args)).is_some();
+
+    let model_values:ModelValues = if program.is64 && !flag_32bit {
         ModelValues {
             is_64bit: true,
-            run_32bit: Some(("32-bit", args)).is_some(),
+            run_32bit: false,
             word_size_mask: riscu::WORD_SIZE as u64 - 1,
             bits_per_byte: 8,
             size_of: size_of::<u64>(),
@@ -44,7 +46,7 @@ pub fn generate_model(
     } else {
         ModelValues {
             is_64bit: false,
-            run_32bit: Some(("32-bit", args)).is_some(),
+            run_32bit: program.is64,
             word_size_mask: riscu::WORD_SIZE32BIT as u64 - 1,
             bits_per_byte: 4,
             size_of: size_of::<u32>(),
@@ -1386,18 +1388,26 @@ impl ModelBuilder {
             };
             this.memory_node = this.new_write(address, value);
         }
-        if self.model_values.is_64bit && !self.model_values.run_32bit {
+        if self.model_values.is_64bit {
             dump_buffer
             .chunks(size_of::<u64>())
             .map(LittleEndian::read_u64)
             .zip((data_start..data_end).step_by(size_of::<u64>()))
             .for_each(|(val, adr)| write_value_to_memory(self, val, adr));
+        } else if self.model_values.run_32bit {
+                print!("32bit flag");
+                dump_buffer
+                    .chunks(size_of::<u64>())
+                    .map(LittleEndian::read_u64)
+                    .zip((data_start..data_end).step_by(size_of::<u64>()))
+                    .for_each(|(val, adr)| write_value_to_memory(self, val, adr));
         } else {
-            dump_buffer
-                .chunks(size_of::<u32>())
-                .map(LittleEndian::read_u32)
-                .zip((data_start..data_end).step_by(size_of::<u32>()))
-                .for_each(|(val, adr)| write_value_to_memory(self, val as u64, adr));
+                dump_buffer
+                    .chunks(size_of::<u32>())
+                    .map(LittleEndian::read_u32)
+                    .zip((data_start..data_end).step_by(size_of::<u32>()))
+                    .for_each(|(val, adr)| write_value_to_memory(self, val as u64, adr));
+
         }
         initial_stack
             .into_iter()
