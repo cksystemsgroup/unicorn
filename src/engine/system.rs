@@ -43,3 +43,28 @@ pub fn prepare_unix_stack(argv: &[String], sp: u64) -> Vec<u64> {
     stack.push(argc);
     stack
 }
+
+pub fn prepare_unix_stack32bit(argv: &[String], sp: u32) -> Vec<u64> {
+    let mut stack32 = vec![];
+    let argc32 = argv.len() as u32;
+    let argv_ptrs32: Vec<u32> = argv
+        .iter()
+        .rev()
+        .map(|arg| {
+            let c_string = arg.to_owned() + "\0";
+            for chunk in c_string.as_bytes().chunks_exact(size_of::<u32>()).rev() {
+                stack32.push(LittleEndian::read_u32(chunk));
+            }
+            sp - (stack32.len() * size_of::<u32>()) as u32
+        })
+        .collect();
+    stack32.push(0); // terminate env table
+    stack32.push(0); // terminate argv table
+    for argv_ptr in argv_ptrs32 {
+        stack32.push(argv_ptr);
+    }
+    // Casting the 32 bit values to 64bit
+    stack32.push(argc32);
+    let stack: Vec<u64> = stack32.iter().map(|&x| x as u64).collect();
+    stack
+}

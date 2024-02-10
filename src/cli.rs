@@ -252,6 +252,12 @@ pub fn args() -> Command {
                         .num_args(0)
                 )
                 .arg(
+                Arg::new("32-bit")
+                    .help("Run beator with an 32 bit version of the Program")
+                    .long("32bit")
+                    .num_args(0)
+                )
+                .arg(
                     Arg::new("extras")
                         .help("Arguments passed to emulated program")
                         .value_name("ARGUMENTS")
