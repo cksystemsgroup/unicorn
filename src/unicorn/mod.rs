@@ -196,7 +196,6 @@ pub fn get_nodetype64bit(n: usize) -> NodeType {
 }
 
 pub fn get_nodetype32bit(n: usize) -> NodeType {
-    println!("32bit");
     match n {
         1 => NodeType::Bit,
         32 => NodeType::Word,

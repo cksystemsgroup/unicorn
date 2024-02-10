@@ -97,12 +97,21 @@ fn main() -> Result<()> {
             let arg0 = expect_arg::<String>(args, "input-file")?;
             let extras = collect_arg_values(args, "extras");
 
+            let flag_32bit = args.get_flag("32-bit");
+
             let mut model = if !input_is_dimacs {
                 let mut model = if !input_is_btor2 {
                     let program = load_object_file(&input)?;
                     is64_bit = program.is64;
                     let argv = [vec![arg0], extras].concat();
-                    generate_model(&program, memory_size, max_heap, max_stack, &argv)?
+                    generate_model(
+                        &program,
+                        memory_size,
+                        max_heap,
+                        max_stack,
+                        flag_32bit,
+                        &argv,
+                    )?
                 } else {
                     parse_btor2_file(&input)
                 };
