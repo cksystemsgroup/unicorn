@@ -8,22 +8,54 @@ use std::collections::HashMap;
 use std::mem::size_of;
 use std::ops::Range;
 use std::rc::Rc;
-use unicorn::engine::system::{prepare_unix_stack, SyscallId, NUMBER_OF_REGISTERS};
+use unicorn::engine::system::{
+    prepare_unix_stack, prepare_unix_stack32bit, SyscallId, NUMBER_OF_REGISTERS,
+};
 use unicorn::util::next_multiple_of;
 
 //
 // Public Interface
 //
 
+struct ModelValues {
+    is_64bit: bool,
+    run_32bit: bool,
+    word_size_mask: u64,
+    bits_per_byte: u64,
+    size_of: usize,
+    bits: u64,
+}
+
 pub fn generate_model(
     program: &Program,
     memory_size: u64,
     max_heap: u32,
     max_stack: u32,
+    flag_32bit: bool,
     argv: &[String],
 ) -> Result<Model> {
+    let model_values: ModelValues = if program.is64 && !flag_32bit {
+        ModelValues {
+            is_64bit: true,
+            run_32bit: false,
+            word_size_mask: riscu::WORD_SIZE as u64 - 1,
+            bits_per_byte: 8,
+            size_of: size_of::<u64>(),
+            bits: 64,
+        }
+    } else {
+        ModelValues {
+            is_64bit: false,
+            run_32bit: program.is64,
+            word_size_mask: riscu::WORD_SIZE32BIT as u64 - 1,
+            bits_per_byte: 4,
+            size_of: size_of::<u32>(),
+            bits: 32,
+        }
+    };
+
     trace!("Program: {:?}", program);
-    let mut builder = ModelBuilder::new(memory_size, max_heap, max_stack);
+    let mut builder = ModelBuilder::new(memory_size, max_heap, max_stack, model_values);
     builder.generate_model(program, argv)?;
     Ok(builder.finalize())
 }
@@ -34,8 +66,6 @@ pub fn generate_model(
 
 const INSTRUCTION_SIZE: u64 = riscu::INSTRUCTION_SIZE as u64;
 const PAGE_SIZE: u64 = unicorn::engine::system::PAGE_SIZE as u64;
-const WORD_SIZE_MASK: u64 = riscu::WORD_SIZE as u64 - 1;
-const BITS_PER_BYTE: u64 = 8;
 
 // TODO: Add implementation of all syscalls.
 // TODO: Fix initialization of `current_nid` based on binary size.
@@ -45,10 +75,14 @@ struct ModelBuilder {
     lines: Vec<NodeRef>,
     sequentials: Vec<NodeRef>,
     bad_states: Vec<NodeRef>,
-    pc_flags: HashMap<u64, NodeRef>,       // maps PC -> PC-Flag
-    control_in: HashMap<u64, Vec<InEdge>>, // maps PC -> [InEdge]
-    dynamic_flags: Vec<NodeRef>,           // maps Register -> Dispatch-Flag
-    dynamic: Vec<Vec<DynDispatch>>,        // maps Register -> [DynDispatch]
+    pc_flags: HashMap<u64, NodeRef>,
+    // maps PC -> PC-Flag
+    control_in: HashMap<u64, Vec<InEdge>>,
+    // maps PC -> [InEdge]
+    dynamic_flags: Vec<NodeRef>,
+    // maps Register -> Dispatch-Flag
+    dynamic: Vec<Vec<DynDispatch>>,
+    // maps Register -> [DynDispatch]
     zero_bit: NodeRef,
     one_bit: NodeRef,
     zero_word: NodeRef,
@@ -60,6 +94,8 @@ struct ModelBuilder {
     memory_flow: NodeRef,
     division_flow: NodeRef,
     remainder_flow: NodeRef,
+    addition_overflow: NodeRef,
+    multiplication: NodeRef,
     access_flow: NodeRef,
     ecall_flow: NodeRef,
     memory_size: u64,
@@ -70,6 +106,7 @@ struct ModelBuilder {
     stack_range: Range<u64>,
     current_nid: Nid,
     pc: u64,
+    model_values: ModelValues,
 }
 
 struct InEdge {
@@ -83,13 +120,15 @@ struct DynDispatch {
 }
 
 enum FromInstruction {
-    Regular,    // fall-thru from regular instruction, or jump target (i.e. jal)
-    Branch,     // target of conditional branch (e.g. beq, bne, ...)
+    Regular,
+    // fall-thru from regular instruction, or jump target (i.e. jal)
+    Branch,
+    // target of conditional branch (e.g. beq, bne, ...)
     SystemCall, // return from system call (i.e. ecall)
 }
 
 impl ModelBuilder {
-    fn new(memory_size: u64, max_heap: u32, max_stack: u32) -> Self {
+    fn new(memory_size: u64, max_heap: u32, max_stack: u32, model_values: ModelValues) -> Self {
         let dummy_node = Rc::new(RefCell::new(Node::Comment("dummy".to_string())));
         Self {
             lines: Vec::new(),
@@ -110,6 +149,8 @@ impl ModelBuilder {
             memory_flow: dummy_node.clone(),
             division_flow: dummy_node.clone(),
             remainder_flow: dummy_node.clone(),
+            addition_overflow: dummy_node.clone(),
+            multiplication: dummy_node.clone(),
             access_flow: dummy_node.clone(),
             ecall_flow: dummy_node,
             memory_size,
@@ -120,6 +161,7 @@ impl ModelBuilder {
             stack_range: 0..0,
             current_nid: 0,
             pc: 0,
+            model_values,
         }
     }
 
@@ -484,14 +526,16 @@ impl ModelBuilder {
             return;
         };
         let imm = itype.imm() as u64;
+        let imm_node = self.new_const(imm);
         let result_node = if imm == 0 {
             self.reg_node(itype.rs1())
         } else if itype.rs1() == Register::Zero {
             self.new_const(imm)
         } else {
-            let imm_node = self.new_const(imm);
-            self.new_add(self.reg_node(itype.rs1()), imm_node)
+            self.new_add(self.reg_node(itype.rs1()), imm_node.clone())
         };
+
+        self.check_addition_overflow(self.reg_node(itype.rs1()), imm_node, result_node.clone());
         self.reg_flow_ite(itype.rd(), result_node);
     }
 
@@ -625,7 +669,7 @@ impl ModelBuilder {
     // long as the load does not cross word-boundaries.
     fn model_l(&mut self, bits: u32, address: NodeRef, signed: bool) -> NodeRef {
         assert!(bits > 0 && bits < 64, "bit-width within range");
-        let address_mask_node = self.new_const(!WORD_SIZE_MASK);
+        let address_mask_node = self.new_const(!self.model_values.word_size_mask);
         let address_word_node = self.new_and_word(address.clone(), address_mask_node);
         self.access_flow = self.new_ite(
             self.pc_flag(),
@@ -634,8 +678,8 @@ impl ModelBuilder {
             NodeType::Word,
         );
         let read_node = self.new_read(address_word_node);
-        let eight_node = self.new_const(BITS_PER_BYTE);
-        let address_mask_node = self.new_const(WORD_SIZE_MASK);
+        let eight_node = self.new_const(self.model_values.bits_per_byte);
+        let address_mask_node = self.new_const(self.model_values.word_size_mask);
         let address_offset_node = self.new_and_word(address, address_mask_node);
         let shift_amount_node = self.new_mul(eight_node, address_offset_node);
         let shift_const_node = self.new_const(64 - bits as u64);
@@ -702,7 +746,7 @@ impl ModelBuilder {
     // long as the store does not cross word-boundaries.
     fn model_s(&mut self, bits: u32, address: NodeRef, value: NodeRef) {
         assert!(bits > 0 && bits < 64, "bit-width within range");
-        let address_mask_node = self.new_const(!WORD_SIZE_MASK);
+        let address_mask_node = self.new_const(!self.model_values.word_size_mask);
         let address_word_node = self.new_and_word(address.clone(), address_mask_node);
         self.access_flow = self.new_ite(
             self.pc_flag(),
@@ -712,8 +756,8 @@ impl ModelBuilder {
         );
         let read_node = self.new_read(address_word_node.clone());
         let ones_node = self.new_const((1 << bits) - 1);
-        let eight_node = self.new_const(BITS_PER_BYTE);
-        let address_mask_node = self.new_const(WORD_SIZE_MASK);
+        let eight_node = self.new_const(self.model_values.bits_per_byte);
+        let address_mask_node = self.new_const(self.model_values.word_size_mask);
         let address_offset_node = self.new_and_word(address, address_mask_node);
         let shift_amount_node = self.new_mul(eight_node, address_offset_node);
         let mask_node = self.new_sll(ones_node, shift_amount_node.clone());
@@ -765,13 +809,68 @@ impl ModelBuilder {
         self.memory_flow = ite_node;
     }
 
+    fn check_addition_overflow(&mut self, rs1: NodeRef, rs2: NodeRef, rd: NodeRef) {
+        let bits = self.new_const(self.model_values.bits - 1);
+        let msb_rs1 = self.new_srl(rs1, bits.clone());
+        let msb_rs2 = self.new_srl(rs2, bits.clone());
+        let msb_rd = self.new_srl(rd, bits);
+
+        let equal_msb = self.new_eq(msb_rs1.clone(), msb_rs2);
+        let overflow = self.new_neq(msb_rs1, msb_rd);
+
+        let overflow_occurred = self.new_and_bit(equal_msb, overflow);
+
+        self.addition_overflow = self.new_ite(
+            self.pc_flag(),
+            overflow_occurred,
+            self.addition_overflow.clone(),
+            NodeType::Bit,
+        );
+    }
+
+    fn check_multiplication_overflow(&mut self, rs1: NodeRef, rs2: NodeRef, rd: NodeRef) {
+        let bits = self.new_const(self.model_values.bits - 1);
+        let msb_rs1 = self.new_srl(rs1, bits.clone());
+        let msb_rs2 = self.new_srl(rs2, bits.clone());
+        let msb_rd = self.new_srl(rd, bits);
+
+        let msb_eq = self.new_eq(msb_rs1, msb_rs2);
+        let overflow_minus = self.new_neq(msb_rd, self.zero_word.clone());
+
+        let overflow_occured_msb = self.new_eq(msb_eq.clone(), overflow_minus.clone());
+        let overflow_occured_not_msb = self.new_eq(msb_eq, overflow_minus);
+
+        let overflow_occurred = self.new_or(overflow_occured_msb, overflow_occured_not_msb);
+
+        self.multiplication = self.new_ite(
+            self.pc_flag(),
+            overflow_occurred,
+            self.multiplication.clone(),
+            NodeType::Bit,
+        );
+    }
+
     fn model_add(&mut self, rtype: RType) {
         let add_node = self.new_add(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
+
+        self.check_addition_overflow(
+            self.reg_node(rtype.rs1()),
+            self.reg_node(rtype.rs2()),
+            add_node.clone(),
+        );
+
         self.reg_flow_ite(rtype.rd(), add_node);
     }
 
     fn model_addw(&mut self, rtype: RType) {
         let add_node = self.new_add(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
+
+        self.check_addition_overflow(
+            self.reg_node(rtype.rs1()),
+            self.reg_node(rtype.rs2()),
+            add_node.clone(),
+        );
+
         let thirtytwo = self.new_const(32);
         let sll_node = self.new_sll(add_node, thirtytwo.clone());
         let sra_node = self.new_sra(sll_node, thirtytwo);
@@ -780,14 +879,29 @@ impl ModelBuilder {
 
     fn model_sub(&mut self, rtype: RType) {
         let sub_node = self.new_sub(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
+
+        self.check_addition_overflow(
+            self.reg_node(rtype.rs1()),
+            self.reg_node(rtype.rs2()),
+            sub_node.clone(),
+        );
+
         self.reg_flow_ite(rtype.rd(), sub_node);
     }
 
     fn model_subw(&mut self, rtype: RType) {
         let sub_node = self.new_sub(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
+
+        self.check_addition_overflow(
+            self.reg_node(rtype.rs1()),
+            self.reg_node(rtype.rs2()),
+            sub_node.clone(),
+        );
+
         let thirtytwo = self.new_const(32);
         let sll_node = self.new_sll(sub_node, thirtytwo.clone());
         let sra_node = self.new_sra(sll_node, thirtytwo);
+
         self.reg_flow_ite(rtype.rd(), sra_node);
     }
 
@@ -827,6 +941,13 @@ impl ModelBuilder {
 
     fn model_mul(&mut self, rtype: RType) {
         let mul_node = self.new_mul(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
+
+        self.check_multiplication_overflow(
+            self.reg_node(rtype.rs1()),
+            self.reg_node(rtype.rs2()),
+            mul_node.clone(),
+        );
+
         self.reg_flow_ite(rtype.rd(), mul_node);
     }
 
@@ -843,6 +964,12 @@ impl ModelBuilder {
 
         let mut sext_mul_node = self.new_sll(mul_node, thirtytwo.clone());
         sext_mul_node = self.new_sra(sext_mul_node, thirtytwo);
+
+        self.check_multiplication_overflow(
+            self.reg_node(rtype.rs1()),
+            self.reg_node(rtype.rs2()),
+            sext_mul_node.clone(),
+        );
 
         self.reg_flow_ite(rtype.rd(), sext_mul_node);
     }
@@ -1187,8 +1314,8 @@ impl ModelBuilder {
     fn generate_model(&mut self, program: &Program, argv: &[String]) -> Result<()> {
         let data_section_start = program.data.address;
         let data_section_end = program.data.address + program.data.content.len() as u64;
-        let data_start = data_section_start & !(size_of::<u64>() as u64 - 1);
-        let data_end = next_multiple_of(data_section_end, size_of::<u64>() as u64);
+        let data_start = data_section_start & !(self.model_values.size_of as u64 - 1);
+        let data_end = next_multiple_of(data_section_end, self.model_values.size_of as u64);
         self.data_range = data_start..data_end;
         let heap_start = next_multiple_of(data_end, PAGE_SIZE);
         let heap_end = heap_start + self.max_heap_size;
@@ -1198,9 +1325,17 @@ impl ModelBuilder {
         self.stack_range = stack_start..stack_end;
 
         debug!("argc: {}, argv: {:?}", argv.len(), argv);
-        let initial_stack = prepare_unix_stack(argv, stack_end);
-        let initial_stack_size = initial_stack.len() * size_of::<u64>();
-        let initial_sp_value = stack_end - initial_stack_size as u64;
+        let initial_stack = if self.model_values.is_64bit {
+            prepare_unix_stack(argv, stack_end)
+        } else {
+            prepare_unix_stack32bit(argv, stack_end as u32)
+        };
+        let initial_stack_size = initial_stack.len() * self.model_values.size_of;
+        let initial_sp_value = if self.model_values.is_64bit {
+            stack_end - initial_stack_size as u64
+        } else {
+            (stack_end as u32 - initial_stack_size as u32).into()
+        };
         assert!(initial_sp_value >= stack_start, "initial stack fits");
 
         self.new_comment("common constants".to_string());
@@ -1230,6 +1365,17 @@ impl ModelBuilder {
             sort: NodeType::Word,
             imm: self.data_range.start,
         });
+        self.addition_overflow = self.add_node(Node::Const {
+            nid: 41,
+            sort: NodeType::Bit,
+            imm: 0,
+        });
+        self.multiplication = self.add_node(Node::Const {
+            nid: 42,
+            sort: NodeType::Bit,
+            imm: 0,
+        });
+
         self.ecall_flow = self.zero_bit.clone();
 
         self.new_comment("kernel-mode flag".to_string());
@@ -1294,7 +1440,8 @@ impl ModelBuilder {
             self.pc = self.pc_add(INSTRUCTION_SIZE);
         }
 
-        self.new_comment("64-bit virtual memory".to_string());
+        self.new_comment(format!("{:?}-bit virtual memory", self.model_values.bits));
+
         self.current_nid = 20000000;
         self.memory_node = self.new_state(None, "memory-dump".to_string(), NodeType::Memory);
         let mut dump_buffer = Vec::from(&program.data.content[..]);
@@ -1308,7 +1455,11 @@ impl ModelBuilder {
             debug!("Aligning data end: {:#010x}-{}", data_end, padding);
             dump_buffer.extend(vec![0; padding]);
         }
-        assert!(dump_buffer.len() % size_of::<u64>() == 0, "has been padded");
+        assert_eq!(
+            dump_buffer.len() % self.model_values.size_of,
+            0,
+            "has been padded"
+        );
         fn write_value_to_memory(this: &mut ModelBuilder, val: u64, adr: u64) {
             let address = this.new_const(adr);
             let value = if val == 0 {
@@ -1318,15 +1469,23 @@ impl ModelBuilder {
             };
             this.memory_node = this.new_write(address, value);
         }
-        dump_buffer
-            .chunks(size_of::<u64>())
-            .map(LittleEndian::read_u64)
-            .zip((data_start..data_end).step_by(size_of::<u64>()))
-            .for_each(|(val, adr)| write_value_to_memory(self, val, adr));
+        if self.model_values.is_64bit || self.model_values.run_32bit {
+            dump_buffer
+                .chunks(size_of::<u64>())
+                .map(LittleEndian::read_u64)
+                .zip((data_start..data_end).step_by(size_of::<u64>()))
+                .for_each(|(val, adr)| write_value_to_memory(self, val, adr));
+        } else {
+            dump_buffer
+                .chunks(size_of::<u32>())
+                .map(LittleEndian::read_u32)
+                .zip((data_start..data_end).step_by(size_of::<u32>()))
+                .for_each(|(val, adr)| write_value_to_memory(self, val as u64, adr));
+        }
         initial_stack
             .into_iter()
             .rev()
-            .zip((initial_sp_value..stack_end).step_by(size_of::<u64>()))
+            .zip((initial_sp_value..stack_end).step_by(self.model_values.size_of))
             .for_each(|(val, adr)| write_value_to_memory(self, val, adr));
         self.memory_node = self.new_state(
             Some(self.memory_node.clone()),
@@ -1404,24 +1563,30 @@ impl ModelBuilder {
         let read_const_4 = self.new_const(4);
         let read_bytes_eq_4 = self.new_eq(read_bytes.clone(), read_const_4);
         let read_ite_4 = self.new_ite(read_bytes_eq_4, read_input4, read_ite_3, NodeType::Word);
-        let read_input5 = self.new_input("5-byte-input".to_string(), NodeType::Input5Byte);
-        let read_const_5 = self.new_const(5);
-        let read_bytes_eq_5 = self.new_eq(read_bytes.clone(), read_const_5);
-        let read_ite_5 = self.new_ite(read_bytes_eq_5, read_input5, read_ite_4, NodeType::Word);
-        let read_input6 = self.new_input("6-byte-input".to_string(), NodeType::Input6Byte);
-        let read_const_6 = self.new_const(6);
-        let read_bytes_eq_6 = self.new_eq(read_bytes.clone(), read_const_6);
-        let read_ite_6 = self.new_ite(read_bytes_eq_6, read_input6, read_ite_5, NodeType::Word);
-        let read_input7 = self.new_input("7-byte-input".to_string(), NodeType::Input7Byte);
-        let read_const_7 = self.new_const(7);
-        let read_bytes_eq_7 = self.new_eq(read_bytes.clone(), read_const_7);
-        let read_ite_7 = self.new_ite(read_bytes_eq_7, read_input7, read_ite_6, NodeType::Word);
-        let read_input8 = self.new_input("8-byte-input".to_string(), NodeType::Word);
-        let read_const_8 = self.new_const(8);
-        let read_bytes_eq_8 = self.new_eq(read_bytes.clone(), read_const_8);
-        let read_ite_8 = self.new_ite(read_bytes_eq_8, read_input8, read_ite_7, NodeType::Word);
+
+        let _last_node_8_or_4_byte = read_ite_4.clone();
+
+        if self.model_values.is_64bit {
+            let read_input5 = self.new_input("5-byte-input".to_string(), NodeType::Input5Byte);
+            let read_const_5 = self.new_const(5);
+            let read_bytes_eq_5 = self.new_eq(read_bytes.clone(), read_const_5);
+            let read_ite_5 = self.new_ite(read_bytes_eq_5, read_input5, read_ite_4, NodeType::Word);
+            let read_input6 = self.new_input("6-byte-input".to_string(), NodeType::Input6Byte);
+            let read_const_6 = self.new_const(6);
+            let read_bytes_eq_6 = self.new_eq(read_bytes.clone(), read_const_6);
+            let read_ite_6 = self.new_ite(read_bytes_eq_6, read_input6, read_ite_5, NodeType::Word);
+            let read_input7 = self.new_input("7-byte-input".to_string(), NodeType::Input7Byte);
+            let read_const_7 = self.new_const(7);
+            let read_bytes_eq_7 = self.new_eq(read_bytes.clone(), read_const_7);
+            let read_ite_7 = self.new_ite(read_bytes_eq_7, read_input7, read_ite_6, NodeType::Word);
+            let read_input8 = self.new_input("8-byte-input".to_string(), NodeType::Word);
+            let read_const_8 = self.new_const(8);
+            let read_bytes_eq_8 = self.new_eq(read_bytes.clone(), read_const_8);
+            let _last_node_8_or_4_byte =
+                self.new_ite(read_bytes_eq_8, read_input8, read_ite_7, NodeType::Word);
+        }
         let read_address = self.new_add(self.reg_node(Register::A1), self.reg_node(Register::A0));
-        let read_store = self.new_write(read_address, read_ite_8);
+        let read_store = self.new_write(read_address, _last_node_8_or_4_byte);
         let read_more = self.new_ult(self.reg_node(Register::A0), self.reg_node(Register::A2));
         let read_more = self.new_and_bit(is_read.clone(), read_more);
         let read_not_done = self.new_and_bit(self.kernel_mode.clone(), read_more);
@@ -1534,7 +1699,7 @@ impl ModelBuilder {
             self.new_next(self.dynamic_flag(reg), control_flow, NodeType::Bit);
         }
 
-        self.new_comment("updating 64-bit virtual memory".to_string());
+        self.new_comment(format!("{:?}-bit virtual memory", self.model_values.bits));
         self.current_nid = 70000000;
         self.new_next(
             self.memory_node.clone(),
@@ -1595,6 +1760,15 @@ impl ModelBuilder {
         let check_exit = self.new_and_bit(active_exit, check_exit_code);
         self.new_bad(check_exit, "non-zero-exit-code");
 
+        self.new_comment("checking 32bit overflow".to_string());
+
+        let check_addition_overflow =
+            self.new_neq(self.addition_overflow.clone(), self.zero_bit.clone());
+        self.new_bad(check_addition_overflow, "addition-subtraction-overflow");
+
+        let check_addition_overflow =
+            self.new_neq(self.multiplication.clone(), self.zero_bit.clone());
+        self.new_bad(check_addition_overflow, "multiplication-overflow");
         Ok(())
     }
 }

@@ -45,6 +45,9 @@ fn main() -> Result<()> {
     // process global flags
     let log_level = expect_arg::<LogLevel>(&matches, "verbose")?;
 
+    // global bool is64_bit
+    let mut is64_bit = true;
+
     init_logger(log_level)?;
 
     // process subcommands
@@ -94,11 +97,21 @@ fn main() -> Result<()> {
             let arg0 = expect_arg::<String>(args, "input-file")?;
             let extras = collect_arg_values(args, "extras");
 
+            let flag_32bit = args.get_flag("32-bit");
+
             let mut model = if !input_is_dimacs {
                 let mut model = if !input_is_btor2 {
                     let program = load_object_file(&input)?;
+                    is64_bit = program.is64;
                     let argv = [vec![arg0], extras].concat();
-                    generate_model(&program, memory_size, max_heap, max_stack, &argv)?
+                    generate_model(
+                        &program,
+                        memory_size,
+                        max_heap,
+                        max_stack,
+                        flag_32bit,
+                        &argv,
+                    )?
                 } else {
                     parse_btor2_file(&input)
                 };
@@ -223,10 +236,10 @@ fn main() -> Result<()> {
                         }
                     }
                 } else if output_to_stdout {
-                    write_model(&model.unwrap(), stdout())?;
+                    write_model(&model.unwrap(), stdout(), is64_bit)?;
                 } else if let Some(ref output_path) = output {
                     let file = File::create(output_path)?;
-                    write_model(&model.unwrap(), file)?;
+                    write_model(&model.unwrap(), file, is64_bit)?;
                 }
             } else {
                 let is_ising = args.get_flag("ising");
