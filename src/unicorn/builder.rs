@@ -52,10 +52,15 @@ struct ModelBuilder {
     zero_bit: NodeRef,
     one_bit: NodeRef,
     zero_word: NodeRef,
+    one_word: NodeRef,
     kernel_mode: NodeRef,
     kernel_not: NodeRef,
     register_nodes: Vec<NodeRef>,
     register_flow: Vec<NodeRef>,
+    register_write_counter_nodes: Vec<NodeRef>,
+    register_write_counter_flow: Vec<NodeRef>,
+    register_read_counter_nodes: Vec<NodeRef>,
+    register_read_counter_flow: Vec<NodeRef>,
     memory_node: NodeRef,
     memory_flow: NodeRef,
     division_flow: NodeRef,
@@ -102,10 +107,15 @@ impl ModelBuilder {
             zero_bit: dummy_node.clone(),
             one_bit: dummy_node.clone(),
             zero_word: dummy_node.clone(),
+            one_word: dummy_node.clone(),
             kernel_mode: dummy_node.clone(),
             kernel_not: dummy_node.clone(),
             register_nodes: Vec::with_capacity(NUMBER_OF_REGISTERS),
             register_flow: Vec::with_capacity(NUMBER_OF_REGISTERS - 1),
+            register_write_counter_nodes: Vec::with_capacity(NUMBER_OF_REGISTERS),
+            register_write_counter_flow: Vec::with_capacity(NUMBER_OF_REGISTERS - 1),
+            register_read_counter_nodes: Vec::with_capacity(NUMBER_OF_REGISTERS),
+            register_read_counter_flow: Vec::with_capacity(NUMBER_OF_REGISTERS - 1),
             memory_node: dummy_node.clone(),
             memory_flow: dummy_node.clone(),
             division_flow: dummy_node.clone(),
@@ -148,9 +158,27 @@ impl ModelBuilder {
         self.register_nodes[reg as usize].clone()
     }
 
+    fn reg_write_counter_node(&self, reg: Register) -> NodeRef {
+        self.register_write_counter_nodes[reg as usize].clone()
+    }
+
+    fn reg_read_counter_node(&self, reg: Register) -> NodeRef {
+        self.register_read_counter_nodes[reg as usize].clone()
+    }
+
     fn reg_flow(&self, reg: Register) -> NodeRef {
         assert!(reg != Register::Zero);
         self.register_flow[reg as usize - 1].clone()
+    }
+
+    fn reg_write_counter_flow(&self, reg: Register) -> NodeRef {
+        assert!(reg != Register::Zero);
+        self.register_write_counter_flow[reg as usize - 1].clone()
+    }
+
+    fn reg_read_counter_flow(&self, reg: Register) -> NodeRef {
+        assert!(reg != Register::Zero);
+        self.register_read_counter_flow[reg as usize - 1].clone()
     }
 
     fn reg_flow_update(&mut self, reg: Register, node: NodeRef) {
@@ -158,9 +186,60 @@ impl ModelBuilder {
         self.register_flow[reg as usize - 1] = node;
     }
 
+    fn reg_write_counter_flow_update(&mut self, reg: Register, node: NodeRef) {
+        assert!(reg != Register::Zero);
+        self.register_write_counter_flow[reg as usize - 1] = node;
+    }
+
+    fn reg_read_counter_flow_update(&mut self, reg: Register, node: NodeRef) {
+        assert!(reg != Register::Zero);
+        self.register_read_counter_flow[reg as usize - 1] = node;
+    }
+
+    /// Increment the value of the read counter for register `reg` when the current instruction is
+    /// active.
+    fn reg_read_counter_flow_ite(&mut self, reg: Register) {
+        let increment_counter_node =
+            self.new_add(self.reg_read_counter_node(reg), self.one_word.clone());
+        let ite_increment_counter_node = self.new_ite(
+            self.pc_flag(),
+            increment_counter_node,
+            self.reg_read_counter_flow(reg),
+            NodeType::Word,
+        );
+
+        self.reg_read_counter_flow_update(reg, ite_increment_counter_node);
+    }
+
+    fn reg_count_read_if_not_zero(&mut self, reg: Register) {
+        if reg != Register::Zero {
+            self.reg_read_counter_flow_ite(reg);
+        }
+    }
+
+    /// Increment the value of the write counter for register `reg` when the current instruction is
+    /// active.
+    fn reg_write_counter_flow_ite(&mut self, reg: Register) {
+        // NOTE: Since I am setting the bit, I do not need to perform an operation.
+        //
+        // let increment_counter_node =
+        //     self.new_or(self.reg_write_counter_node(reg), self.one_bit.clone());
+        let ite_increment_counter_node = self.new_ite(
+            self.pc_flag(),
+            // increment_counter_node,
+            self.one_bit.clone(),
+            self.reg_write_counter_flow(reg),
+            NodeType::Bit,
+        );
+
+        self.reg_write_counter_flow_update(reg, ite_increment_counter_node);
+    }
+
     fn reg_flow_ite(&mut self, reg: Register, node: NodeRef) {
         let ite_node = self.new_ite(self.pc_flag(), node, self.reg_flow(reg), NodeType::Word);
+
         self.reg_flow_update(reg, ite_node);
+        self.reg_write_counter_flow_ite(reg);
     }
 
     fn dynamic_flag(&self, reg: Register) -> NodeRef {
@@ -483,6 +562,7 @@ impl ModelBuilder {
         if itype.rd() == Register::Zero {
             return;
         };
+
         let imm = itype.imm() as u64;
         let result_node = if imm == 0 {
             self.reg_node(itype.rs1())
@@ -492,7 +572,9 @@ impl ModelBuilder {
             let imm_node = self.new_const(imm);
             self.new_add(self.reg_node(itype.rs1()), imm_node)
         };
+
         self.reg_flow_ite(itype.rd(), result_node);
+        self.reg_count_read_if_not_zero(itype.rs1());
     }
 
     fn model_addiw(&mut self, itype: IType) {
@@ -502,24 +584,28 @@ impl ModelBuilder {
         let sll_node = self.new_sll(add_node, thirtytwo.clone());
         let sra_node = self.new_sra(sll_node, thirtytwo);
         self.reg_flow_ite(itype.rd(), sra_node);
+        self.reg_count_read_if_not_zero(itype.rs1());
     }
 
     fn model_xori(&mut self, itype: IType) {
         let imm_node = self.new_const(itype.imm() as u64);
         let xor_node = self.new_xor(self.reg_node(itype.rs1()), imm_node);
         self.reg_flow_ite(itype.rd(), xor_node);
+        self.reg_count_read_if_not_zero(itype.rs1());
     }
 
     fn model_ori(&mut self, itype: IType) {
         let imm_node = self.new_const(itype.imm() as u64);
         let or_node = self.new_or(self.reg_node(itype.rs1()), imm_node);
         self.reg_flow_ite(itype.rd(), or_node);
+        self.reg_count_read_if_not_zero(itype.rs1());
     }
 
     fn model_andi(&mut self, itype: IType) {
         let imm_node = self.new_const(itype.imm() as u64);
         let and_node = self.new_and_word(self.reg_node(itype.rs1()), imm_node);
         self.reg_flow_ite(itype.rd(), and_node);
+        self.reg_count_read_if_not_zero(itype.rs1());
     }
 
     fn model_slli(&mut self, itype: IType) {
@@ -527,6 +613,7 @@ impl ModelBuilder {
         let imm_node = self.new_const(itype.imm() as u64);
         let sll_node = self.new_sll(self.reg_node(itype.rs1()), imm_node);
         self.reg_flow_ite(itype.rd(), sll_node);
+        self.reg_count_read_if_not_zero(itype.rs1());
     }
 
     // We represent `slliw(a, n)` as `(a << (n + 32)) >>s 32` instead.
@@ -537,6 +624,7 @@ impl ModelBuilder {
         let sll_node = self.new_sll(self.reg_node(itype.rs1()), imm_node);
         let sra_node = self.new_sra(sll_node, thirtytwo);
         self.reg_flow_ite(itype.rd(), sra_node);
+        self.reg_count_read_if_not_zero(itype.rs1());
     }
 
     fn model_sllw(&mut self, rtype: RType) {
@@ -554,6 +642,8 @@ impl ModelBuilder {
         // shift right by 32
         let sra_node = self.new_sra(sll_node, thirtytwo);
         self.reg_flow_ite(rtype.rd(), sra_node);
+        self.reg_count_read_if_not_zero(rtype.rs1());
+        self.reg_count_read_if_not_zero(rtype.rs2());
     }
 
     fn model_srli(&mut self, itype: IType) {
@@ -561,6 +651,7 @@ impl ModelBuilder {
         let imm_node = self.new_const(itype.imm() as u64);
         let srl_node = self.new_srl(self.reg_node(itype.rs1()), imm_node);
         self.reg_flow_ite(itype.rd(), srl_node);
+        self.reg_count_read_if_not_zero(itype.rs1());
     }
 
     // We represent `srliw(a, n)` as `(a << 32) >>u (n + 32)` instead.
@@ -572,6 +663,7 @@ impl ModelBuilder {
         let sll_node = self.new_sll(self.reg_node(itype.rs1()), thirtytwo);
         let srl_node = self.new_srl(sll_node, imm_node);
         self.reg_flow_ite(itype.rd(), srl_node);
+        self.reg_count_read_if_not_zero(itype.rs1());
     }
 
     fn model_srai(&mut self, itype: IType) {
@@ -580,6 +672,7 @@ impl ModelBuilder {
         let imm_node = self.new_const(imm_truncated as u64);
         let sra_node = self.new_sra(self.reg_node(itype.rs1()), imm_node);
         self.reg_flow_ite(itype.rd(), sra_node);
+        self.reg_count_read_if_not_zero(itype.rs1());
     }
 
     // We represent `sraiw(a, n)` as `(a << 32) >>s (n + 32)` instead.
@@ -591,6 +684,7 @@ impl ModelBuilder {
         let sll_node = self.new_sll(self.reg_node(itype.rs1()), thirtytwo);
         let sra_node = self.new_sra(sll_node, imm_node);
         self.reg_flow_ite(itype.rd(), sra_node);
+        self.reg_count_read_if_not_zero(itype.rs1());
     }
 
     fn model_lui(&mut self, utype: UType) {
@@ -652,30 +746,35 @@ impl ModelBuilder {
         let address_node = self.model_address(itype.rs1(), itype.imm() as u64);
         let load_node = self.model_l(8, address_node, true);
         self.reg_flow_ite(itype.rd(), load_node);
+        self.reg_count_read_if_not_zero(itype.rs1());
     }
 
     fn model_lbu(&mut self, itype: IType) {
         let address_node = self.model_address(itype.rs1(), itype.imm() as u64);
         let load_node = self.model_l(8, address_node, false);
         self.reg_flow_ite(itype.rd(), load_node);
+        self.reg_count_read_if_not_zero(itype.rs1());
     }
 
     fn model_lh(&mut self, itype: IType) {
         let address_node = self.model_address(itype.rs1(), itype.imm() as u64);
         let load_node = self.model_l(16, address_node, true);
         self.reg_flow_ite(itype.rd(), load_node);
+        self.reg_count_read_if_not_zero(itype.rs1());
     }
 
     fn model_lhu(&mut self, itype: IType) {
         let address_node = self.model_address(itype.rs1(), itype.imm() as u64);
         let load_node = self.model_l(16, address_node, false);
         self.reg_flow_ite(itype.rd(), load_node);
+        self.reg_count_read_if_not_zero(itype.rs1());
     }
 
     fn model_lw(&mut self, itype: IType) {
         let address_node = self.model_address(itype.rs1(), itype.imm() as u64);
         let load_node = self.model_l(32, address_node, true);
         self.reg_flow_ite(itype.rd(), load_node);
+        self.reg_count_read_if_not_zero(itype.rs1());
     }
 
     fn model_ld(&mut self, itype: IType) {
@@ -688,6 +787,7 @@ impl ModelBuilder {
         );
         let read_node = self.new_read(address_node);
         self.reg_flow_ite(itype.rd(), read_node);
+        self.reg_count_read_if_not_zero(itype.rs1());
     }
 
     // We represent n-bit store operations `store(n, adr, val)` as:
@@ -734,16 +834,22 @@ impl ModelBuilder {
 
     fn model_sb(&mut self, stype: SType) {
         let address_node = self.model_address(stype.rs1(), stype.imm() as u64);
+        self.reg_count_read_if_not_zero(stype.rs1());
+        self.reg_count_read_if_not_zero(stype.rs2());
         self.model_s(8, address_node, self.reg_node(stype.rs2()))
     }
 
     fn model_sh(&mut self, stype: SType) {
         let address_node = self.model_address(stype.rs1(), stype.imm() as u64);
+        self.reg_count_read_if_not_zero(stype.rs1());
+        self.reg_count_read_if_not_zero(stype.rs2());
         self.model_s(16, address_node, self.reg_node(stype.rs2()))
     }
 
     fn model_sw(&mut self, stype: SType) {
         let address_node = self.model_address(stype.rs1(), stype.imm() as u64);
+        self.reg_count_read_if_not_zero(stype.rs1());
+        self.reg_count_read_if_not_zero(stype.rs2());
         self.model_s(32, address_node, self.reg_node(stype.rs2()))
     }
 
@@ -763,11 +869,15 @@ impl ModelBuilder {
             NodeType::Memory,
         );
         self.memory_flow = ite_node;
+        self.reg_count_read_if_not_zero(stype.rs1());
+        self.reg_count_read_if_not_zero(stype.rs2());
     }
 
     fn model_add(&mut self, rtype: RType) {
         let add_node = self.new_add(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
         self.reg_flow_ite(rtype.rd(), add_node);
+        self.reg_count_read_if_not_zero(rtype.rs1());
+        self.reg_count_read_if_not_zero(rtype.rs2());
     }
 
     fn model_addw(&mut self, rtype: RType) {
@@ -776,11 +886,15 @@ impl ModelBuilder {
         let sll_node = self.new_sll(add_node, thirtytwo.clone());
         let sra_node = self.new_sra(sll_node, thirtytwo);
         self.reg_flow_ite(rtype.rd(), sra_node);
+        self.reg_count_read_if_not_zero(rtype.rs1());
+        self.reg_count_read_if_not_zero(rtype.rs2());
     }
 
     fn model_sub(&mut self, rtype: RType) {
         let sub_node = self.new_sub(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
         self.reg_flow_ite(rtype.rd(), sub_node);
+        self.reg_count_read_if_not_zero(rtype.rs1());
+        self.reg_count_read_if_not_zero(rtype.rs2());
     }
 
     fn model_subw(&mut self, rtype: RType) {
@@ -789,16 +903,22 @@ impl ModelBuilder {
         let sll_node = self.new_sll(sub_node, thirtytwo.clone());
         let sra_node = self.new_sra(sll_node, thirtytwo);
         self.reg_flow_ite(rtype.rd(), sra_node);
+        self.reg_count_read_if_not_zero(rtype.rs1());
+        self.reg_count_read_if_not_zero(rtype.rs2());
     }
 
     fn model_or(&mut self, rtype: RType) {
         let or_node = self.new_or(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
         self.reg_flow_ite(rtype.rd(), or_node);
+        self.reg_count_read_if_not_zero(rtype.rs1());
+        self.reg_count_read_if_not_zero(rtype.rs2());
     }
 
     fn model_and(&mut self, rtype: RType) {
         let and_node = self.new_and_word(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
         self.reg_flow_ite(rtype.rd(), and_node);
+        self.reg_count_read_if_not_zero(rtype.rs1());
+        self.reg_count_read_if_not_zero(rtype.rs2());
     }
 
     fn model_sll(&mut self, rtype: RType) {
@@ -807,6 +927,8 @@ impl ModelBuilder {
         let amount_node = self.new_and_word(self.reg_node(rtype.rs2()), mask_node);
         let sll_node = self.new_sll(self.reg_node(rtype.rs1()), amount_node);
         self.reg_flow_ite(rtype.rd(), sll_node);
+        self.reg_count_read_if_not_zero(rtype.rs1());
+        self.reg_count_read_if_not_zero(rtype.rs2());
     }
 
     fn model_srl(&mut self, rtype: RType) {
@@ -815,6 +937,8 @@ impl ModelBuilder {
         let amount_node = self.new_and_word(self.reg_node(rtype.rs2()), mask_node);
         let srl_node = self.new_srl(self.reg_node(rtype.rs1()), amount_node);
         self.reg_flow_ite(rtype.rd(), srl_node);
+        self.reg_count_read_if_not_zero(rtype.rs1());
+        self.reg_count_read_if_not_zero(rtype.rs2());
     }
 
     fn model_sra(&mut self, rtype: RType) {
@@ -823,11 +947,15 @@ impl ModelBuilder {
         let amount_node = self.new_and_word(self.reg_node(rtype.rs2()), mask_node);
         let sra_node = self.new_sra(self.reg_node(rtype.rs1()), amount_node);
         self.reg_flow_ite(rtype.rd(), sra_node);
+        self.reg_count_read_if_not_zero(rtype.rs1());
+        self.reg_count_read_if_not_zero(rtype.rs2());
     }
 
     fn model_mul(&mut self, rtype: RType) {
         let mul_node = self.new_mul(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
         self.reg_flow_ite(rtype.rd(), mul_node);
+        self.reg_count_read_if_not_zero(rtype.rs1());
+        self.reg_count_read_if_not_zero(rtype.rs2());
     }
 
     fn model_mulw(&mut self, rtype: RType) {
@@ -845,6 +973,8 @@ impl ModelBuilder {
         sext_mul_node = self.new_sra(sext_mul_node, thirtytwo);
 
         self.reg_flow_ite(rtype.rd(), sext_mul_node);
+        self.reg_count_read_if_not_zero(rtype.rs1());
+        self.reg_count_read_if_not_zero(rtype.rs2());
     }
 
     fn model_divu(&mut self, rtype: RType) {
@@ -856,6 +986,8 @@ impl ModelBuilder {
         );
         let div_node = self.new_divu(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
         self.reg_flow_ite(rtype.rd(), div_node);
+        self.reg_count_read_if_not_zero(rtype.rs1());
+        self.reg_count_read_if_not_zero(rtype.rs2());
     }
 
     fn model_div(&mut self, rtype: RType) {
@@ -867,6 +999,8 @@ impl ModelBuilder {
         );
         let div_node = self.new_div(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
         self.reg_flow_ite(rtype.rd(), div_node);
+        self.reg_count_read_if_not_zero(rtype.rs1());
+        self.reg_count_read_if_not_zero(rtype.rs2());
     }
 
     fn model_divw(&mut self, rtype: RType) {
@@ -882,6 +1016,8 @@ impl ModelBuilder {
         let divw_node = self.new_div(left_sext, right_sext);
 
         self.reg_flow_ite(rtype.rd(), divw_node);
+        self.reg_count_read_if_not_zero(rtype.rs1());
+        self.reg_count_read_if_not_zero(rtype.rs2());
     }
 
     fn model_remu(&mut self, rtype: RType) {
@@ -893,6 +1029,8 @@ impl ModelBuilder {
         );
         let rem_node = self.new_rem(self.reg_node(rtype.rs1()), self.reg_node(rtype.rs2()));
         self.reg_flow_ite(rtype.rd(), rem_node);
+        self.reg_count_read_if_not_zero(rtype.rs1());
+        self.reg_count_read_if_not_zero(rtype.rs2());
     }
 
     fn model_sltu(&mut self, rtype: RType) {
@@ -903,6 +1041,8 @@ impl ModelBuilder {
             value: ult_node,
         });
         self.reg_flow_ite(rtype.rd(), ext_node);
+        self.reg_count_read_if_not_zero(rtype.rs1());
+        self.reg_count_read_if_not_zero(rtype.rs2());
     }
 
     fn model_sltiu(&mut self, itype: IType) {
@@ -916,6 +1056,7 @@ impl ModelBuilder {
             value: ult_node,
         });
         self.reg_flow_ite(itype.rd(), ext_node);
+        self.reg_count_read_if_not_zero(itype.rs1());
     }
 
     fn model_branch<F>(
@@ -934,26 +1075,38 @@ impl ModelBuilder {
     }
 
     fn model_beq(&mut self, btype: BType, t: &mut Option<NodeRef>, f: &mut Option<NodeRef>) {
+        self.reg_count_read_if_not_zero(btype.rs1());
+        self.reg_count_read_if_not_zero(btype.rs2());
         self.model_branch(btype, t, f, Self::new_eq)
     }
 
     fn model_bne(&mut self, btype: BType, t: &mut Option<NodeRef>, f: &mut Option<NodeRef>) {
+        self.reg_count_read_if_not_zero(btype.rs1());
+        self.reg_count_read_if_not_zero(btype.rs2());
         self.model_branch(btype, t, f, Self::new_neq)
     }
 
     fn model_blt(&mut self, btype: BType, t: &mut Option<NodeRef>, f: &mut Option<NodeRef>) {
+        self.reg_count_read_if_not_zero(btype.rs1());
+        self.reg_count_read_if_not_zero(btype.rs2());
         self.model_branch(btype, t, f, Self::new_slt)
     }
 
     fn model_bge(&mut self, btype: BType, t: &mut Option<NodeRef>, f: &mut Option<NodeRef>) {
+        self.reg_count_read_if_not_zero(btype.rs1());
+        self.reg_count_read_if_not_zero(btype.rs2());
         self.model_branch(btype, t, f, Self::new_sgte)
     }
 
     fn model_bltu(&mut self, btype: BType, t: &mut Option<NodeRef>, f: &mut Option<NodeRef>) {
+        self.reg_count_read_if_not_zero(btype.rs1());
+        self.reg_count_read_if_not_zero(btype.rs2());
         self.model_branch(btype, t, f, Self::new_ult)
     }
 
     fn model_bgeu(&mut self, btype: BType, t: &mut Option<NodeRef>, f: &mut Option<NodeRef>) {
+        self.reg_count_read_if_not_zero(btype.rs1());
+        self.reg_count_read_if_not_zero(btype.rs2());
         self.model_branch(btype, t, f, Self::new_ugte)
     }
 
@@ -966,6 +1119,8 @@ impl ModelBuilder {
     }
 
     fn model_jalr(&mut self, itype: IType) {
+        // BUG: do we not support indirect addressing?
+        // NOTE: leaving counting the register access out since we do not model it.
         if itype.rd() == Register::Zero {
             return;
         };
@@ -1219,6 +1374,11 @@ impl ModelBuilder {
             sort: NodeType::Word,
             imm: 0,
         });
+        self.one_word = self.add_node(Node::Const {
+            nid: 32,
+            sort: NodeType::Word,
+            imm: 1,
+        });
         self.division_flow = self.add_node(Node::Const {
             nid: 31,
             sort: NodeType::Word,
@@ -1260,6 +1420,62 @@ impl ModelBuilder {
         }
         assert_eq!(self.register_nodes.len(), NUMBER_OF_REGISTERS);
         assert_eq!(self.register_flow.len(), NUMBER_OF_REGISTERS - 1);
+
+        // NOTE: To reset the read_count when a register is written, we only need know whether a
+        // write happened or not. Since only one write per cycle is possible, we get by using a bit
+        // state. It would more appropiatley be called "write flag".
+
+        self.new_comment("Write counters for the general-purpose registers".to_string());
+        // WARN: I am not certain that this nid namespace never conflicts with other nodes.
+        const NID_NAMESPACE_WRITE_COUNTER: u64 = 300;
+        self.current_nid = NID_NAMESPACE_WRITE_COUNTER;
+        // NOTE: I try to mimic the register state/flow very closely to avoid surprises. It does
+        // not make a lot of sense to count accesses/writes to the zero register.
+        let zero_counter = self.zero_bit.clone();
+        self.register_write_counter_nodes.push(zero_counter);
+        for r in 1..NUMBER_OF_REGISTERS {
+            let reg = Register::from(r as u32);
+            self.current_nid = NID_NAMESPACE_WRITE_COUNTER + 2 * r as u64;
+            let initial_value = self.zero_bit.clone();
+            let counter_node = self.new_state(
+                Some(initial_value),
+                format!("write-counter-for-{:?}", reg),
+                NodeType::Word,
+            );
+            self.register_write_counter_nodes.push(counter_node.clone());
+            self.register_write_counter_flow.push(counter_node);
+        }
+        assert_eq!(self.register_write_counter_nodes.len(), NUMBER_OF_REGISTERS);
+        assert_eq!(
+            self.register_write_counter_flow.len(),
+            NUMBER_OF_REGISTERS - 1
+        );
+
+        self.new_comment("Read counters for the general-purpose registers".to_string());
+        // WARN: I am not certain that this nid namespace never conflicts with other nodes.
+        const NID_NAMESPACE_READ_COUNTER: u64 = 500;
+        self.current_nid = NID_NAMESPACE_READ_COUNTER;
+        // NOTE: I try to mimic the register state/flow very closely to avoid surprises. It does
+        // not make a lot of sense to count accesses/reads to the zero register.
+        let zero_counter = self.zero_word.clone();
+        self.register_read_counter_nodes.push(zero_counter);
+        for r in 1..NUMBER_OF_REGISTERS {
+            let reg = Register::from(r as u32);
+            self.current_nid = NID_NAMESPACE_READ_COUNTER + 2 * r as u64;
+            let initial_value = self.zero_word.clone();
+            let counter_node = self.new_state(
+                Some(initial_value),
+                format!("read-counter-for-{:?}", reg),
+                NodeType::Word,
+            );
+            self.register_read_counter_nodes.push(counter_node.clone());
+            self.register_read_counter_flow.push(counter_node);
+        }
+        assert_eq!(self.register_read_counter_nodes.len(), NUMBER_OF_REGISTERS);
+        assert_eq!(
+            self.register_read_counter_flow.len(),
+            NUMBER_OF_REGISTERS - 1
+        );
 
         self.new_comment("32 dynamic dispatch indicators as Boolean flags".to_string());
         for r in 1..NUMBER_OF_REGISTERS {
@@ -1517,6 +1733,33 @@ impl ModelBuilder {
             self.new_next(self.reg_node(reg), self.reg_flow(reg), NodeType::Word);
         }
 
+        self.new_comment("updating number of reads since last write".to_string());
+        for r in 1..NUMBER_OF_REGISTERS {
+            self.current_nid = 65000000 + (r as u64);
+            let reg = Register::from(r as u32);
+
+            // NOTE: If a write happens in a cycle, the reads during that cycle are not observable
+            // since we have no "ordering" of microarchitectural level on the ISA level.
+            let read_counter_update_node = self.new_ite(
+                self.reg_write_counter_flow(reg),
+                self.zero_word.clone(),
+                self.reg_read_counter_flow(reg),
+                NodeType::Word,
+            );
+
+            self.new_next(
+                self.reg_read_counter_node(reg),
+                read_counter_update_node,
+                NodeType::Word,
+            );
+
+            self.new_next(
+                self.reg_write_counter_node(reg),
+                self.zero_bit.clone(),
+                NodeType::Bit,
+            );
+        }
+
         self.new_comment("updating dynamic dispatch flags".to_string());
         for r in 1..NUMBER_OF_REGISTERS {
             self.current_nid = 60000000 + (r as u64) * 10000;
@@ -1555,6 +1798,26 @@ impl ModelBuilder {
         let check_syscall_and4 = self.new_and_bit(check_syscall_and3, not_brk);
         let check_syscall = self.new_and_bit(self.ecall_flow.clone(), check_syscall_and4);
         self.new_bad(check_syscall, "invalid-syscall-id");
+
+        const READ_UNTIL_WRITE_LIMIT: u64 = 5;
+        self.new_comment(format!(
+            "checking if any register is read more than {} times before being overwritten.",
+            READ_UNTIL_WRITE_LIMIT
+        ));
+
+        let limit_node = self.new_const(READ_UNTIL_WRITE_LIMIT);
+        for r in 1..NUMBER_OF_REGISTERS {
+            let reg = Register::from(r as u32);
+            let check = self.new_ugt(self.reg_read_counter_node(reg), limit_node.clone());
+
+            self.new_bad(
+                check,
+                &format!(
+                    "register-{:?}-reads-until-write-more-than-{}",
+                    reg, READ_UNTIL_WRITE_LIMIT
+                ),
+            );
+        }
 
         self.new_comment("checking segmentation faults".to_string());
         let data_start = self.new_const(self.data_range.start);
