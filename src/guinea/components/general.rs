@@ -47,6 +47,7 @@ pub(crate) fn load(
                 ByteSize::mib(1).as_u64(),
                 8,
                 32,
+                false,
                 &argv,
             )
             .unwrap();
