@@ -86,12 +86,17 @@ struct ModelBuilder {
     zero_bit: NodeRef,
     one_bit: NodeRef,
     zero_word: NodeRef,
+    one_word: NodeRef,
     kernel_mode: NodeRef,
     kernel_not: NodeRef,
     register_nodes: Vec<NodeRef>,
     register_flow: Vec<NodeRef>,
     memory_node: NodeRef,
     memory_flow: NodeRef,
+    memory_counter_node: NodeRef,
+    memory_counter_flow: NodeRef,
+    memory_counter_max_node: NodeRef,
+    memory_counter_max_flow: NodeRef,
     division_flow: NodeRef,
     remainder_flow: NodeRef,
     addition_overflow: NodeRef,
@@ -141,12 +146,17 @@ impl ModelBuilder {
             zero_bit: dummy_node.clone(),
             one_bit: dummy_node.clone(),
             zero_word: dummy_node.clone(),
+            one_word: dummy_node.clone(),
             kernel_mode: dummy_node.clone(),
             kernel_not: dummy_node.clone(),
             register_nodes: Vec::with_capacity(NUMBER_OF_REGISTERS),
             register_flow: Vec::with_capacity(NUMBER_OF_REGISTERS - 1),
             memory_node: dummy_node.clone(),
             memory_flow: dummy_node.clone(),
+            memory_counter_node: dummy_node.clone(),
+            memory_counter_flow: dummy_node.clone(),
+            memory_counter_max_node: dummy_node.clone(),
+            memory_counter_max_flow: dummy_node.clone(),
             division_flow: dummy_node.clone(),
             remainder_flow: dummy_node.clone(),
             addition_overflow: dummy_node.clone(),
@@ -200,8 +210,32 @@ impl ModelBuilder {
         self.register_flow[reg as usize - 1] = node;
     }
 
+    // Update the memory counter with the value of node if it is greater than the current counter.
+    fn memory_counter_max_update(&mut self, node: NodeRef) {
+        let should_update_node = self.new_ugt(
+            node.clone(),
+            self.memory_counter_max_node.clone(), 
+            );
+
+        let update_node = self.new_ite(
+            should_update_node,
+            node,
+            self.memory_counter_max_node.clone(),
+            NodeType::Word,
+        );
+
+        // Only activate the update function when the corresponding pc flag is set.
+        self.memory_counter_max_flow = self.new_ite(
+            self.pc_flag(),
+            update_node,
+            self.memory_counter_max_flow.clone(),
+            NodeType::Word,
+        );
+    }
+
     fn reg_flow_ite(&mut self, reg: Register, node: NodeRef) {
         let ite_node = self.new_ite(self.pc_flag(), node, self.reg_flow(reg), NodeType::Word);
+
         self.reg_flow_update(reg, ite_node);
     }
 
@@ -237,7 +271,33 @@ impl ModelBuilder {
         })
     }
 
-    fn new_read(&mut self, address: NodeRef) -> NodeRef {
+    fn new_read(&mut self, address: NodeRef, should_count: bool) -> NodeRef {
+        if should_count {
+            let current_value_node = self.add_node(Node::Read {
+                nid: self.current_nid,
+                memory: self.memory_counter_node.clone(),
+                address: address.clone(),
+            });
+
+            let next_value_node = self.new_add(current_value_node, self.one_word.clone());
+
+            self.memory_counter_max_update(next_value_node.clone());
+
+            let update_counter_node = self.add_node(Node::Write {
+                nid: self.current_nid,
+                memory: self.memory_counter_node.clone(),
+                address: address.clone(),
+                value: next_value_node.clone(),
+            });
+
+            self.memory_counter_flow = self.new_ite(
+                self.pc_flag(),
+                update_counter_node,
+                self.memory_counter_flow.clone(),
+                NodeType::Memory,
+            );
+        }
+
         self.add_node(Node::Read {
             nid: self.current_nid,
             memory: self.memory_node.clone(),
@@ -245,7 +305,22 @@ impl ModelBuilder {
         })
     }
 
-    fn new_write(&mut self, address: NodeRef, value: NodeRef) -> NodeRef {
+    fn new_write(&mut self, address: NodeRef, value: NodeRef, should_count: bool) -> NodeRef {
+        if should_count {
+            let reset_counter_node = self.add_node(Node::Write {
+                nid: self.current_nid,
+                memory: self.memory_counter_node.clone(),
+                address: address.clone(),
+                value: self.zero_word.clone(),
+            });
+
+            self.memory_counter_flow = self.new_ite(
+                self.pc_flag(),
+                reset_counter_node,
+                self.memory_counter_flow.clone(),
+                NodeType::Memory,
+            );
+        }
         self.add_node(Node::Write {
             nid: self.current_nid,
             memory: self.memory_node.clone(),
@@ -525,6 +600,7 @@ impl ModelBuilder {
         if itype.rd() == Register::Zero {
             return;
         };
+
         let imm = itype.imm() as u64;
         let imm_node = self.new_const(imm);
         let result_node = if imm == 0 {
@@ -677,7 +753,7 @@ impl ModelBuilder {
             self.access_flow.clone(),
             NodeType::Word,
         );
-        let read_node = self.new_read(address_word_node);
+        let read_node = self.new_read(address_word_node, false);
         let eight_node = self.new_const(self.model_values.bits_per_byte);
         let address_mask_node = self.new_const(self.model_values.word_size_mask);
         let address_offset_node = self.new_and_word(address, address_mask_node);
@@ -730,7 +806,7 @@ impl ModelBuilder {
             self.access_flow.clone(),
             NodeType::Word,
         );
-        let read_node = self.new_read(address_node);
+        let read_node = self.new_read(address_node, true);
         self.reg_flow_ite(itype.rd(), read_node);
     }
 
@@ -754,7 +830,7 @@ impl ModelBuilder {
             self.access_flow.clone(),
             NodeType::Word,
         );
-        let read_node = self.new_read(address_word_node.clone());
+        let read_node = self.new_read(address_word_node.clone(), true);
         let ones_node = self.new_const((1 << bits) - 1);
         let eight_node = self.new_const(self.model_values.bits_per_byte);
         let address_mask_node = self.new_const(self.model_values.word_size_mask);
@@ -766,7 +842,7 @@ impl ModelBuilder {
         let and1_node = self.new_and_word(value_node, mask_node);
         let and2_node = self.new_and_word(read_node, mask_not_node);
         let or_node = self.new_or(and1_node, and2_node);
-        let write_node = self.new_write(address_word_node, or_node);
+        let write_node = self.new_write(address_word_node, or_node, false);
         let ite_node = self.new_ite(
             self.pc_flag(),
             write_node,
@@ -799,7 +875,7 @@ impl ModelBuilder {
             self.access_flow.clone(),
             NodeType::Word,
         );
-        let write_node = self.new_write(address_node, self.reg_node(stype.rs2()));
+        let write_node = self.new_write(address_node, self.reg_node(stype.rs2()), true);
         let ite_node = self.new_ite(
             self.pc_flag(),
             write_node,
@@ -1093,6 +1169,8 @@ impl ModelBuilder {
     }
 
     fn model_jalr(&mut self, itype: IType) {
+        // BUG: do we not support indirect addressing?
+        // NOTE: leaving counting the register access out since we do not model it.
         if itype.rd() == Register::Zero {
             return;
         };
@@ -1354,6 +1432,11 @@ impl ModelBuilder {
             sort: NodeType::Word,
             imm: 0,
         });
+        self.one_word = self.add_node(Node::Const {
+            nid: 32,
+            sort: NodeType::Word,
+            imm: 1,
+        });
         self.division_flow = self.add_node(Node::Const {
             nid: 31,
             sort: NodeType::Word,
@@ -1406,6 +1489,10 @@ impl ModelBuilder {
         }
         assert_eq!(self.register_nodes.len(), NUMBER_OF_REGISTERS);
         assert_eq!(self.register_flow.len(), NUMBER_OF_REGISTERS - 1);
+
+        // NOTE: To reset the read_count when a register is written, we only need know whether a
+        // write happened or not. Since only one write per cycle is possible, we get by using a bit
+        // state. It would more appropiatley be called "write flag".
 
         self.new_comment("32 dynamic dispatch indicators as Boolean flags".to_string());
         for r in 1..NUMBER_OF_REGISTERS {
@@ -1467,7 +1554,7 @@ impl ModelBuilder {
             } else {
                 this.new_const(val)
             };
-            this.memory_node = this.new_write(address, value);
+            this.memory_node = this.new_write(address, value, false);
         }
         if self.model_values.is_64bit || self.model_values.run_32bit {
             dump_buffer
@@ -1493,6 +1580,28 @@ impl ModelBuilder {
             NodeType::Memory,
         );
         self.memory_flow = self.memory_node.clone();
+
+        self.new_comment("memory access counter".to_string());
+        // self.memory_counter_node = self.new_state(
+        //     None,
+        //     "memory-counter-dump".to_string(),
+        //     NodeType::Memory,
+        // );
+        self.memory_counter_node = self.new_state(
+            // Some(self.memory_counter_node.clone()),
+            Some(self.zero_word.clone()),
+            "memory-counter".to_string(),
+            NodeType::Memory,
+        );
+        self.memory_counter_flow = self.memory_counter_node.clone();
+
+        self.new_comment("memory access counter (max tracking)".to_string());
+        self.memory_counter_max_node = self.new_state(
+            Some(self.zero_word.clone()),
+            "memory-counter-max".to_string(),
+            NodeType::Word,
+        );
+        self.memory_counter_max_flow = self.memory_counter_max_node.clone();
 
         self.new_comment("data flow".to_string());
         self.pc = program.instruction_range.start;
@@ -1586,7 +1695,7 @@ impl ModelBuilder {
                 self.new_ite(read_bytes_eq_8, read_input8, read_ite_7, NodeType::Word);
         }
         let read_address = self.new_add(self.reg_node(Register::A1), self.reg_node(Register::A0));
-        let read_store = self.new_write(read_address, _last_node_8_or_4_byte);
+        let read_store = self.new_write(read_address, _last_node_8_or_4_byte, false);
         let read_more = self.new_ult(self.reg_node(Register::A0), self.reg_node(Register::A2));
         let read_more = self.new_and_bit(is_read.clone(), read_more);
         let read_not_done = self.new_and_bit(self.kernel_mode.clone(), read_more);
@@ -1706,6 +1815,19 @@ impl ModelBuilder {
             self.memory_flow.clone(),
             NodeType::Memory,
         );
+        self.new_comment("updating 64-bit virtual memory counter".to_string());
+        self.current_nid = 70000100;
+        self.new_next(
+            self.memory_counter_node.clone(),
+            self.memory_counter_flow.clone(),
+            NodeType::Memory,
+        );
+        self.current_nid = 70000200;
+        self.new_next(
+            self.memory_counter_max_node.clone(),
+            self.memory_counter_max_flow.clone(),
+            NodeType::Word,
+        );
 
         self.new_comment("checking syscall id".to_string());
         self.current_nid = 80000000;
@@ -1720,6 +1842,15 @@ impl ModelBuilder {
         let check_syscall_and4 = self.new_and_bit(check_syscall_and3, not_brk);
         let check_syscall = self.new_and_bit(self.ecall_flow.clone(), check_syscall_and4);
         self.new_bad(check_syscall, "invalid-syscall-id");
+
+        const READ_UNTIL_WRITE_LIMIT: u64 = 5;
+        self.new_comment(format!(
+            "checking if any memory location is read more than {} times before being overwritten.",
+            READ_UNTIL_WRITE_LIMIT
+        ));
+        let constant = self.new_const(READ_UNTIL_WRITE_LIMIT);
+        let cond = self.new_ugt(self.memory_counter_max_node.clone(), constant);
+        self.new_bad(cond, &format!("read-at-least-{}-times-until-write-limit-memory", READ_UNTIL_WRITE_LIMIT));
 
         self.new_comment("checking segmentation faults".to_string());
         let data_start = self.new_const(self.data_range.start);
