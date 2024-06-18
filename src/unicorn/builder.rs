@@ -212,10 +212,7 @@ impl ModelBuilder {
 
     // Update the memory counter with the value of node if it is greater than the current counter.
     fn memory_counter_max_update(&mut self, node: NodeRef) {
-        let should_update_node = self.new_ugt(
-            node.clone(),
-            self.memory_counter_max_node.clone(), 
-            );
+        let should_update_node = self.new_ugt(node.clone(), self.memory_counter_max_node.clone());
 
         let update_node = self.new_ite(
             should_update_node,
@@ -1850,7 +1847,13 @@ impl ModelBuilder {
         ));
         let constant = self.new_const(READ_UNTIL_WRITE_LIMIT);
         let cond = self.new_ugt(self.memory_counter_max_node.clone(), constant);
-        self.new_bad(cond, &format!("read-at-least-{}-times-until-write-limit-memory", READ_UNTIL_WRITE_LIMIT));
+        self.new_bad(
+            cond,
+            &format!(
+                "read-at-least-{}-times-until-write-limit-memory",
+                READ_UNTIL_WRITE_LIMIT
+            ),
+        );
 
         self.new_comment("checking segmentation faults".to_string());
         let data_start = self.new_const(self.data_range.start);
