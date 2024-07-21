@@ -90,6 +90,8 @@ impl CNFContainer for DimacsContainer {
     fn record_variable_name(&mut self, var: Self::Variable, name: String) {
         self.variable_names.push((var, name));
     }
+
+    fn record_input(&mut self, _var: Self::Variable, _gate: &GateRef) {}
 }
 
 impl DimacsWriter {

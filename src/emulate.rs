@@ -24,6 +24,23 @@ pub struct EmulatorState {
     running: bool,
     stdin: Stdin,
     stdout: Stdout,
+    std_inputs: Vec<usize>,
+}
+
+impl Clone for EmulatorState {
+    fn clone(&self) -> Self {
+        EmulatorState {
+            registers: self.registers.clone(),
+            memory: self.memory.clone(),
+            program_counter: self.program_counter,
+            program_break: self.program_break,
+            opened: Vec::new(),
+            running: self.running,
+            stdin: io::stdin(),
+            stdout: io::stdout(),
+            std_inputs: self.std_inputs.clone(),
+        }
+    }
 }
 
 impl EmulatorState {
@@ -37,6 +54,7 @@ impl EmulatorState {
             running: false,
             stdin: io::stdin(),
             stdout: io::stdout(),
+            std_inputs: Vec::new(),
         }
     }
 
@@ -49,6 +67,15 @@ impl EmulatorState {
         self.load_code_segment(program);
         self.load_data_segment(program);
         self.load_stack_segment(argv);
+    }
+    // The emulator reads from this vector instead of the Stdin when the
+    // read syscall (with file direction 0) is called in the emulated code.
+    // Will call the syscall again as soon the std_inputs is empty.
+    pub fn set_stdin(&mut self, inputs: Vec<usize>) {
+        self.std_inputs = inputs;
+    }
+    pub fn get_stdin(&self) -> &Vec<usize> {
+        &self.std_inputs
     }
 
     // Partially prepares the emulator with the code segment from the
@@ -924,26 +951,33 @@ fn syscall_read(state: &mut EmulatorState) {
     let buffer = state.get_reg(Register::A1);
     let size = state.get_reg(Register::A2);
 
-    // Check provided address is valid, iterate through the buffer word
-    // by word, and emulate `read` system call via `std::io::Read`.
-    assert!(buffer & WORD_SIZE_MASK == 0, "buffer pointer aligned");
-    let mut total_bytes = 0; // counts total bytes read
-    let mut tmp_buffer: Vec<u8> = vec![0; 8]; // scratch buffer
-    for adr in (buffer..buffer + size).step_by(riscu::WORD_SIZE) {
-        let bytes_to_read = min(size as usize - total_bytes, riscu::WORD_SIZE);
-        LittleEndian::write_u64(&mut tmp_buffer, state.get_mem(adr));
-        let bytes = &mut tmp_buffer[0..bytes_to_read]; // only for safety
-        let bytes_read = state.fd_read(fd).read(bytes).expect("read success");
-        state.set_mem(adr, LittleEndian::read_u64(&tmp_buffer));
-        total_bytes += bytes_read; // tally all bytes
-        if bytes_read != bytes_to_read {
-            break;
+    if fd == 0 && !state.std_inputs.is_empty() {
+        for adr in (buffer..buffer + size).step_by(riscu::WORD_SIZE) {
+            let byte = state.std_inputs.pop().unwrap();
+            state.set_mem(adr, byte as EmulatorValue);
         }
-    }
-    let result = total_bytes as u64;
+    } else {
+        // Check provided address is valid, iterate through the buffer word
+        // by word, and emulate `read` system call via `std::io::Read`.
+        assert!(buffer & WORD_SIZE_MASK == 0, "buffer pointer aligned");
+        let mut total_bytes = 0; // counts total bytes read
+        let mut tmp_buffer: Vec<u8> = vec![0; 8]; // scratch buffer
+        for adr in (buffer..buffer + size).step_by(riscu::WORD_SIZE) {
+            let bytes_to_read = min(size as usize - total_bytes, riscu::WORD_SIZE);
+            LittleEndian::write_u64(&mut tmp_buffer, state.get_mem(adr));
+            let bytes = &mut tmp_buffer[0..bytes_to_read]; // only for safety
+            let bytes_read = state.fd_read(fd).read(bytes).expect("read success");
+            state.set_mem(adr, LittleEndian::read_u64(&tmp_buffer));
+            total_bytes += bytes_read; // tally all bytes
+            if bytes_read != bytes_to_read {
+                break;
+            }
+        }
+        let result = total_bytes as u64;
 
-    state.set_reg(Register::A0, result);
-    debug!("read({},{:#x},{}) -> {}", fd, buffer, size, result);
+        state.set_reg(Register::A0, result);
+        debug!("read({},{:#x},{}) -> {}", fd, buffer, size, result);
+    }
 }
 
 fn syscall_write(state: &mut EmulatorState) {

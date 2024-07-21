@@ -78,6 +78,14 @@ pub fn args() -> Command {
                         .value_parser(value_parser_memory_size()),
                 )
                 .arg(
+                    Arg::new("stdin")
+                        .long("u8_stdin")
+                        .help("Provides the first bytes for the stdin and allows to emulate \
+                        the inputs via arguments")
+                        .value_name("BYTES")
+                        .num_args(1..)
+                )
+                .arg(
                     Arg::new("extras")
                         .help("Arguments passed to emulated program")
                         .value_name("ARGUMENTS")
@@ -265,6 +273,13 @@ pub fn args() -> Command {
                         .allow_hyphen_values(true)
                         .num_args(1..)
                 )
+                .arg(
+                    Arg::new("witness")
+                        .help("enables witness extraction")
+                        .short('w')
+                        .long("witness")
+                        .num_args(0)
+                )
         )
         .subcommand(
             Command::new("qubot")
@@ -444,6 +459,13 @@ where
 pub fn collect_arg_values(m: &ArgMatches, arg: &str) -> Vec<String> {
     match m.get_many::<String>(arg) {
         Some(iter) => iter.map(|it| it.into()).collect(),
+        None => vec![],
+    }
+}
+
+pub fn collect_arg_values_as_usize(m: &ArgMatches, arg: &str) -> Vec<usize> {
+    match m.get_many::<String>(arg) {
+        Some(iter) => iter.map(|it| it.parse::<usize>().unwrap()).collect(),
         None => vec![],
     }
 }

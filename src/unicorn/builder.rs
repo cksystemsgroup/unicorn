@@ -284,7 +284,7 @@ impl ModelBuilder {
                 nid: self.current_nid,
                 memory: self.memory_counter_node.clone(),
                 address: address.clone(),
-                value: next_value_node.clone(),
+                value: next_value_node,
             });
 
             self.memory_counter_flow = self.new_ite(

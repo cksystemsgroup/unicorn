@@ -103,6 +103,7 @@ impl DimacsParser {
             mapping: HashMap::new(),
             mapping_adders: HashMap::new(),
             constraint_based_dependencies: HashMap::new(),
+            witness: None,
         }
     }
 

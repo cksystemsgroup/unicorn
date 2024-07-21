@@ -22,11 +22,20 @@ pub struct GateModel {
     pub mapping: HashMap<HashableNodeRef, Vec<GateRef>>, // maps a btor2 operator to its resulting bitvector of gates
     pub mapping_adders: HashMap<HashableGateRef, GateRef>,
     pub constraint_based_dependencies: HashMap<HashableGateRef, (NodeRef, NodeRef)>, // used or division and remainder, and when qubot whats to test an input (InputEvaluator).
+    pub witness: Option<Witness>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct Witness {
+    pub name: String,
+    pub bad_state_gate: GateRef,
+    pub gate_assignment: HashMap<HashableGateRef, bool>,
+    pub input_bytes: Vec<usize>,
 }
 
 pub type GateRef = Rc<RefCell<Gate>>;
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Gate {
     ConstTrue,
     ConstFalse,
@@ -1482,6 +1491,7 @@ impl<'a> BitBlasting<'a> {
             mapping: self.mapping,
             mapping_adders: self.mapping_adders,
             constraint_based_dependencies: self.constraint_based_dependencies,
+            witness: None,
         }
     }
 }
