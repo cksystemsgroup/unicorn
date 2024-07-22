@@ -1,5 +1,15 @@
 # Bachelor Theses on Unicorn
 
+## Witness Extraction and Validation in Unicorn by Bernhard Haslauer, University of Salzburg, Austria, 2024 ([PDF](https://github.com/cksystemsgroup/unicorn/blob/main/theses/bachelor_thesis_haslauer.pdf), [Release](https://github.com/cksystemsgroup/unicorn/commit/ebbe6feca5a17438cb82da21712e08517d2b4db4))
+
+Unicorn, a toolchain for symbolic execution, was previously limited to evaluating only whether a given machine code could run into an error state without providing the corresponding inputs for such a case. 
+To determine these inputs, a series of steps with external tools have to be run through. 
+This Bachelor's thesis explores the possibility of incorporating this feature directly into Unicorn, with the objective of improving Unicorn's capabilities in generating and validating the inputs for these errors states. 
+With this proposed extension, Unicorn can extract the inputs and feed them into its built-in RISC-V emulator to validate if these inputs indeed induce the expected errors. 
+If the inputs are accurate, the emulator encounters the predicted errors. 
+In addition, this thesis provides an insight into the concepts used as well as details about the implementation.
+
+
 ## 32-bit Support for Bit-Precise Modeling of RISC-U Code by Patrick Weber, University of Salzburg, Austria, 2024 ([PDF](https://github.com/cksystemsgroup/unicorn/blob/main/theses/bachelor_thesis_weber.pdf),[Release](https://github.com/cksystemsgroup/unicorn/commit/1d77ed2dac08f1263d4f5f21a3b84a84047cacb8))
 
 This thesis presents the 32-bit support for Unicorn, a symbolic execution engine for bit-precise modeling of RISC-V code. The primary motivation for this development was to improve the engine’s performance and extend its capabilities

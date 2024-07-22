@@ -16,6 +16,7 @@ pub trait CNFContainer {
     fn new_var(&mut self) -> Self::Variable;
     fn add_clause(&mut self, literals: &[Self::Literal]);
     fn record_variable_name(&mut self, var: Self::Variable, name: String);
+    fn record_input(&mut self, var: Self::Variable, gate: &GateRef);
 }
 
 pub struct CNFBuilder<C: CNFContainer> {
@@ -67,6 +68,10 @@ impl<C: CNFContainer> CNFBuilder<C> {
         self.container.record_variable_name(var, name);
     }
 
+    fn record_input(&mut self, var: C::Variable, gate: &GateRef) {
+        self.container.record_input(var, gate);
+    }
+
     #[rustfmt::skip]
     fn process(&mut self, gate: &GateRef) -> C::Variable {
         match &*gate.borrow() {
@@ -83,6 +88,7 @@ impl<C: CNFContainer> CNFBuilder<C> {
             Gate::InputBit { name } => {
                 let gate_var = self.next_var();
                 self.record_variable_name(gate_var, name.clone());
+                self.record_input(gate_var, gate);
                 gate_var
             }
             Gate::Not { value } => {
