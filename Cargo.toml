@@ -36,12 +36,12 @@ riscu = "~0.5"
 log = "~0.4.19"
 regex = "~1.8.4"
 env_logger = "~0.10"
-bytesize = "~1.2"
+bytesize = "~2.0.0"
 anyhow = "~1.0.71"
-thiserror = "~1.0.40"
+thiserror = "~2.0.0"
 pyo3 = { version = "~0.19.0", features = ["auto-initialize"] }
 egui = { version = "0.22.0", optional = true }
-indexmap = { version = "1.9.3", optional = true }
+indexmap = { version = "2.0.0", optional = true }
 eframe = { version = "0.22.0", optional = true }
 rfd = { version = "0.11.4", optional = true }
 boolector-solver = { package = "boolector", version = "~0.4.3", features = ["vendor-lgl"], optional = true }
@@ -60,7 +60,7 @@ riscu = { git = 'https://github.com/cksystemsgroup/riscu' }
 [dev-dependencies]
 rayon = "~1.7"
 tempfile = "~3.6.0"
-which = "~4.4"
+which = "~8.0.0"
 log = "~0.4.19"
 env_logger = "~0.10"
 
